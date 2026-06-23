@@ -117,12 +117,12 @@
     text-transform: uppercase; color: var(--gold);
     display: flex; align-items: center; gap: 12px; margin: 0 0 18px;
   }
-  .eyebrow .num { color: var(--faint); }
+  .eyebrow .num { color: var(--gold); font-size: 13px; }
   .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--line); max-width: 120px; }
 
   h2.title {
-    font-size: clamp(28px, 4vw, 42px); line-height: 1.04; margin: 0 0 22px;
-    font-weight: 800; letter-spacing: -0.02em; text-transform: uppercase;
+    font-size: clamp(38px, 6.4vw, 68px); line-height: 1.0; margin: 4px 0 26px;
+    font-weight: 800; letter-spacing: -0.025em; text-transform: uppercase;
   }
   h3 {
     font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase;
@@ -438,8 +438,8 @@
     <!-- ===================== 01 MARKET ===================== -->
     <section class="section" id="market">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">01</span> Market Definition &amp; Sizing</p>
-        <h2 class="title">A real base, hiding behind a misleading headline</h2>
+        <p class="eyebrow"><span class="num">01</span></p>
+        <h2 class="title">Market Definition &amp; Sizing</h2>
         <p class="lede">"Soccer video analysis" is not one market — your product is a single cell in a grid: <strong>consumer/amateur, software-only, upload-and-get-team-stats, soccer-first.</strong> Size <em>that</em>, not the pro-dominated headline.</p>
 
         <h3>The carve-out trap</h3>
@@ -475,8 +475,8 @@
     <!-- ===================== 02 DEMAND ===================== -->
     <section class="section" id="demand">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">02</span> Demand — The Customer</p>
-        <h2 class="title">Three people, one purchase, different wants</h2>
+        <p class="eyebrow"><span class="num">02</span></p>
+        <h2 class="title">Demand — The Customer</h2>
         <p class="lede">In youth football the <strong>user, buyer and payer split</strong> — the kid uses it, the parent pays, the coach influences. Design for the wrong one and you misread the sale.</p>
 
         <div class="tablewrap">
@@ -529,8 +529,8 @@
     <!-- ===================== 03 SUPPLY ===================== -->
     <section class="section" id="supply">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">03</span> Supply — Competition &amp; Money</p>
-        <h2 class="title">Everyone automated controls the camera</h2>
+        <p class="eyebrow"><span class="num">03</span></p>
+        <h2 class="title">Supply — Competition &amp; Money</h2>
         <p class="lede">Only <strong>StepOut</strong> was independently verified here. Every other competitor and all pricing below is <span class="badge u">Unverified</span> — a structured hypothesis to confirm.</p>
 
         <div class="callout">
@@ -596,8 +596,8 @@
     <!-- ===================== 04 ENVIRONMENT ===================== -->
     <section class="section" id="environment">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">04</span> The Enabling Environment</p>
-        <h2 class="title">Commodity blocks, uncommodity problem</h2>
+        <p class="eyebrow"><span class="num">04</span></p>
+        <h2 class="title">The Enabling Environment</h2>
         <p class="lede">The building blocks (YOLO, DeepSORT, MediaPipe) are commodity — so the model is no moat. But generic CV doesn't trivially solve sports, so the work is real. <strong>The moat is proprietary in-domain data, not the architecture.</strong></p>
 
         <h3>Five Forces, tailored</h3>
@@ -634,8 +634,8 @@
     <!-- ===================== 05 EVIDENCE ===================== -->
     <section class="section" id="evidence">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">05</span> Evidence &amp; Methodology</p>
-        <h2 class="title">What survived the skeptics</h2>
+        <p class="eyebrow"><span class="num">05</span></p>
+        <h2 class="title">Evidence &amp; Methodology</h2>
         <p class="lede">Every claim ran a 3-vote adversarial panel needing 2/3 to kill. <strong>Confirmed ≠ true</strong> — it means it survived. What <em>failed</em> is itself a finding.</p>
 
         <div class="statgrid">
@@ -682,8 +682,8 @@
     <!-- ===================== 06 UNIT ECONOMICS ===================== -->
     <section class="section" id="economics">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">06</span> Unit Economics Deep-Dive <span class="deepdive-tag">Follow-up</span></p>
-        <h2 class="title">Compute is cheap. LTV is the wall.</h2>
+        <p class="eyebrow"><span class="num">06</span> <span class="deepdive-tag">Follow-up</span></p>
+        <h2 class="title">Unit Economics Deep-Dive</h2>
         <p class="lede">The marginal cost to process a match is small enough that it <strong>doesn't kill the business</strong>. The binding constraints are accuracy on phone footage, thin per-payer LTV, and seasonal churn.</p>
 
         <h3>Cost to process one match — automated, no humans</h3>
@@ -729,8 +729,8 @@
     <!-- ===================== 07 TECHNOLOGY ===================== -->
     <section class="section" id="technology">
       <div class="wrap">
-        <p class="eyebrow"><span class="num">07</span> Technology Maturity Deep-Dive <span class="deepdive-tag">Follow-up</span></p>
-        <h2 class="title">The product hinges on the join nobody has solved</h2>
+        <p class="eyebrow"><span class="num">07</span> <span class="deepdive-tag">Follow-up</span></p>
+        <h2 class="title">Technology Maturity Deep-Dive</h2>
         <p class="lede">Detecting <em>what</em> happened from raw video is surprisingly mature. Attributing it to a <em>named individual</em> from one ground-level camera is the unsolved core — and every benchmark below is a broadcast ceiling; amateur phone footage is worse on every axis.</p>
 
         <div class="cols2">
@@ -758,6 +758,36 @@
           <div class="cmp s-bad"><div class="nm">End-to-end reconstruction</div><div class="st">Research-grade</div><div class="ev">GS-HOTA ~64; introduced 2024</div></div>
         </div>
 
+        <h3>Attribution isn't all-or-nothing — it splits by event class</h3>
+        <p>"Who did it" is the blocker — but it isn't monolithic. Roughly <strong>half the canonical SoccerNet event classes</strong> (17 action-spotting + 12 ball-action) can be attributed with a simple <em>closest-player / ball-possessor at the contact frame</em> heuristic — <strong>no learned attribution model</strong>. SoccerNet anchors ball events at the frame of contact, so proximity lands on the right player for clean, uncongested touches. That turns the blocker from a binary into a <em>gradient</em>.</p>
+
+        <div class="heat">
+          <div class="cmp s-ok"><div class="nm">Cleanly attributable · ~11</div><div class="st">Heuristic works</div><div class="ev">All restarts (penalty, kick-off, throw-in, corner, free-kicks) + clean touches: pass, drive, cross, high-pass</div></div>
+          <div class="cmp s-warn"><div class="nm">Heuristic but error-prone · ~8</div><div class="st">Double-digit error</div><div class="ev">Box &amp; aerial events: shots, goals, headers, clearances, last-touch — occlusion-driven</div></div>
+          <div class="cmp"><div class="nm">Not a per-player event · ~3</div><div class="st" style="color:var(--faint)">No geometry helps</div><div class="ev">Substitution (admin), offside (team rule), ball-out (boundary)</div></div>
+          <div class="cmp s-bad"><div class="nm">Needs learned reasoning · ~5</div><div class="st">Multi-actor</div><div class="ev">Cards, fouls, tackles, blocks — proximity finds a player, not the role</div></div>
+        </div>
+
+        <h3>Your five headline stats split across the line</h3>
+        <div class="tablewrap">
+          <table class="tight">
+            <thead><tr><th>Headline stat</th><th>Heuristic to attribute</th><th>Reliability</th></tr></thead>
+            <tbody>
+              <tr class="target-row"><td><strong>Passes</strong></td><td>Closest player at contact = passer</td><td><span style="color:var(--ok);font-weight:700">High</span> · <span class="muted">&lt;6% error</span></td></tr>
+              <tr class="target-row"><td><strong>Missed passes</strong></td><td>Next possession to the <em>other</em> team (team-color ID) — intent not needed</td><td><span style="color:var(--ok);font-weight:700">High</span></td></tr>
+              <tr><td><strong>Shots / on target</strong></td><td>Possessor at contact + goal-line trajectory</td><td><span style="color:var(--warn);font-weight:700">Medium</span> · <span class="muted">~15% in crowded box</span></td></tr>
+              <tr><td><strong>Interceptions</strong></td><td>Possession flips with no tackle</td><td><span style="color:var(--bad);font-weight:700">Low</span> · <span class="muted">multi-actor ambiguity</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">Two of the five — passes &amp; missed passes, the highest-<em>volume</em> events — are cleanly heuristic-attributable. The marquee stat (shots) carries real error, and interceptions need learned reasoning.</p>
+
+        <div class="callout ok">
+          <p class="ttl">The most actionable finding in the deep-dive</p>
+          <p>This turns "attribution is unsolved" into a shippable plan: a <strong>heuristic</strong> attribution layer can deliver a <strong>passing-centric per-player sheet now</strong>, with <strong>human QA confined to the low-volume box &amp; duel events</strong> (shots, goals, tackles) — cheap precisely because they're rare. The concrete bridge between "the CV isn't solved" and "something shippable," landing on the same forgiving wedge the verdict points to.</p>
+        </div>
+        <p class="chart-cap">SoccerNet class lists &amp; StatsBomb spec <span class="badge v">Sourced</span> · per-class bucketing is reasoning on cited possession literature · 15% / &lt;6% anchor from a tracking-data study (treat as error <em>floor</em>)</p>
+
         <div class="callout">
           <p class="ttl">Verdict — years, not months</p>
           <p>A reliable consumer product doing accurate per-player attribution from <strong>one amateur phone</strong> is plausibly a <strong>multi-year (~3–5+ yr) effort</strong>, gated by re-ID, jersey legibility and end-to-end attribution under amateur capture. What's achievable <em>now</em>: team-level analytics, heatmaps, and <strong>event spotting + highlight clips</strong> — exactly the forgiving wedge the verdict points to.</p>
@@ -768,6 +798,8 @@
           <span class="q">●</span> SoccerNet Game State Reconstruction (CVPR 2024) · arXiv:2404.11335<br />
           <span class="q">●</span> SoccerNet-Tracking (CVPR 2022) · SportsMOT (CVPR 2023)<br />
           <span class="q">●</span> T-DEED event spotting (CVPR 2024) · Jersey-number recognition (Koshkina, CVPRW 2024)<br />
+          <span class="q">●</span> SoccerNet Action Spotting (17-class) &amp; Ball Action Spotting (12-class) taxonomies · StatsBomb Open Data spec<br />
+          <span class="q">●</span> Automatic event detection in football using tracking data (arXiv:2202.00804) · possession heuristics (PLOS One)<br />
           <span class="q">●</span> FIFA Big Count 2006 · Football Australia 2024 Participation Report<br />
           <span class="q">●</span> The FA Safeguarding 8.3 · RunPod / AWS GPU pricing · Hudl / Trace / Veo pricing
         </p>
