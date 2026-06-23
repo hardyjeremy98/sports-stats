@@ -63,9 +63,22 @@ doom-y, when you cite this:
 
 **Automatic full-team event *attribution* from a single ground-level camera** — i.e. not just "a shot
 happened" but "*player #7 took it, assisted by #10, intercepted by #4*" — is **the hard, not-yet-reliable
-problem.** It requires reliable MOT + re-ID + identity, all of which the verified literature says are
-unsolved under exactly the conditions (occlusion, fast motion, low/variable resolution, invisible
-numbers, single low viewpoint) that amateur phone footage maximises.
+problem.** But the follow-up event-class analysis ([`07`](07-technology-maturity-deep-dive.md)) shows
+attribution is **a gradient, not a binary** — so state it precisely:
+
+- **The "what happened + which side" layer is reachable today.** Event *spotting* runs end-to-end from
+  raw video (no tracking input), and ~half the canonical event classes — restarts plus clean on-ball
+  touches (passes, drives, crosses) — can be attributed with a **simple closest-player / possession
+  heuristic, with no learned attribution model and without a clean continuous track** (event-anchored
+  attribution only needs *who's on the ball at the event moment*). `[cited]`
+- **The genuinely-unsolved residue is narrower than "attribution":** (a) putting a **persistent name** on
+  the stat — the **jersey-OCR + re-ID identity** problem — and (b) the **crowded-box / aerial /
+  multi-actor minority** of events (shots, headers, tackles, fouls), where proximity finds *a* player but
+  not the *role*. Both fail hardest under exactly the conditions (occlusion, fast motion, low/variable
+  resolution, invisible numbers, single low viewpoint) that amateur phone footage maximises.
+
+In short: the blocker is **identity + the contested events**, not event detection or team-level
+attribution — which is why a *passing-centric* product is reachable while the marquee stats are not.
 
 ---
 
@@ -77,6 +90,10 @@ numbers, single low viewpoint) that amateur phone footage maximises.
   domain adaptation. `[VERIFIED 3-0]` So the work is real, and the **moat is domain adaptation**, which
   in turn means: **proprietary, labelled, in-domain (grassroots-phone-footage) data is the defensible
   asset** — not the architecture.
+- **The heuristic finding sharpens this, doesn't soften it.** If ~half the stat sheet falls out of
+  *commodity* detection + spotting + a geometric possession rule (§4.2), then the model is even less of a
+  moat there — the defensible work concentrates tightly on **identity-resolution on poor footage, the
+  human-QA workflow for contested events, proprietary in-domain data, and distribution.** `[cited]`
 - **Therefore defensibility must come from one of:** proprietary data (most realistic here),
   distribution (B2B2C lock-in, §3.5), hardware (rejecting your software-only premise), or brand.
 
@@ -86,7 +103,7 @@ numbers, single low viewpoint) that amateur phone footage maximises.
 
 | Force | Level | Why (evidence-anchored where possible) |
 |-------|-------|----------------------------------------|
-| **Threat of new entrants** | **High** | Building blocks are commodity/open-source `[VERIFIED]`. A working prototype is cheap; the *accuracy* is the wall, not the entry. |
+| **Threat of new entrants** | **High** | Building blocks are commodity/open-source `[VERIFIED]`. A working prototype is cheap; the *accuracy* is the wall, not the entry — and that wall is now **lower for a passing-centric MVP** (commodity blocks + a possession heuristic, no proprietary model), still **high for the marquee stats** (shots, interceptions). `[cited]` |
 | **Buyer power** | **Split** | Low for fragmented consumers; **high** for clubs/federations (they can switch / build / churn off-season). |
 | **Supplier power** | Low–Medium | Cloud compute + camera components; commoditized, but per-match GPU cost is a real COGS line. |
 | **Substitutes** | **High** | Manual tagging, spreadsheets, human-analyst services, **and simply watching the game / the coach's eyes** — free and "good enough" for many. |
