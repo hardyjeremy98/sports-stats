@@ -45,16 +45,18 @@ systems) and the *technical* verdict is: **the white-space is real precisely bec
 unit economics do not yet robustly support it at a consumer price.** This is a hard-tech bet disguised as
 a SaaS bet. **But the *commercial* white-space is narrower than that makes it sound:** a focused
 competitive scan (§3, 2026-06-23) found **mpact.ai already marketing automated per-player stats from "any
-phone" at a consumer price** — so the cell is **occupied by claim**, and the real question is execution
-(a *working* product) and traction, not novelty.
+phone" at a consumer price** — but a four-angle deep-dive found it ships only **team stats + highlight-clip
+routing**, with genuine *per-player* stats on a **roadmap/manual, jersey-OCR-gated** basis. So the cell is
+**claimed, not filled** — the real question is execution (a *working* product) and traction, not novelty.
 
 ## Coverage warning
 
 The research returned **strong, primary-sourced** evidence on (a) bottom-up demand counts,
 (b) the technology-capability and minors'-privacy questions, and — after a **second pass (2026-06-23)** —
 (c) **competitor capability, pricing, and the commercial white-space** (§3). That second pass found the
-target cell is **no longer vacant**: **mpact.ai** already markets automated per-player stats from "any
-phone" at a consumer price, while every *automated* incumbent (Trace, Veo, Spiideo, zone14, Pixellot,
+target cell is **claimed but not filled**: **mpact.ai** markets automated per-player stats from "any
+phone" but (verified four ways) ships only team stats + clip-routing, with per-player on a roadmap/manual
+basis; meanwhile every *automated* incumbent (Trace, Veo, Spiideo, zone14, Pixellot,
 XbotGo) is **hardware-gated** and **Hudl Assist** is **human-in-the-loop + structured capture**.
 It still returned **thin or no verified** evidence on: **top-down dollar TAM/CAGR** and the
 **funding/M&A landscape** (whether pro incumbents like Stats Perform are moving down-market is

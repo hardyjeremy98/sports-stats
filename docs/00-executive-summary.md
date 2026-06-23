@@ -21,11 +21,13 @@
 > price) is real but **narrower on two fronts than the brief assumed.** *Technically*, it's a gap that
 > exists **because the CV and unit economics don't yet robustly support it** — a **hard-tech / applied-CV
 > bet**, not a pure-SaaS bet. *Commercially*, a focused competitive scan (§3, updated 2026-06-23) found
-> the position is **no longer vacant: at least one entrant (mpact.ai) already markets the exact pitch —
-> automated per-player stats from "any phone," consumer-priced.** So it is investable, but only if you can
+> the position is **claimed but not filled: one entrant (mpact.ai) already markets the exact pitch —
+> automated per-player stats from "any phone" — but a four-angle deep-dive found it ships only team stats
+> + highlight-clip routing, with genuine per-player stats on a roadmap/manual, jersey-OCR-gated basis.** So
+> it is investable, but only if you can
 > (a) constrain the capture problem, (b) build a domain-adaptation data moat, (c) be honest that "any
 > phone footage" is the hardest possible starting point, **and (d) beat mpact.ai/peers to a *working*
-> product — you would not be first to *claim* the cell.**
+> product — you would not be first to *claim* the cell, but no one has yet *delivered* it.**
 
 ---
 
@@ -53,7 +55,7 @@ against a consumer price ceiling and seasonal churn."**
 | 3 | **CV commoditization vs. moat** — YOLO/DeepSORT/MediaPipe are commodity, so a model alone is no moat; but sports re-ID needs domain adaptation, so it's also not free | **High** | `[VERIFIED]` surveillance re-ID degrades on sports without modification |
 | 4 | **Unit economics / seasonal churn** — per-match compute cost + off-season cancellation vs. consumer WTP | **High** | `[UNVERIFIED]` — *no CAC/LTV/churn data confirmed; must be modelled* |
 | 5 | **Minors' privacy regulation** — consent + do-not-film systems complicate frictionless upload | **Medium** | `[VERIFIED]` FA consent + wristband obligations (UK-specific) |
-| 6 | **A competitor already claims the cell** — mpact.ai markets automated per-player stats from "any phone" at consumer price; funded incumbents (StepOut, $1.5M) could also extend down-market | **Medium→High** | `[VERIFIED]` mpact.ai occupies the target cell *by claim* (§3, 2026-06-23); StepOut funded & broadly positioned but `[REFUTED]` it accepts phone footage *today* |
+| 6 | **A competitor already *claims* the cell** — mpact.ai markets automated per-player stats from "any phone"; funded incumbents (StepOut, $1.5M) could also extend down-market | **Medium** | `[VERIFIED]` mpact.ai *markets* the cell but a 4-angle deep-dive found it ships **team stats + clip-routing**, with per-player on a **roadmap/manual, jersey-OCR-gated** basis (§3.1.C) — claimed, not delivered; StepOut funded but `[REFUTED]` it accepts phone footage *today* |
 
 ---
 
@@ -87,8 +89,10 @@ These were **not** answered by the research and are the difference between "inte
    the binding constraints are per-payer LTV and seasonal churn, not compute.)*
 2. ~~Competitor capability on phone footage~~ **✅ now verified (§3, 2026-06-23):** all *automated*
    incumbents (Trace/Veo/Spiideo/zone14/Pixellot/XbotGo) are **hardware-gated**; **Hudl Assist** is
-   **human-in-the-loop + structured capture**; **mpact.ai** claims automated any-phone stats.
-   **New unknown:** does **mpact.ai have real traction/accuracy**, or is the cell occupied only on paper?
+   **human-in-the-loop + structured capture**; **mpact.ai** *markets* automated any-phone stats but
+   (verified 2026-06-23) ships **team stats + clip-routing** — per-player is roadmap/manual, jersey-OCR-gated.
+   **Residual unknown:** whether mpact ever **delivers** genuine per-player stats on casual footage, and its
+   real traction — i.e. the cell is occupied **on paper only** so far.
 3. **Current SOTA accuracy** for end-to-end per-player event attribution from one amateur camera.
 4. **Binding compliance** beyond UK FA: US COPPA, EU/UK GDPR biometric rules, Australian Privacy Act,
    and image/likeness + data-ownership defaults under a self-serve upload model.

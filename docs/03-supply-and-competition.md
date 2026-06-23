@@ -68,18 +68,32 @@ with proprietary or managed hardware**. None accepts arbitrary single-phone foot
   - **~24h turnaround, staffed 24/7.** This is a **services** business wearing a SaaS skin — which is why
     it is priced like one (§3.3) and why an *automated* entrant could undercut it structurally.
 
-### C. The emerging phone-footage entrants — the cell is being entered `[VERIFIED 3-0 / directional]`
-- **★ mpact.ai (Impact Soccer)** `[VERIFIED 3-0, marketing-claim basis]` — **occupies the exact target
-  cell.** Homepage: *"100% Automated… Your Entire Match Analyzed in Hours,"* *"the only solution that
-  provides 100% automated both on- and off-the-ball stats for every match,"* and *"Any Camera, Any
-  Time… **Even Your Phone!**"* (compatible with Apple, Android, YouTube). The FAQ confirms **no
-  proprietary hardware** ("phone-on-tripod gets the same results"), with a **free-match** consumer offer.
-  A 2025 press release corroborates automatic ball/player tracking "without any human intervention" in
-  4–6 hours.
-  - **⚠️ Critical caveat:** these are **unverified vendor marketing claims** with **no independent
-    accuracy benchmark.** The white-space question brackets *feasibility*, so this establishes
-    **commercial occupancy by claim, not a demonstrated working product or market traction.** But its mere
-    existence **refutes the "verified empty" thesis** — you would not be first to *pitch* this.
+### C. The emerging phone-footage entrants — the cell is *claimed*, not filled `[VERIFIED — 4-angle deep-dive 2026-06-23]`
+- **★ mpact.ai (Impact Soccer)** — **markets the exact target pitch, but a four-angle verification
+  (own site · press · third-party · adversarial) found the per-player-stats claim is not substantiated;
+  its own fine print walks it back.** Homepage markets *"100% automated… on- and off-the-ball stats,"*
+  *"Any Camera… **Even Your Phone!**"*, no hardware, free-match offer. **But:**
+  - **What actually ships is *team-level*.** All **15 enumerated metrics are team stats** (goals, possession,
+    total shots, passes, etc.). The "individual" deliverable is a **player card that stores routed
+    *highlight clips***, not a per-player numeric stat line. FAQ: *"route the match highlights **and team
+    statistics** to certain players… **when it can read their jersey number clearly**."* `[VERIFIED 3-0]`
+  - **Genuine per-player numeric stats were a *roadmap* item, not shipped.** Both Oct & Nov 2025 press
+    releases: *"In the coming weeks, Impact Soccer **will add** individual player statistics."* (All press
+    is **self-issued EIN Presswire** syndicated to TV affiliates — vendor copy, not journalism.) `[VERIFIED 3-0]`
+  - **The fine print concedes the hard problem isn't solved.** Per-player needs **1080p/4K, close enough
+    to OCR the jersey** (contradicting "Even Your Phone!"), and when it can't read the number,
+    *"**you'll have to add it to your player's statistics**"* — a **manual fallback.** Its flagship
+    *"Impact IQ™"* metric scores **zones/space, not individuals** — a way to sell "AI analytics" while
+    sidestepping attribution. `[VERIFIED 3-0]` This is the **exact §4 wall**, conceded in their own FAQ.
+  - **Early-stage, unsubstantiated traction.** Founder **Josh Konowe**; **founded 2024, 2–10 employees,
+    no disclosed funding** ("AWS invested" = cloud credits); inconsistent user claims (500 vs 2,300 vs
+    2,500); **zero independent demos/reviews** (the only "review" site is a discredited fake-review
+    aggregator). `[VERIFIED 3-0]`
+  - **⚠️ Net read:** mpact **does the easy half** (team stats from phone footage) and **punts on the hard
+    half** (per-player attribution → jersey-OCR-when-possible + manual fallback + roadmap). So the target
+    cell is **claimed in marketing, not filled in substance.** It **refutes "nobody is pitching this"** —
+    but, under the "assume the tech works" premise, the *genuine* automated per-player-stats-from-casual-
+    footage position **remains open.** mpact is evidence of competitive *intent*, not of a solved product.
 - **playvista.ai** and others surfaced as additional phone-footage AI entrants (directional, not
   independently verified); an SCMP report describes AI using **phone-recorded video** to surface football
   talent. The signal: **multiple parties are now aiming at the phone-footage lane.**
@@ -99,29 +113,42 @@ with proprietary or managed hardware**. None accepts arbitrary single-phone foot
 
 ---
 
-## 3.2 Positioning map `[NOW VERIFIED]`
+## 3.2 Positioning maps `[NOW VERIFIED]`
 
-Two axes separate winners from losers here: **how automated** the analysis is (vertical) and **how
-constrained the capture** must be (horizontal). **Left → right = easier for the customer to supply
-footage; top → bottom = more human labour in the loop.**
+No single 2×2 captures this market: the same competitor can share your cell on one pair of axes and be a
+completely different business on another. mpact.ai is the proof — it shares the automation×capture cell
+(Map A) with the target, yet diverges sharply once you add **price, segment, output-depth and
+footage-quality**. So the whitespace is mapped **five ways** below; each plots the same competitor set
+against a different pair of axes. Read them together.
+
+### Map A — Automation × Capture *(how they make the CV work)*
+
+Two axes: **how automated** the analysis is (vertical) and **how constrained the capture** must be
+(horizontal). **Left → right = easier for the customer to supply footage; top → bottom = more human labour
+in the loop.**
 
 | **Automation ↓ · Capture →** | **Needs their hardware**<br/>(own camera / fixed rig / managed multi-phone) | **Software-only, but needs<br/>broadcast-/structured-grade footage** | **Software-only, accepts<br/>any single-phone footage** |
 |---|---|---|---|
-| **Fully automated**<br/>(no human tagging) | Trace · Veo Analytics/Player Spotlight · Spiideo AutoData · zone14 · Pixellot · XbotGo · **Veo Go** (2-phone rig) `[VERIFIED 3-0]` | **StepOut** `[VERIFIED]`<br/>*(needs broadcast-grade footage)* | **★ mpact.ai — OCCUPIED (by claim)** ⁱ<br/>*+ emerging: playvista.ai, others* |
+| **Fully automated**<br/>(no human tagging) | Trace · Veo Analytics/Player Spotlight · Spiideo AutoData · zone14 · Pixellot · XbotGo · **Veo Go** (2-phone rig) `[VERIFIED 3-0]` | **StepOut** `[VERIFIED]`<br/>*(needs broadcast-grade footage)* | **★ mpact.ai — CLAIMED, not filled** ⁱ<br/>*(team stats yes; per-player = roadmap/manual)*<br/>*+ emerging: playvista.ai, others* |
 | **Human-in-the-loop**<br/>(manual / paid tagging) | — | **Hudl Assist** `[VERIFIED 3-0]`<br/>*(prescribed full-field recording workflow)* | manual tagging · spreadsheets · the coach's eye |
 
-<sub>ⁱ **`[VERIFIED 3-0]`** that mpact.ai *markets and sells* an automated, any-phone, consumer-priced
-product — **commercial occupancy.** **Not** verified: that it works, or has traction. Accuracy is
-bracketed by the white-space question; see §4/§7 for the feasibility gate.</sub>
+<sub>ⁱ **`[VERIFIED — 4-angle, 2026-06-23]`** that mpact.ai *markets* an automated, any-phone, consumer-priced
+product — but verification found it **ships team-level stats + highlight-clip routing**, while *genuine
+per-player numeric stats* are a **roadmap item gated on 1080p/4K + readable jersey, with a manual
+fallback** (its own FAQ). So the cell is **claimed, not substantively filled.** See §3.1.C and §5.F.2.</sub>
 
 **What changed and why it matters:**
 
-- **The top-right cell is occupied — by claim, by an early entrant — not verified-empty.** The first pass
-  marked it `[VERIFIED] empty` on the strength of §4's *technology* argument. That was a **category
-  error**: a tech limitation is not a commercial scan. A direct commercial scan finds **mpact.ai sitting
-  in the exact cell**, and others (playvista.ai) aiming at it. The honest statement is: *no **entrenched,
-  proven** incumbent owns this cell, but it is **actively being entered**, so first-mover advantage is
-  **not** available for the taking.*
+- **The top-right cell is *claimed* but not *filled* — and that distinction is the whole point.** The
+  first pass marked it `[VERIFIED] empty` on the strength of §4's *technology* argument — a **category
+  error** (a tech limitation is not a commercial scan). A direct commercial scan finds **mpact.ai
+  marketing the exact pitch**, and others (playvista.ai) aiming at it — so "nobody is pitching this" is
+  **false.** But a four-angle deep-dive into mpact found it **does the easy half (team stats) and punts on
+  per-player attribution** (jersey-OCR-when-possible + manual fallback + roadmap). The honest statement:
+  *no incumbent — entrenched **or** early — has demonstrably **delivered** automated genuine per-player
+  stats from casual phone footage; the position is **contested in marketing but open in substance.** You
+  would not be first to **claim** it, but (given the §4 feasibility gate) you could still be first to
+  **deliver** it.*
 - **Hudl Assist moved.** The first pass put it in the **bottom-right** ("accepts any uploaded footage").
   Verification shows it belongs in the **bottom-*middle*** — it requires a **prescribed full-field
   recording workflow**, not arbitrary phone footage. So even the human-in-the-loop incumbent **gates its
@@ -131,6 +158,68 @@ bracketed by the white-space question; see §4/§7 for the feasibility gate.</su
   That remains the single most important structural pattern: **controlling capture is how they make the CV
   work.** "Upload any footage" is therefore a position you must **earn with hard tech** (§4) — and now
   also one you must **win against mpact.ai**, not merely invent.
+
+### Map B — Price ceiling × Customer seriousness *(the post-mpact whitespace)*
+
+Map A says mpact shares your cell; this map says it **doesn't share your customer.** Plotting price against
+seriousness shows mpact entered from the **semi-pro** side at a **semi-pro price** (~½ a tank of gas/match,
+≈$25–40), leaving the **casual/youth × true-consumer-price** corner open.
+
+| **Price ↓ · Seriousness →** | **Casual / rec** | **Youth / academy** | **Semi-pro** | **Pro / elite** |
+|---|---|---|---|---|
+| **Enterprise / custom** | — | — | — | Stats Perform/Opta · StatsBomb · SkillCorner · Spiideo · StepOut |
+| **$700+/season** | — | — | Hudl Assist · Hudl video | Hudl Assist |
+| **~$25–40/match · ~$180–300/yr** | — | Trace† · Veo Go† · XbotGo† | **mpact.ai** | — |
+| **<$15/match (consumer)** | **★ TARGET — EMPTY** | **★ TARGET — EMPTY** | — | — |
+| **Free** | DIY · coach's eye · spreadsheets | — | — | — |
+
+<sub>Reveals: the automated-per-player position at a **true consumer price (<$15/match) for casual→youth**
+is held only by **free DIY**. mpact priced itself one tier up, into semi-pro. †Bundles/needs hardware.</sub>
+
+### Map C — Output depth × Footage quality required *(the safe wedge vs. the trap)*
+
+| **Output ↓ · Footage needed →** | **Needs 4K / legible numbers** | **Elevated / structured** | **Any casual phone** |
+|---|---|---|---|
+| **Per-player + off-ball** | mpact (per-player layer)ⁱ · StepOut (broadcast) | Hudl Assist (human) | **★ TARGET / TRAP — EMPTY** |
+| **Per-player numeric** | mpact (gated)ⁱ | Veo · Trace (own camera) | **★ TARGET / TRAP — EMPTY** |
+| **Team-level stats** | — | — | mpact (what it *ships*) · **reachable** |
+| **Highlights / clips only** | — | — | **★ SAFE WEDGE** — XbotGo · Veo · Trace clips |
+
+<sub>ⁱ mpact's *per-player* output is gated on **1080p/4K + readable jersey numbers** (its FAQ) — so even
+the one entrant in the cell can't deliver per-player depth on *casual* footage. Reveals: **rich output ×
+casual footage is empty** (the §4 trap), while **highlights/team-level × any footage is reachable** — the
+defensible on-ramp.</sub>
+
+### Map D — Distribution / buyer × Segment *(GTM whitespace)*
+
+| **Channel ↓ · Segment →** | **Casual** | **Youth** | **Semi-pro** | **Pro** |
+|---|---|---|---|---|
+| **D2C consumer** | *(thin)* | XbotGo · Veo Go · Trace | mpact.ai · Trace | — |
+| **B2B2C club / league** | *(thin)* | Veo · Trace · Hudl · zone14 · Pixellot | Veo · Hudl | — |
+| **B2B pro / data feed** | — | — | — | Spiideo · Stats Perform · Opta · SkillCorner · StepOut |
+
+<sub>Reveals: **casual** is served almost entirely by **D2C + hardware**; reaching casual via the
+CAC-efficient **B2B2C-club** channel with automated per-player is **thin** — clubs skew youth/serious.
+The cleanest GTM (§3.5) is therefore also a partial whitespace.</sub>
+
+### Map E — Output value × Capture effort *("worth the hassle")*
+
+| **Value ↓ · Capture effort →** | **Low (just upload a phone clip)** | **Medium** | **High (buy / rig a camera)** |
+|---|---|---|---|
+| **High output** | mpact (claims; needs good footage) | — | Veo · Trace · Spiideo · Pixellot |
+| **Medium output** | **★ TARGET** | XbotGo (auto-follow rig) | — |
+| **Low output** | DIY · watch the game | — | — |
+
+<sub>Reveals the value proposition in one frame: **every high-output incumbent demands high capture
+effort** (their own camera). The bet is the under-served **low-effort × decent-output** quadrant — the
+exact promise "upload a phone clip, get useful stats" makes.</sub>
+
+> **Reading the five together:** mpact occupies your cell on **Map A only**. On **B** it's a pricier
+> semi-pro product; on **C** its per-player depth needs good footage (yours wouldn't); on **D** it's D2C,
+> not B2B2C; on **E** it's high-output-but-footage-dependent. The genuine whitespace, stated precisely:
+> **automated, decent per-player/team output, from *casual low-res* phone footage, at a *true consumer
+> price*, reachable via *B2B2C clubs*** — empty on every map. That precision is the point of having five
+> maps instead of one.
 
 ---
 
@@ -156,8 +245,9 @@ lane.**
   not per team** — a materially different unit than the per-team SaaS above.
 - **Human-tagging ceiling:** Hudl Assist **$700–$1,600/team/season** is what the market pays when a
   **human** does the work — leaving large headroom for an automated product priced well below it.
-- **No incumbent monetises pure software-only any-phone automated stats at a consumer price** — except the
-  unproven mpact.ai. That is the open commercial lane (with the §4 feasibility gate attached).
+- **No incumbent monetises pure software-only any-phone automated *per-player* stats at a consumer price** —
+  mpact.ai *markets* it but (per §3.1.C) ships only team stats + clip-routing, with per-player on a
+  roadmap/manual basis. That lane is **claimed but commercially open** (with the §4 feasibility gate attached).
 
 ---
 
@@ -190,10 +280,14 @@ Channels that work in this category (the virality loop is the standout):
 ---
 
 ### Section 3 takeaways
-- 🟥 **The headline correction: the target cell is occupied by claim, not verified-empty.** **mpact.ai**
-  already markets automated + any-phone + consumer-priced per-player stats; **playvista.ai** and others
-  are aiming at the same lane. On *commercial* grounds the position is **thinly contested, not vacant** —
-  you would not be first to pitch it. `[VERIFIED 3-0, marketing-claim basis]`
+- 🟥 **The headline correction: the target cell is *claimed*, not *filled*.** **mpact.ai** markets
+  automated + any-phone + consumer-priced per-player stats (and **playvista.ai** and others aim at the same
+  lane) — so "nobody is pitching this" is **false**. But a four-angle deep-dive (own site · press ·
+  third-party · adversarial) found mpact **ships team stats + highlight-clip routing**, while *genuine
+  per-player numeric stats* are a **roadmap/manual, jersey-OCR-gated** feature its own FAQ walks back. So
+  on *commercial* grounds the position is **contested in marketing but open in substance**: you would not
+  be first to **claim** it, yet no one has demonstrably **delivered** it on casual footage.
+  `[VERIFIED — 4-angle, 2026-06-23]`
 - 🧭 **The dominant structural pattern holds and is now verified:** **every automated incumbent controls
   capture via hardware** (Trace, Veo, Spiideo, Pixellot, XbotGo) or a managed multi-phone rig (Veo Go).
   Going software-only on "any phone footage" rejects the very lever that makes their CV work.

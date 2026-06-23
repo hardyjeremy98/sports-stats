@@ -176,13 +176,29 @@ whether their AI is accurate. Feeds [§3](03-supply-and-competition.md).
 
 | # | Finding (abbreviated) | Vote | Source |
 |---|------------------------|------|--------|
-| C8 | **mpact.ai occupies the exact target cell (by claim):** markets "100% automated" on- and off-ball per-player/team stats from "Any Camera… Even Your Phone!", **no proprietary hardware**, free-match consumer offer. *Caveat: unverified vendor marketing; commercial occupancy by claim, not demonstrated product/traction.* | 3-0 | mpact.ai (+ 2025 press release) |
+| C8 | **mpact.ai *markets* the exact target cell:** "100% automated" on/off-ball stats from "Any Camera… Even Your Phone!", **no proprietary hardware**, free-match offer. *But see C15 — the per-player claim is walked back by their own fine print; what ships is team-level.* | 3-0 | mpact.ai (+ 2025 press release) |
 | C9 | **All automated stat producers are hardware-gated:** Trace (TraceCam), Veo Analytics/Player Spotlight (Cam 3), Spiideo AutoData (fixed cams), zone14 (panoramic), Pixellot, XbotGo — none takes arbitrary single-phone footage as analytics input. **Veo Go** uses iPhones but requires a **two-phone managed rig**. | 3-0 | traceup, veo.com, spiideo, zone14, veo camera-comparison |
 | C10 | **Hudl Assist is human-in-the-loop, not automated:** "trained analysts manually tag every play"; soccer is human-tagged (AI only in some sports, e.g. volleyball/Balltime); "AI summaries" beta sits *over* human tags. | 3-0 | hudl.com Assist FAQ + soccer pages |
 | C11 | **Hudl Assist gates capture:** requires a **prescribed full-field recording workflow** on supported devices — a phone is allowed only via this gate, not as arbitrary footage. ~24h turnaround, staffed 24/7. | 3-0 | hudl.com Assist FAQ + compare-plans |
 | C12 | **Verified pricing:** Hudl club video **$400 / $1,000 / $1,600 per team/yr** (Bronze/Silver/Gold); Hudl Assist **$700–$1,600/team/season**; Trace **$180 (2-seat) / $300 (4-seat) per family/yr** + TraceCam ($25/mo + $99 or free w/ yearly); Veo Cam 3 + **~$33/mo** add-ons; **Veo Go ~$29/mo + ~$50** kit. | 3-0 (tiers 2-1) | hudl, traceup, veo pricing pages |
 | C13 | **Segment split:** grassroots/youth reached via **hardware** vendors (Trace → families/coaches; Veo Go → families/youth); **Spiideo AutoData targets pro/elite/academy** (Utah women's, NWSL, Swedish academies). The automated-software-only-phone path to grassroots is the thinly-served gap. | 3-0 | traceup, spiideo, veo |
 | C14 | **Dominant revenue models = hardware-sale + SaaS, or human-tagging SaaS** — confirming pure software-only/any-phone/consumer is the under-occupied contrarian lane. | 2-1/3-0 | hudl, traceup, veo |
+
+### F.1b mpact.ai per-player-stats verification (2026-06-23, four parallel subagents: own-site · press · third-party · adversarial)
+
+A targeted follow-up after a user flagged the ambiguous mpact line *"Individual Stats & Highlights: Match
+statistics when we can ID the player are automatically delivered to your roster for all Premium Customers."*
+All four angles converged.
+
+| # | Finding | Angle(s) | Confidence |
+|---|---------|----------|------------|
+| C15 | **mpact does NOT ship genuine per-player numeric stats.** The 15 enumerated metrics are **team-level**; the "individual" deliverable is a **player card storing routed *highlight clips***. FAQ: *"route the match highlights and team statistics to certain players… when it can read their jersey number clearly."* Genuine per-player numeric stats were **"coming weeks"/"upcoming"** in both Oct & Nov 2025 press releases — i.e. roadmap, not shipped. | own-site, press | **High** |
+| C16 | **mpact's own fine print concedes per-player attribution is unsolved on casual footage** — requires **1080p/4K + close enough to OCR the jersey** (contradicting "Even Your Phone!"), with a **manual fallback** (*"you'll have to add it to your player's statistics"*). Its flagship **Impact IQ™** scores **zones/space, not individuals** — sidestepping attribution. This matches the §4 wall exactly. | own-site, adversarial | **High** |
+| C17 | **mpact is early-stage with unsubstantiated traction.** Founder **Josh Konowe**; **founded 2024, 2–10 employees, no disclosed funding** ("AWS invested" = cloud credits); inconsistent user counts (500 vs 2,300 vs 2,500). All press is **self-issued EIN Presswire** (paid wire, syndicated to TV affiliates — not journalism). **Zero independent demos/reviews**; the only "review" site is a discredited fake-review aggregator. | adversarial, press, third-party | **High** |
+
+> **Net:** mpact **does the easy half** (team stats from phone footage) and **punts on the hard half**
+> (per-player attribution). So C8's "markets the cell" stands, but the cell is **claimed, not filled** —
+> the *genuine* automated-per-player-from-casual-footage position remains commercially open (§3.1.C, §3.2).
 
 ### F.2 Refuted claims (killed by the panel — informative)
 
