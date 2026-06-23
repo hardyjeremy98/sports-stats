@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grassroots Sports Video Analytics — Feasibility Dossier</title>
+
+<style>
+  :root {
+    --ground:   #0F151B;
+    --ground-2: #0A0F14;
+    --surface:  #18222C;
+    --surface-2:#202C38;
+    --line:       rgba(231,238,243,0.11);
+    --line-strong:rgba(231,238,243,0.22);
+    --text:  #E7EEF3;
+    --muted: #93A2AF;
+    --faint: #5C6B77;
+    --gold:  #F4B740;
+    --gold-dim: #B98A28;
+    --pitch: #2E9E57;
+    --ok:   #36C46D;
+    --warn: #E68A36;
+    --bad:  #E2533F;
+    --info: #4FB3E0;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+    --measure: 760px;
+    --nav-w: 256px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+
+  a { color: var(--gold); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 2px; }
+
+  /* ---------- Shell ---------- */
+  .shell { display: flex; align-items: flex-start; }
+
+  /* ---------- Sidebar nav ---------- */
+  .sidebar {
+    position: sticky; top: 0;
+    width: var(--nav-w); flex: none;
+    height: 100vh; overflow-y: auto;
+    border-right: 1px solid var(--line);
+    background: var(--ground-2);
+    padding: 28px 0 28px 22px;
+    display: flex; flex-direction: column; gap: 26px;
+  }
+  .brand { padding-right: 22px; }
+  .brand .kicker {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.28em;
+    text-transform: uppercase; color: var(--gold); margin: 0 0 10px;
+  }
+  .brand .ball {
+    width: 34px; height: 34px; margin-bottom: 12px; display: block;
+  }
+  .brand h1 {
+    font-size: 17px; line-height: 1.25; margin: 0; font-weight: 800;
+    letter-spacing: -0.01em; text-transform: uppercase;
+  }
+  .brand p { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+
+  .nav { display: flex; flex-direction: column; gap: 1px; padding-right: 14px; }
+  .nav a {
+    display: flex; align-items: baseline; gap: 11px;
+    color: var(--muted); padding: 8px 12px 8px 10px;
+    border-radius: 7px; font-size: 13.5px; font-weight: 600;
+    border-left: 2px solid transparent; transition: color .15s, background .15s;
+  }
+  .nav a .n {
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    letter-spacing: 0.04em; flex: none; width: 20px;
+  }
+  .nav a:hover { color: var(--text); background: rgba(231,238,243,0.04); text-decoration: none; }
+  .nav a.active { color: var(--gold); background: rgba(244,183,64,0.08); }
+  .nav a.active .n { color: var(--gold); }
+
+  .sidebar .foot {
+    margin-top: auto; padding-right: 22px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+    letter-spacing: 0.04em; line-height: 1.7;
+  }
+
+  /* ---------- Mobile top bar (hidden on desktop) ---------- */
+  .topbar { display: none; }
+  .mobile-nav { display: none; }
+
+  /* ---------- Main ---------- */
+  main { flex: 1; min-width: 0; }
+  .section {
+    padding: 92px 8vw;
+    border-bottom: 1px solid var(--line);
+    max-width: 1180px;
+  }
+  .section.hero { padding: 0; border-bottom: 1px solid var(--line-strong); max-width: none; }
+  .wrap { max-width: var(--measure); }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.26em;
+    text-transform: uppercase; color: var(--gold);
+    display: flex; align-items: center; gap: 12px; margin: 0 0 18px;
+  }
+  .eyebrow .num { color: var(--faint); }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--line); max-width: 120px; }
+
+  h2.title {
+    font-size: clamp(28px, 4vw, 42px); line-height: 1.04; margin: 0 0 22px;
+    font-weight: 800; letter-spacing: -0.02em; text-transform: uppercase;
+  }
+  h3 {
+    font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase;
+    font-weight: 700; color: var(--text); margin: 38px 0 14px;
+  }
+  p { margin: 0 0 16px; color: #D4DDE4; }
+  .lede { font-size: 19px; color: var(--text); }
+  strong { color: #fff; font-weight: 700; }
+  em { color: var(--gold); font-style: normal; }
+  .muted { color: var(--muted); }
+  ul { margin: 0 0 16px; padding-left: 0; list-style: none; }
+  ul li { position: relative; padding-left: 22px; margin-bottom: 9px; color: #D4DDE4; }
+  ul li::before {
+    content: ""; position: absolute; left: 4px; top: 11px;
+    width: 6px; height: 6px; background: var(--gold); transform: rotate(45deg);
+  }
+
+  /* ---------- Hero ---------- */
+  .hero-inner {
+    position: relative; min-height: 92vh; display: flex; flex-direction: column;
+    justify-content: center; padding: 96px 8vw 72px; overflow: hidden;
+  }
+  #pitch-canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
+    display: block;
+  }
+  .hero-inner::after {
+    content: ""; position: absolute; inset: 0; z-index: 1;
+    background:
+      radial-gradient(120% 90% at 18% 35%, rgba(15,21,27,0.35) 0%, rgba(15,21,27,0.82) 55%, var(--ground) 100%);
+  }
+  .hero-content { position: relative; z-index: 2; max-width: 880px; }
+  .hero-content .eyebrow { margin-bottom: 26px; }
+  .hero h1.headline {
+    font-size: clamp(34px, 6.4vw, 78px); line-height: 0.98; margin: 0 0 8px;
+    font-weight: 800; letter-spacing: -0.03em; text-transform: uppercase;
+  }
+  .hero h1.headline .accent { color: var(--gold); }
+  .hero .sub {
+    font-size: clamp(17px, 2.1vw, 22px); color: var(--text); max-width: 660px;
+    margin: 22px 0 34px; line-height: 1.45;
+  }
+  .verdict-flag {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ground);
+    background: var(--gold); padding: 9px 16px; border-radius: 4px;
+    font-weight: 700; margin-bottom: 30px;
+  }
+  .pillars { display: flex; flex-wrap: wrap; gap: 12px; max-width: 820px; }
+  .pillar {
+    flex: 1 1 220px; background: rgba(24,34,44,0.74); backdrop-filter: blur(3px);
+    border: 1px solid var(--line-strong); border-radius: 10px; padding: 16px 17px;
+  }
+  .pillar .k { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); display:block; margin-bottom: 8px; }
+  .pillar .v { font-size: 13.5px; line-height: 1.4; color: #D4DDE4; }
+  .hero-stats {
+    position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 30px 46px;
+    margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--line);
+    font-family: var(--mono);
+  }
+  .hero-stats .s .big { font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .hero-stats .s .lbl { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+  .hero-stats .s .big em { color: var(--gold); }
+
+  /* ---------- Badges / pills ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 4px; vertical-align: middle;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
+  .badge.v   { color: var(--ok);   background: rgba(54,196,109,0.10); border-color: rgba(54,196,109,0.3); }
+  .badge.v::before { background: var(--ok); }
+  .badge.r   { color: var(--bad);  background: rgba(226,83,63,0.10);  border-color: rgba(226,83,63,0.3); }
+  .badge.r::before { background: var(--bad); }
+  .badge.u   { color: var(--warn); background: rgba(230,138,54,0.10); border-color: rgba(230,138,54,0.3); }
+  .badge.u::before { background: var(--warn); }
+
+  /* ---------- Callout cards ---------- */
+  .callout {
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0;
+    padding: 20px 22px; margin: 24px 0;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.bad  { border-left-color: var(--bad); }
+  .callout.ok   { border-left-color: var(--ok); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .ttl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin: 0 0 9px; font-weight: 700; }
+  .callout.warn .ttl { color: var(--warn); }
+  .callout.bad .ttl  { color: var(--bad); }
+  .callout.ok .ttl   { color: var(--ok); }
+
+  /* ---------- Stat grid ---------- */
+  .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 26px 0; }
+  .statgrid .cell { background: var(--surface); padding: 20px 18px; }
+  .statgrid .num { font-family: var(--mono); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: var(--gold); line-height: 1; }
+  .statgrid .lbl { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+  /* ---------- Tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 24px 0; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 540px; }
+  thead th {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); text-align: left; padding: 13px 16px; background: var(--ground-2);
+    border-bottom: 1px solid var(--line-strong); font-weight: 700; vertical-align: bottom;
+  }
+  tbody td { padding: 13px 16px; border-bottom: 1px solid var(--line); color: #CDD7DE; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(231,238,243,0.025); }
+  td .em, th .em { color: var(--gold); font-weight: 700; }
+  table.tight td, table.tight th { padding: 10px 14px; }
+  td.mono, th.mono { font-family: var(--mono); }
+
+  .target-row td { background: rgba(244,183,64,0.07) !important; }
+
+  /* ---------- Bar charts ---------- */
+  .chart { margin: 26px 0; }
+  .bar-row { display: grid; grid-template-columns: 124px 1fr; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .bar-row .bl { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; }
+  .bar-track { background: var(--ground-2); border-radius: 5px; height: 30px; position: relative; overflow: hidden; border: 1px solid var(--line); }
+  .bar-fill { height: 100%; border-radius: 4px 0 0 4px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ground); }
+  .bar-fill.gold { background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+  .bar-fill.ok   { background: linear-gradient(90deg, #2a9657, var(--ok)); color:#06140b; }
+  .bar-fill.warn { background: linear-gradient(90deg, #b96b27, var(--warn)); }
+  .bar-fill.bad  { background: linear-gradient(90deg, #b23e2f, var(--bad)); }
+  .chart-cap { font-size: 12.5px; color: var(--faint); margin-top: 6px; font-family: var(--mono); letter-spacing: 0.02em; }
+
+  /* ---------- Funnel ---------- */
+  .funnel { margin: 26px 0; display: flex; flex-direction: column; gap: 6px; }
+  .funnel .step { background: var(--ground-2); border: 1px solid var(--line); border-radius: 7px; padding: 14px 18px; position: relative; overflow: hidden; }
+  .funnel .step .fill { position: absolute; inset: 0; right: auto; background: rgba(244,183,64,0.13); border-right: 2px solid var(--gold); }
+  .funnel .step.dim .fill { background: rgba(147,162,175,0.10); border-right-color: var(--muted); }
+  .funnel .step .row { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+  .funnel .step .big { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--text); }
+  .funnel .step.live .big { color: var(--gold); }
+  .funnel .step .desc { font-size: 13px; color: var(--muted); }
+
+  /* ---------- Positioning map ---------- */
+  .posmap-wrap { margin: 28px 0; }
+  .posmap {
+    position: relative; border: 1px solid var(--line-strong); border-radius: 12px;
+    background:
+      linear-gradient(rgba(46,158,87,0.05), rgba(46,158,87,0.05)),
+      var(--ground-2);
+    aspect-ratio: 16 / 10; min-height: 340px;
+    background-clip: padding-box;
+  }
+  .posmap .grid-line { position: absolute; background: var(--line); }
+  .posmap .axis-x { left: 0; right: 0; bottom: -1px; height: 1px; background: var(--line-strong); }
+  .posmap .axis-y { top: 0; bottom: 0; left: -1px; width: 1px; background: var(--line-strong); }
+  .posmap .vline { top: 6%; bottom: 6%; width: 1px; }
+  .posmap .hline { left: 4%; right: 4%; height: 1px; }
+  .posmap .axlabel { position: absolute; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+  .posmap .chip {
+    position: absolute; transform: translate(-50%,-50%);
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    border-radius: 20px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+    white-space: nowrap; color: #D4DDE4; display: flex; align-items: center; gap: 6px;
+  }
+  .posmap .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .posmap .chip.hw .dot { background: var(--info); }
+  .posmap .chip.sw .dot { background: var(--ok); }
+  .posmap .chip.human .dot { background: var(--warn); }
+  .posmap .chip.target {
+    background: rgba(244,183,64,0.16); border: 1px solid var(--gold); color: var(--gold);
+    font-weight: 700; box-shadow: 0 0 0 4px rgba(244,183,64,0.08);
+  }
+  .posmap .chip.target .dot { background: var(--gold); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  /* ---------- Maturity heatmap ---------- */
+  .heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 10px; margin: 26px 0; }
+  .heat .cmp { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 14px 15px; border-left: 3px solid var(--faint); }
+  .heat .cmp.s-ok   { border-left-color: var(--ok); }
+  .heat .cmp.s-warn { border-left-color: var(--warn); }
+  .heat .cmp.s-bad  { border-left-color: var(--bad); }
+  .heat .cmp .nm { font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .heat .cmp .st { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .heat .cmp.s-ok .st { color: var(--ok); }
+  .heat .cmp.s-warn .st { color: var(--warn); }
+  .heat .cmp.s-bad .st { color: var(--bad); }
+  .heat .cmp .ev { font-size: 11.5px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+
+  /* ---------- Forces / risk rows ---------- */
+  .rows { margin: 24px 0; display: flex; flex-direction: column; gap: 10px; }
+  .frow { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 15px 18px; }
+  .frow .ft { font-weight: 700; color: var(--text); font-size: 14.5px; }
+  .frow .fd { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .lvl { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
+  .lvl.high { color: var(--bad); background: rgba(226,83,63,0.12); }
+  .lvl.med  { color: var(--warn); background: rgba(230,138,54,0.12); }
+  .lvl.low  { color: var(--ok); background: rgba(54,196,109,0.12); }
+  .lvl.split{ color: var(--info); background: rgba(79,179,224,0.12); }
+
+  .risk { display: grid; grid-template-columns: 34px 1fr auto; gap: 14px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 15px 18px; }
+  .risk .rk { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--faint); line-height: 1; }
+  .risk .rt { font-weight: 700; color: var(--text); font-size: 14.5px; }
+  .risk .rd { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* ---------- Two-col ---------- */
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin: 24px 0; }
+  .cols2 .col h3 { margin-top: 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .panel h3 { margin-top: 0; }
+
+  .deepdive-tag { display:inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ground); background: var(--info); padding: 3px 9px; border-radius: 4px; font-weight: 700; margin-left: 8px; vertical-align: middle; }
+
+  /* sources */
+  .srclist { font-family: var(--mono); font-size: 12px; line-height: 1.8; color: var(--muted); }
+  .srclist .q { color: var(--ok); }
+  .srclist .qs { color: var(--muted); }
+
+  footer.page { padding: 60px 8vw; color: var(--faint); font-family: var(--mono); font-size: 12px; line-height: 1.8; max-width: 1180px; }
+  footer.page strong { color: var(--muted); font-weight: 700; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    body { font-size: 16px; }
+    .sidebar { display: none; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10,15,20,0.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line); padding: 12px 18px;
+    }
+    .topbar .tb-brand { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.01em; }
+    .topbar .tb-brand span { color: var(--gold); font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; display:block; }
+    .menu-btn { background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; padding: 8px 12px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+    .mobile-nav { display: none; flex-direction: column; position: sticky; top: 49px; z-index: 49; background: var(--ground-2); border-bottom: 1px solid var(--line); padding: 8px; }
+    .mobile-nav.open { display: flex; }
+    .mobile-nav a { color: var(--muted); padding: 10px 14px; font-size: 14px; font-weight: 600; border-radius: 6px; display:flex; gap: 10px; }
+    .mobile-nav a .n { font-family: var(--mono); color: var(--faint); font-size: 11px; }
+    .mobile-nav a:hover { color: var(--text); text-decoration: none; background: rgba(231,238,243,0.04); }
+    .section { padding: 64px 7vw; }
+    .hero-inner { padding: 64px 7vw 56px; }
+    .cols2 { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 90px 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="tb-brand"><span>Feasibility Dossier</span>Grassroots Sports Analytics</div>
+  <button class="menu-btn" id="menuBtn" aria-expanded="false">Menu ▾</button>
+</div>
+<nav class="mobile-nav" id="mobileNav" aria-label="Sections">
+  <a href="#verdict"><span class="n">00</span> Verdict</a>
+  <a href="#market"><span class="n">01</span> Market &amp; Sizing</a>
+  <a href="#demand"><span class="n">02</span> Demand</a>
+  <a href="#supply"><span class="n">03</span> Competition</a>
+  <a href="#environment"><span class="n">04</span> Environment</a>
+  <a href="#evidence"><span class="n">05</span> Evidence</a>
+  <a href="#economics"><span class="n">06</span> Unit Economics</a>
+  <a href="#technology"><span class="n">07</span> Technology</a>
+</nav>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <canvas class="ball" id="ballMark" width="68" height="68" aria-hidden="true"></canvas>
+      <p class="kicker">Feasibility Dossier</p>
+      <h1>Grassroots Sports Video Analytics</h1>
+      <p>Can a phone upload become full-team per-player stats — at a consumer price?</p>
+    </div>
+    <nav class="nav" id="sideNav" aria-label="Sections">
+      <a href="#verdict"><span class="n">00</span> Verdict</a>
+      <a href="#market"><span class="n">01</span> Market &amp; Sizing</a>
+      <a href="#demand"><span class="n">02</span> Demand</a>
+      <a href="#supply"><span class="n">03</span> Competition</a>
+      <a href="#environment"><span class="n">04</span> Environment</a>
+      <a href="#evidence"><span class="n">05</span> Evidence</a>
+      <a href="#economics"><span class="n">06</span> Unit Economics</a>
+      <a href="#technology"><span class="n">07</span> Technology</a>
+    </nav>
+    <div class="foot">
+      5 angles · 24 sources<br />104 claims · 25 verified<br />15 confirmed / 10 killed<br />
+      <span style="color:var(--gold-dim)">Compiled June 2026</span>
+    </div>
+  </aside>
+
+  <main>
+
+    <!-- ===================== HERO / VERDICT ===================== -->
+    <section class="section hero" id="verdict">
+      <div class="hero-inner">
+        <canvas id="pitch-canvas" aria-hidden="true"></canvas>
+        <div class="hero-content">
+          <p class="eyebrow"><span class="num">00</span> The Verdict</p>
+          <div class="verdict-flag">Hard-tech bet, not a SaaS bet</div>
+          <h1 class="headline">The white-space is <span class="accent">real</span>.<br />So is the reason<br />it's still <span class="accent">empty</span>.</h1>
+          <p class="sub">A clean upload of single, ground-level phone footage that returns accurate full-team per-player stats at a consumer price is a genuine gap — but it exists <strong>because the technology and unit economics don't yet robustly support it</strong>, not because no one tried.</p>
+          <div class="pillars">
+            <div class="pillar"><span class="k">Demand · real</span><span class="v">A large, growing registered grassroots base — but far smaller than the 265M headline.</span></div>
+            <div class="pillar"><span class="k">Tech · the unsolved core</span><span class="v">Per-player attribution from one ground-level camera is research-grade, validated only on broadcast video.</span></div>
+            <div class="pillar"><span class="k">Regulation · real friction</span><span class="v">Filming minors triggers consent and "do-not-film" duties exactly where the audience is youngest.</span></div>
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div class="s"><div class="big">265M <em>→</em> 38M</div><div class="lbl">Players → registered (FIFA)</div></div>
+          <div class="s"><div class="big">GS-HOTA <em>~64</em></div><div class="lbl">End-to-end ceiling, on broadcast</div></div>
+          <div class="s"><div class="big"><em>$2</em> / match</div><div class="lbl">Compute cost — not the constraint</div></div>
+          <div class="s"><div class="big"><em>~$36</em></div><div class="lbl">Year-1 B2C LTV ceiling — the constraint</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 01 MARKET ===================== -->
+    <section class="section" id="market">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">01</span> Market Definition &amp; Sizing</p>
+        <h2 class="title">A real base, hiding behind a misleading headline</h2>
+        <p class="lede">"Soccer video analysis" is not one market — your product is a single cell in a grid: <strong>consumer/amateur, software-only, upload-and-get-team-stats, soccer-first.</strong> Size <em>that</em>, not the pro-dominated headline.</p>
+
+        <h3>The carve-out trap</h3>
+        <p>Headline "sports analytics is $X&nbsp;billion" figures are dominated by pro clubs, broadcasters and betting. The only defensible base is the <strong>registered / club</strong> cohort — and FIFA's own split shows how steep the drop is.</p>
+
+        <div class="funnel" data-funnel>
+          <div class="step live"><div class="fill" style="width:100%"></div><div class="row"><span class="big">265M</span><span class="desc">All players globally (FIFA Big Count, 2006) — <strong>do not size against this</strong></span></div></div>
+          <div class="step dim"><div class="fill" style="width:85%"></div><div class="row"><span class="big">226M</span><span class="desc">Unregistered / occasional — not a per-player-analytics buyer</span></div></div>
+          <div class="step live"><div class="fill" style="width:14.3%"></div><div class="row"><span class="big">38M</span><span class="desc">Registered players — the candidate base (still over-inclusive)</span></div></div>
+          <div class="step live"><div class="fill" style="width:8.3%"></div><div class="row"><span class="big">22M</span><span class="desc">Youth under-18 (21.5M registered) — USA 3.9M, Germany 2.08M lead</span></div></div>
+          <div class="step live"><div class="fill" style="width:3%"></div><div class="row"><span class="big">SOM</span><span class="desc">After age &amp; seriousness haircut — a small fraction of registered</span></div></div>
+        </div>
+        <p class="chart-cap">FIFA Big Count 2006 · <span class="badge v">Verified 3-0</span> · ~20 yrs old &amp; never repeated — stale for absolute 2026 sizing</p>
+
+        <h3>Bottom-up beats top-down here</h3>
+        <p>For a consumer niche, build <strong>teams (or players) × attach rate × annual price</strong> from current federation data. Australia is the cleanest live input — and its own report separates affiliated from casual participation, validating the carve-out.</p>
+
+        <div class="statgrid">
+          <div class="cell"><div class="num">1.91M</div><div class="lbl">Australia total participation, 2024 (+11% YoY)</div></div>
+          <div class="cell"><div class="num">640K</div><div class="lbl">Outdoor <em>affiliated</em> players — the realistic base</div></div>
+          <div class="cell"><div class="num">2,205</div><div class="lbl">Clubs (+10% YoY)</div></div>
+          <div class="cell"><div class="num">~$1M+</div><div class="lbl">Plausible early SOM, one country (illustrative)</div></div>
+        </div>
+        <p class="chart-cap">Football Australia 2024 National Participation Report · <span class="badge v">Verified 3-0</span></p>
+
+        <div class="callout">
+          <p class="ttl">Takeaway</p>
+          <p>Even generous attach rates against a verified 640K base in one mid-size football nation yield a <strong>low-single-digit-$M SOM early</strong>. This is a <strong>volume / geography-expansion</strong> business — so viability is decided by <em>unit economics</em>, not market size. Dollar TAM/CAGR figures remain <span class="badge u">Unverified</span> — build them bottom-up and cite every report.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 02 DEMAND ===================== -->
+    <section class="section" id="demand">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">02</span> Demand — The Customer</p>
+        <h2 class="title">Three people, one purchase, different wants</h2>
+        <p class="lede">In youth football the <strong>user, buyer and payer split</strong> — the kid uses it, the parent pays, the coach influences. Design for the wrong one and you misread the sale.</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Segment</th><th>User</th><th>Buyer</th><th>Payer</th><th>What they want</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Youth player</strong></td><td>The kid</td><td>Parent / coach</td><td class="em">Parent</td><td>Highlights · development proof · safety</td></tr>
+              <tr><td><strong>Adult amateur</strong></td><td>Player</td><td>Player</td><td class="em">Player</td><td>Bragging stats · clips · "am I improving?"</td></tr>
+              <tr><td><strong>Grassroots club</strong></td><td>Players</td><td>Coach</td><td class="em">Club budget</td><td>One roster-wide tool · easy capture · low admin</td></tr>
+              <tr><td><strong>Semi-pro</strong></td><td>Players</td><td>Coach</td><td class="em">Club</td><td>Tactical + individual <em>accuracy</em> (the weak spot)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The cleaner sale is <strong>B2B2C through the club</strong>: it collapses buyer + payer into one entity and folds parental consent into the existing membership flow.</p>
+
+        <h3>Jobs-to-be-done — and how forgiving each is of wrong stats</h3>
+        <div class="cols2">
+          <div class="panel">
+            <h3 style="color:var(--ok)">Forgiving (where tech works)</h3>
+            <ul>
+              <li><strong>Highlights &amp; sharing</strong> — clip detection ≫ stat precision; viral; best wedge</li>
+              <li><strong>Individual development</strong> — trends matter more than exact counts</li>
+              <li><strong>Team-level tactics</strong> — more tractable than per-player</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3 style="color:var(--bad)">Unforgiving (where tech breaks)</h3>
+            <ul>
+              <li><strong>Per-player stat tracking</strong> — your headline JTBD; least forgiving</li>
+              <li><strong>Recruitment tape</strong> — needs near-truth accuracy</li>
+            </ul>
+          </div>
+        </div>
+        <p class="muted">Your stated headline JTBD is the <em>least</em> forgiving and most technically exposed. Highlights / development are where demand is strong <em>and</em> the tech is forgiving — a safer first wedge.</p>
+
+        <h3>Adoption barriers</h3>
+        <div class="rows">
+          <div class="risk"><div class="rk">1</div><div><div class="rt">Footage-capture friction</div><div class="rd">Someone must film a wide, elevated, legible shot. "Upload any phone footage" <em>maximises</em> this barrier's damage — ground-level video is the worst input for per-player attribution.</div></div><div><span class="lvl high">#1 barrier</span></div></div>
+          <div class="risk"><div class="rk">2</div><div><div class="rt">Minors' privacy &amp; consent <span class="badge v">Verified</span></div><div class="rd">The FA requires written parental consent before footage enters the public domain, plus operational "do-not-film" systems. Real but narrower than maximalist claims (those were refuted). UK-specific; US/EU/AU unverified.</div></div><div><span class="lvl med">Medium</span></div></div>
+          <div class="risk"><div class="rk">3</div><div><div class="rt">Accuracy skepticism</div><div class="rd">If per-player stats are visibly wrong, trust collapses — and the tech says they <em>will</em> be wrong on poor footage. A demand barrier created by the supply-side limit.</div></div><div><span class="lvl med">Medium</span></div></div>
+        </div>
+
+        <div class="callout warn">
+          <p class="ttl">Still open — run primary research</p>
+          <p>Willingness-to-pay and voice-of-customer are <span class="badge u">Unverified</span>. Mine app-store / Reddit reviews, run a survey + 10–20 interviews, and test real intent with a fake-door landing page <strong>before</strong> building the hard CV.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 03 SUPPLY ===================== -->
+    <section class="section" id="supply">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">03</span> Supply — Competition &amp; Money</p>
+        <h2 class="title">Everyone automated controls the camera</h2>
+        <p class="lede">Only <strong>StepOut</strong> was independently verified here. Every other competitor and all pricing below is <span class="badge u">Unverified</span> — a structured hypothesis to confirm.</p>
+
+        <div class="callout">
+          <p class="ttl">Verified competitor — StepOut</p>
+          <p>Broad B2B + individual positioning, marquee logos (Real Madrid, Ajax, 60+ teams), raised <strong>$1.5M pre-Series A</strong> (Rainmatter 2025). <span class="badge v">3-0</span> But: marquee "clients" are accelerator/pilot relationships, and that it <strong>accepts phone footage was <span class="badge r">Refuted 0-3</span></strong> — even the closest funded analogue is built for broadcast-grade input. The gap you want is <em>below</em> StepOut.</p>
+        </div>
+
+        <h3>Positioning map</h3>
+        <p class="muted">Left → right = easier for the customer to supply footage. Top → bottom = more human labour in the loop. The automated + any-footage + consumer-price corner is empty.</p>
+
+        <div class="posmap-wrap">
+          <div class="posmap" role="img" aria-label="Positioning map. Vertical axis: automation, from fully automated at top to human-in-the-loop at bottom. Horizontal axis: capture constraint, from needs-their-hardware at left to accepts-any-phone-footage at right. Veo, Trace, Pixellot, Spiideo and XbotGo cluster top-left (automated but hardware-bound). StepOut sits top-center (automated, software-only, but needs broadcast-grade footage). The top-right cell — automated and any phone footage — is the empty target. Hudl Assist sits bottom-right: accepts uploads but uses human tagging.">
+            <span class="grid-line vline" style="left:50%"></span>
+            <span class="grid-line hline" style="top:50%"></span>
+            <span class="axis-x"></span><span class="axis-y"></span>
+            <span class="axlabel" style="top:8px; left:50%; transform:translateX(-50%)">▲ FULLY AUTOMATED</span>
+            <span class="axlabel" style="bottom:8px; left:50%; transform:translateX(-50%)">HUMAN-IN-THE-LOOP ▼</span>
+            <span class="axlabel" style="left:8px; top:50%; transform:translateY(-50%) rotate(180deg); writing-mode:vertical-rl">◀ NEEDS HARDWARE</span>
+            <span class="axlabel" style="right:8px; top:50%; transform:translateY(-50%); writing-mode:vertical-rl">ANY PHONE FOOTAGE ▶</span>
+
+            <span class="chip hw" style="left:18%; top:24%">Veo<span class="dot"></span></span>
+            <span class="chip hw" style="left:30%; top:34%"><span class="dot"></span>Trace</span>
+            <span class="chip hw" style="left:15%; top:42%">Pixellot<span class="dot"></span></span>
+            <span class="chip hw" style="left:27%; top:18%"><span class="dot"></span>Spiideo</span>
+            <span class="chip hw" style="left:40%; top:28%"><span class="dot"></span>XbotGo</span>
+            <span class="chip sw" style="left:55%; top:30%"><span class="dot"></span>StepOut*</span>
+            <span class="chip target" style="left:82%; top:22%">★ TARGET — empty</span>
+            <span class="chip human" style="left:78%; top:74%"><span class="dot"></span>Hudl Assist</span>
+            <span class="chip" style="left:60%; top:84%"><span class="dot"></span>Manual / spreadsheets</span>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--info)"></i> Needs hardware</span>
+            <span><i style="background:var(--ok)"></i> Software-only*</span>
+            <span><i style="background:var(--warn)"></i> Human-in-the-loop</span>
+            <span><i style="background:var(--gold)"></i> Target (empty)</span>
+            <span class="muted">*StepOut software-only but needs broadcast-grade footage</span>
+          </div>
+        </div>
+
+        <p><strong>Two patterns decide the strategy.</strong> Every credible <em>automated</em> competitor is pushed left into "needs their hardware" — because controlling capture is how they make the CV work. And <strong>Hudl Assist defeats the difficulty by spending human labour</strong> (~$700/team/season), which is exactly why an automated entrant could undercut it on cost.</p>
+
+        <h3>Pricing benchmarks <span class="badge v">Verified in §06</span></h3>
+        <div class="tablewrap">
+          <table class="tight">
+            <thead><tr><th>Product</th><th>Model</th><th>Price</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Hudl Assist</strong> (human tagging)</td><td>per team / season</td><td class="mono em">$700–$1,100</td></tr>
+              <tr><td><strong>Trace</strong> PlayerFocus (AI)</td><td>per player / year</td><td class="mono">$180–$300</td></tr>
+              <tr><td><strong>Veo</strong> (grassroots)</td><td>hardware + annual sub</td><td class="mono">~$1,799 bundle · no per-match</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A clean per-match or per-season <strong>software-only</strong> price is a genuine open position — cheaper than human tagging, comparable to AI per-player products.</p>
+
+        <h3>Go-to-market</h3>
+        <ul>
+          <li><strong>Club / league B2B2C</strong> — amortises CAC over a roster, fixes capture, folds in consent. Solves three risks at once.</li>
+          <li><strong>Highlight-sharing virality loop</strong> — the growth engine Veo/Trace lean on; forgiving of imperfect stats; drives CAC toward zero.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===================== 04 ENVIRONMENT ===================== -->
+    <section class="section" id="environment">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">04</span> The Enabling Environment</p>
+        <h2 class="title">Commodity blocks, uncommodity problem</h2>
+        <p class="lede">The building blocks (YOLO, DeepSORT, MediaPipe) are commodity — so the model is no moat. But generic CV doesn't trivially solve sports, so the work is real. <strong>The moat is proprietary in-domain data, not the architecture.</strong></p>
+
+        <h3>Five Forces, tailored</h3>
+        <div class="rows">
+          <div class="frow"><div><div class="ft">Threat of new entrants</div><div class="fd">Building blocks are open-source; a prototype is cheap. Accuracy is the wall, not entry.</div></div><span class="lvl high">High</span></div>
+          <div class="frow"><div><div class="ft">Buyer power</div><div class="fd">Low for fragmented consumers; high for clubs / federations.</div></div><span class="lvl split">Split</span></div>
+          <div class="frow"><div><div class="ft">Supplier power</div><div class="fd">Cloud + camera components, commoditized — but per-match GPU is a real COGS line.</div></div><span class="lvl low">Low–Med</span></div>
+          <div class="frow"><div><div class="ft">Substitutes</div><div class="fd">Manual tagging, spreadsheets, human analysts — and simply watching the game.</div></div><span class="lvl high">High</span></div>
+          <div class="frow"><div><div class="ft">Rivalry</div><div class="fd">Consolidating at the top (Hudl roll-ups), fragmenting at the consumer end.</div></div><span class="lvl high">Intensifying</span></div>
+        </div>
+        <p class="muted">The forces are unfavourable for a model-only software play — they turn favourable only if you convert one into a moat (proprietary data or B2B2C distribution).</p>
+
+        <h3>Regulation, privacy &amp; IP — first-order</h3>
+        <div class="cols2">
+          <div class="panel">
+            <h3 style="color:var(--ok); margin-top:0">Verified — UK FA</h3>
+            <p class="muted" style="font-size:14px">Written parental consent before footage enters the public domain · consent + disclosure for coaching-aid filming · operational "do-not-film" systems (wristbands / check-ins). Attaches to public-domain use &amp; organised filming — not every incidental frame.</p>
+          </div>
+          <div class="panel">
+            <h3 style="color:var(--warn); margin-top:0">Unverified — clear before launch</h3>
+            <p class="muted" style="font-size:14px">US COPPA · EU/UK GDPR biometric (special-category) data · Australian Privacy Act · image/likeness rights · data ownership · patent landscape. Your largest segment (youth) carries the heaviest burden.</p>
+          </div>
+        </div>
+
+        <h3>Macro</h3>
+        <div class="cols2">
+          <div class="panel"><h3 style="color:var(--ok); margin-top:0">Tailwinds</h3><ul style="margin-bottom:0"><li>Cheaper compute &amp; CV</li><li>Ubiquitous phone cameras</li><li>Rising youth-sports spend; recruitment culture</li><li>Highlight / creator culture · 2026 World Cup</li></ul></div>
+          <div class="panel"><h3 style="color:var(--bad); margin-top:0">Headwinds</h3><ul style="margin-bottom:0"><li>Intensifying privacy scrutiny</li><li>Pressure on discretionary spend</li><li>Justified AI-accuracy skepticism at consumer prices</li></ul></div>
+        </div>
+        <p class="chart-cap">Funding landscape largely unverified beyond StepOut's $1.5M (Rainmatter, 2025).</p>
+      </div>
+    </section>
+
+    <!-- ===================== 05 EVIDENCE ===================== -->
+    <section class="section" id="evidence">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">05</span> Evidence &amp; Methodology</p>
+        <h2 class="title">What survived the skeptics</h2>
+        <p class="lede">Every claim ran a 3-vote adversarial panel needing 2/3 to kill. <strong>Confirmed ≠ true</strong> — it means it survived. What <em>failed</em> is itself a finding.</p>
+
+        <div class="statgrid">
+          <div class="cell"><div class="num">104</div><div class="lbl">Claims extracted (run 1)</div></div>
+          <div class="cell"><div class="num">15</div><div class="lbl">Confirmed</div></div>
+          <div class="cell"><div class="num" style="color:var(--bad)">10</div><div class="lbl">Killed</div></div>
+          <div class="cell"><div class="num">2</div><div class="lbl">Research runs · 211 agents</div></div>
+        </div>
+
+        <h3>Refuted claims — informative failures</h3>
+        <div class="tablewrap">
+          <table class="tight">
+            <thead><tr><th>Claim that failed verification</th><th>Vote</th><th>Why it matters</th></tr></thead>
+            <tbody>
+              <tr><td>StepOut accepts ground-level phone footage</td><td class="mono">0-3</td><td>Even the closest funded competitor doesn't cover the hardest use case</td></tr>
+              <tr><td>Single-camera reconstruction "only 22.26% GS-HOTA"</td><td class="mono">0-3</td><td>Wrong number — real ceiling is ~64 (still ⅓ wrong)</td></tr>
+              <tr><td>Jersey OCR "peaks at ~30%" / is the bottleneck</td><td class="mono">0-3 / 1-2</td><td>Hard, but not the provably-capped bottleneck</td></tr>
+              <tr><td>UK: consent before <em>any</em> capture of under-16s</td><td class="mono">0-3</td><td>Privacy friction is narrower than maximalist version</td></tr>
+              <tr><td>Fitness apps churn 9.2%/mo · "January effect"</td><td class="mono">0-3</td><td>Seasonal churn is real but these specific figures aren't</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">The pattern: alarmist-precise tech-pessimism and maximalist privacy claims both failed, while structural "it's unsolved on phone footage" and "consent is real friction" survived. <strong>The problem is hard, not hopeless; the regulation is real, not absolute.</strong></p>
+
+        <div class="callout warn">
+          <p class="ttl">Open questions — the gap between "interesting" and "investable"</p>
+          <p>Top-down $ TAM &amp; CAGR for the grassroots carve-out · real proc-to-video ratio &amp; QA fraction on amateur footage · realistic CAC under seasonal churn · binding compliance beyond UK FA (COPPA / GDPR / AU Privacy Act) · competitor capability on phone footage.</p>
+        </div>
+
+        <h3>Coverage — where evidence is strong vs thin</h3>
+        <div class="heat">
+          <div class="cmp s-ok"><div class="nm">Demand counts</div><div class="st">Strong · primary</div><div class="ev">FIFA, Football Australia</div></div>
+          <div class="cmp s-ok"><div class="nm">Technology capability</div><div class="st">Strong · primary</div><div class="ev">Peer-reviewed papers</div></div>
+          <div class="cmp s-ok"><div class="nm">Privacy (UK FA)</div><div class="st">Strong · primary</div><div class="ev">Governing-body docs</div></div>
+          <div class="cmp s-ok"><div class="nm">Pricing &amp; compute cost</div><div class="st">Strong · §06</div><div class="ev">Vendor + GPU pricing</div></div>
+          <div class="cmp s-bad"><div class="nm">$ TAM / CAGR</div><div class="st">Thin</div><div class="ev">No verified dollar figures</div></div>
+          <div class="cmp s-bad"><div class="nm">WTP / VOC</div><div class="st">Thin</div><div class="ev">Primary research not done</div></div>
+          <div class="cmp s-bad"><div class="nm">Most competitors</div><div class="st">Thin</div><div class="ev">Only StepOut verified</div></div>
+          <div class="cmp s-bad"><div class="nm">Funding / M&amp;A</div><div class="st">Thin</div><div class="ev">Beyond StepOut unverified</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 06 UNIT ECONOMICS ===================== -->
+    <section class="section" id="economics">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">06</span> Unit Economics Deep-Dive <span class="deepdive-tag">Follow-up</span></p>
+        <h2 class="title">Compute is cheap. LTV is the wall.</h2>
+        <p class="lede">The marginal cost to process a match is small enough that it <strong>doesn't kill the business</strong>. The binding constraints are accuracy on phone footage, thin per-payer LTV, and seasonal churn.</p>
+
+        <h3>Cost to process one match — automated, no humans</h3>
+        <div class="chart" data-bars>
+          <div class="bar-row"><span class="bl">Low</span><div class="bar-track"><div class="bar-fill ok" style="width:38%">$1.80</div></div></div>
+          <div class="bar-row"><span class="bl">Expected</span><div class="bar-track"><div class="bar-fill gold" style="width:44%">$2.10</div></div></div>
+          <div class="bar-row"><span class="bl">High</span><div class="bar-track"><div class="bar-fill warn" style="width:94%">$4.70</div></div></div>
+        </div>
+        <p class="chart-cap">Compute + storage + bandwidth, per ~105-min match · GPU prices <span class="badge v">Verified</span>, proc-to-video ratio <span class="badge u">Estimate</span></p>
+
+        <div class="tablewrap">
+          <table class="tight">
+            <thead><tr><th>GPU</th><th>Provider</th><th>Rate /hr</th></tr></thead>
+            <tbody>
+              <tr><td>NVIDIA L4 (24GB)</td><td>RunPod</td><td class="mono em">$0.39</td></tr>
+              <tr><td>NVIDIA T4 (16GB)</td><td>AWS g4dn · on-demand / spot</td><td class="mono">$0.526 / $0.254</td></tr>
+              <tr><td>NVIDIA A100 (80GB)</td><td>RunPod PCIe → Serverless</td><td class="mono">$1.39 – $2.72</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Gross margin by price (expected COGS ≈ $2.08)</h3>
+        <div class="chart" data-bars>
+          <div class="bar-row"><span class="bl">$5 / match</span><div class="bar-track"><div class="bar-fill warn" style="width:58%">58%</div></div></div>
+          <div class="bar-row"><span class="bl">$8 / match</span><div class="bar-track"><div class="bar-fill gold" style="width:74%">74%</div></div></div>
+          <div class="bar-row"><span class="bl">$10 / match</span><div class="bar-track"><div class="bar-fill gold" style="width:79%">79%</div></div></div>
+          <div class="bar-row"><span class="bl">$15 / match</span><div class="bar-track"><div class="bar-fill ok" style="width:86%">86%</div></div></div>
+        </div>
+        <p class="chart-cap">Price floor ~$3–5/match · recommended list $8–15/match · or a season/team bundle ($176–$330)</p>
+
+        <div class="callout bad">
+          <p class="ttl">The real constraint — LTV vs CAC under seasonal churn</p>
+          <p>Pure B2C per-player LTV is capped near the <strong>~$36 Year-1 fitness ceiling</strong> <span class="badge v">Verified</span>. To hit 3:1 LTV:CAC, <strong>CAC must stay under ~$12</strong> — hard for a niche prosumer product. This is <em>LTV-constrained, not cost-constrained.</em> The fix: sell <strong>per-team / per-season</strong> so one purchase covers a roster, and manage seasonal churn (annual commitment, off-season pause).</p>
+        </div>
+
+        <div class="callout warn">
+          <p class="ttl">The trap that flips everything</p>
+          <p>If accuracy on phone footage is too low, you're forced into <strong>human QA at ~$25–40/match</strong> (Hudl-Assist-class labour) — 10–20× the compute cost — which <strong>erases the 74–86% margin</strong>. The technology gap and the unit-economics risk are the same risk from two angles.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 07 TECHNOLOGY ===================== -->
+    <section class="section" id="technology">
+      <div class="wrap">
+        <p class="eyebrow"><span class="num">07</span> Technology Maturity Deep-Dive <span class="deepdive-tag">Follow-up</span></p>
+        <h2 class="title">The product hinges on the join nobody has solved</h2>
+        <p class="lede">Detecting <em>what</em> happened from raw video is surprisingly mature. Attributing it to a <em>named individual</em> from one ground-level camera is the unsolved core — and every benchmark below is a broadcast ceiling; amateur phone footage is worse on every axis.</p>
+
+        <div class="cols2">
+          <div class="panel" style="border-color:rgba(226,83,63,0.3)">
+            <h3 style="color:var(--bad); margin-top:0">GS-HOTA ~64</h3>
+            <p class="muted" style="font-size:14px; margin-bottom:0">Closest proxy for the whole product. ~⅓ of player-frames still wrong on identity + position — on <strong>broadcast</strong> video, with a lenient 5-metre tolerance. Benchmark only introduced in 2024.</p>
+          </div>
+          <div class="panel" style="border-color:rgba(54,196,109,0.3)">
+            <h3 style="color:var(--ok); margin-top:0">73 mAP@1</h3>
+            <p class="muted" style="font-size:14px; margin-bottom:0">Event spotting (T-DEED) — <strong>end-to-end from pixels, no tracking input</strong>. The good news: detecting what/when doesn't need the broken tracking stack. The gap is purely <em>who</em>.</p>
+          </div>
+        </div>
+
+        <h3>Per-component maturity</h3>
+        <div class="heat">
+          <div class="cmp s-ok"><div class="nm">Player / ball detection</div><div class="st">Solved · commodity</div><div class="ev">Fine-tuned YOLO; off-the-shelf</div></div>
+          <div class="cmp s-ok"><div class="nm">Team ID by kit color</div><div class="st">Solved · commodity</div><div class="ev">~91.5% · clustering</div></div>
+          <div class="cmp s-warn"><div class="nm">Multi-object tracking</div><div class="st">Works · caveats</div><div class="ev">~73 HOTA (broadcast); fragments long-term</div></div>
+          <div class="cmp s-warn"><div class="nm">Event / action spotting</div><div class="st">Works · caveats</div><div class="ev">73 mAP@1 end-to-end</div></div>
+          <div class="cmp s-warn"><div class="nm">Jersey-number OCR</div><div class="st">Caveated → research</div><div class="ev">87% on tracklets; legible only ~5–9% of frames</div></div>
+          <div class="cmp s-warn"><div class="nm">Pitch calibration</div><div class="st">Works · caveats</div><div class="ev">Fragile on amateur handheld</div></div>
+          <div class="cmp s-bad"><div class="nm">Player re-identification</div><div class="st">Research-grade</div><div class="ev">Primary bottleneck; near-identical kits</div></div>
+          <div class="cmp s-bad"><div class="nm">Ball 3D trajectory</div><div class="st">Research-grade</div><div class="ev">Mono camera under-constrained</div></div>
+          <div class="cmp s-bad"><div class="nm">Event attribution (who)</div><div class="st">Not product-ready</div><div class="ev">No reliable single-camera benchmark</div></div>
+          <div class="cmp s-bad"><div class="nm">End-to-end reconstruction</div><div class="st">Research-grade</div><div class="ev">GS-HOTA ~64; introduced 2024</div></div>
+        </div>
+
+        <div class="callout">
+          <p class="ttl">Verdict — years, not months</p>
+          <p>A reliable consumer product doing accurate per-player attribution from <strong>one amateur phone</strong> is plausibly a <strong>multi-year (~3–5+ yr) effort</strong>, gated by re-ID, jersey legibility and end-to-end attribution under amateur capture. What's achievable <em>now</em>: team-level analytics, heatmaps, and <strong>event spotting + highlight clips</strong> — exactly the forgiving wedge the verdict points to.</p>
+        </div>
+
+        <p class="srclist">
+          <strong style="color:var(--text)">Key sources:</strong><br />
+          <span class="q">●</span> SoccerNet Game State Reconstruction (CVPR 2024) · arXiv:2404.11335<br />
+          <span class="q">●</span> SoccerNet-Tracking (CVPR 2022) · SportsMOT (CVPR 2023)<br />
+          <span class="q">●</span> T-DEED event spotting (CVPR 2024) · Jersey-number recognition (Koshkina, CVPRW 2024)<br />
+          <span class="q">●</span> FIFA Big Count 2006 · Football Australia 2024 Participation Report<br />
+          <span class="q">●</span> The FA Safeguarding 8.3 · RunPod / AWS GPU pricing · Hudl / Trace / Veo pricing
+        </p>
+      </div>
+    </section>
+
+    <footer class="page">
+      <strong>Grassroots Sports Video Analytics — Feasibility Dossier.</strong><br />
+      Method: fan-out web search → adversarial 3-vote verification → cited synthesis, across two research runs (market + unit economics).<br />
+      Findings tagged <span class="badge v">Verified</span> survived the skeptic panel; <span class="badge u">Unverified</span> are working assumptions; <span class="badge r">Refuted</span> failed and are excluded.<br />
+      Full markdown dossier (sections 00–07) lives alongside this page in the repository. Compiled June 2026.
+    </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---- Mobile menu ---- */
+  var btn = document.getElementById("menuBtn");
+  var mnav = document.getElementById("mobileNav");
+  if (btn && mnav) {
+    btn.addEventListener("click", function () {
+      var open = mnav.classList.toggle("open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.textContent = open ? "Close ▴" : "Menu ▾";
+    });
+    mnav.addEventListener("click", function (e) {
+      if (e.target.closest("a")) { mnav.classList.remove("open"); btn.setAttribute("aria-expanded","false"); btn.textContent = "Menu ▾"; }
+    });
+  }
+
+  /* ---- Scroll-spy ---- */
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll("#sideNav a"));
+  var byId = {};
+  navLinks.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+  var spy = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) {
+        navLinks.forEach(function (a) { a.classList.remove("active"); });
+        var link = byId[en.target.id];
+        if (link) link.classList.add("active");
+      }
+    });
+  }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
+  document.querySelectorAll("main section[id]").forEach(function (s) { spy.observe(s); });
+
+  /* Bar / funnel widths are set inline in the HTML so every chart renders
+     correctly with or without JS, on first paint, in any environment. The
+     page's single deliberate motion moment is the hero pitch radar below. */
+
+  /* ---- Sidebar ball mark (mini pitch radar) ---- */
+  (function () {
+    var c = document.getElementById("ballMark");
+    if (!c || !c.getContext) return;
+    var ctx = c.getContext("2d");
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = 68 * dpr; c.height = 68 * dpr; ctx.scale(dpr, dpr);
+    ctx.clearRect(0,0,68,68);
+    ctx.strokeStyle = "rgba(231,238,243,0.6)"; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(34,34,30,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(34,4); ctx.lineTo(34,64); ctx.stroke();
+    ctx.beginPath(); ctx.arc(34,34,9,0,Math.PI*2); ctx.stroke();
+    var dots = [["#F4B740",20,26],["#F4B740",46,44],["#4FB3E0",26,48],["#4FB3E0",48,22]];
+    dots.forEach(function (d) { ctx.fillStyle = d[0]; ctx.beginPath(); ctx.arc(d[1],d[2],3,0,Math.PI*2); ctx.fill(); });
+  })();
+
+  /* ---- Hero pitch radar ---- */
+  (function () {
+    var canvas = document.getElementById("pitch-canvas");
+    if (!canvas || !canvas.getContext) return;
+    var ctx = canvas.getContext("2d");
+    var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    function resize() {
+      var r = canvas.getBoundingClientRect();
+      W = r.width; H = r.height;
+      canvas.width = Math.max(1, W * dpr); canvas.height = Math.max(1, H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Pitch geometry occupies right ~60%, angled feel via margins
+    function pitchRect() {
+      var pad = Math.min(W, H) * 0.08;
+      var px = W * 0.30, py = pad, pw = W * 0.66, ph = H - pad * 2;
+      return { x: px, y: py, w: pw, h: ph };
+    }
+
+    // players: normalized positions + small drift
+    var teamA = [], teamB = [];
+    for (var i = 0; i < 7; i++) {
+      teamA.push({ x: 0.12 + Math.random()*0.34, y: 0.12 + Math.random()*0.76, ph: Math.random()*Math.PI*2, sp: 0.18 + Math.random()*0.5 });
+      teamB.push({ x: 0.54 + Math.random()*0.34, y: 0.12 + Math.random()*0.76, ph: Math.random()*Math.PI*2, sp: 0.18 + Math.random()*0.5 });
+    }
+    var ball = { x: 0.5, y: 0.5, ph: 0 };
+    var trails = [];
+
+    function drawPitch(P) {
+      ctx.strokeStyle = "rgba(231,238,243,0.16)"; ctx.lineWidth = 1.2;
+      ctx.strokeRect(P.x, P.y, P.w, P.h);
+      ctx.beginPath(); ctx.moveTo(P.x + P.w/2, P.y); ctx.lineTo(P.x + P.w/2, P.y + P.h); ctx.stroke();
+      ctx.beginPath(); ctx.arc(P.x + P.w/2, P.y + P.h/2, Math.min(P.w,P.h)*0.13, 0, Math.PI*2); ctx.stroke();
+      var bh = P.h * 0.42, bw = P.w * 0.12;
+      ctx.strokeRect(P.x, P.y + (P.h-bh)/2, bw, bh);
+      ctx.strokeRect(P.x + P.w - bw, P.y + (P.h-bh)/2, bw, bh);
+    }
+
+    function dot(P, p, color, rad) {
+      var cx = P.x + p.x * P.w, cy = P.y + p.y * P.h;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+      return [cx, cy];
+    }
+
+    var t = 0;
+    function frame() {
+      ctx.clearRect(0, 0, W, H);
+      var P = pitchRect();
+
+      // faint vignette tint
+      drawPitch(P);
+
+      t += 0.016;
+      // ball drifts in a lissajous
+      ball.x = 0.5 + Math.cos(t*0.5) * 0.26;
+      ball.y = 0.5 + Math.sin(t*0.8) * 0.30;
+
+      function move(arr) {
+        for (var k = 0; k < arr.length; k++) {
+          var p = arr[k];
+          p.x += Math.cos(p.ph + t*p.sp) * 0.00045;
+          p.y += Math.sin(p.ph + t*p.sp*1.3) * 0.00060;
+          p.x = Math.max(0.04, Math.min(0.96, p.x));
+          p.y = Math.max(0.05, Math.min(0.95, p.y));
+        }
+      }
+      move(teamA); move(teamB);
+
+      // ball trail
+      var bc = [P.x + ball.x*P.w, P.y + ball.y*P.h];
+      trails.push(bc); if (trails.length > 26) trails.shift();
+      for (var j = 0; j < trails.length; j++) {
+        var a = j / trails.length;
+        ctx.beginPath(); ctx.arc(trails[j][0], trails[j][1], 1.5, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(244,183,64," + (a*0.4) + ")"; ctx.fill();
+      }
+
+      teamA.forEach(function (p) { dot(P, p, "rgba(244,183,64,0.92)", 4); });
+      teamB.forEach(function (p) { dot(P, p, "rgba(160,182,196,0.78)", 4); });
+      // ball
+      ctx.beginPath(); ctx.arc(bc[0], bc[1], 3.2, 0, Math.PI*2);
+      ctx.fillStyle = "#fff"; ctx.fill();
+
+      if (!reduce) requestAnimationFrame(frame);
+    }
+
+    if (reduce) { frame(); } else { requestAnimationFrame(frame); }
+  })();
+})();
+</script>
+
+</body>
+</html>
