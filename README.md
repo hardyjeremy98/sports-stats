@@ -38,21 +38,27 @@ dominated by pro clubs, broadcasters and betting. But the **core technical premi
 upload of a *single ground-level phone camera* yielding *accurate full-team per-player stats* — sits
 directly on CV problems the peer-reviewed literature shows are **not solved**: multi-object tracking
 under occlusion, player re-identification with near-identical kits, and per-player event attribution
-when jersey numbers aren't visible. The leading academic pipelines *and* the closest funded competitor
-(StepOut) are built for **professional broadcast feeds, not phone footage**. Add **minors'-footage
-regulation** (the FA mandates written parental consent and operational "do-not-film" systems) and the
-verdict is: **the white-space is real, but it is real precisely because the technology and unit
-economics do not yet robustly support it at a consumer price.** This is a hard-tech bet disguised as a
-SaaS bet.
+when jersey numbers aren't visible. The leading academic pipelines *and* the closest funded broadcast-grade
+competitor (StepOut) are built for **professional broadcast feeds, not phone footage**. Add
+**minors'-footage regulation** (the FA mandates written parental consent and operational "do-not-film"
+systems) and the *technical* verdict is: **the white-space is real precisely because the technology and
+unit economics do not yet robustly support it at a consumer price.** This is a hard-tech bet disguised as
+a SaaS bet. **But the *commercial* white-space is narrower than that makes it sound:** a focused
+competitive scan (§3, 2026-06-23) found **mpact.ai already marketing automated per-player stats from "any
+phone" at a consumer price** — so the cell is **occupied by claim**, and the real question is execution
+(a *working* product) and traction, not novelty.
 
 ## Coverage warning
 
-The research returned **strong, primary-sourced** evidence on (a) bottom-up demand counts and
-(b) the technology-capability and minors'-privacy questions. It returned **thin or no verified**
-evidence on: top-down dollar TAM/CAGR, willingness-to-pay/pricing benchmarks, unit economics
-(CAC/LTV/churn), the funding/M&A landscape beyond StepOut, and **most named competitors**
-(Hudl, Veo, Trace, Pixellot, Spiideo, Wyscout, Stats Perform, StatsBomb, SkillCorner were not
-independently verified). Treat those areas as **open questions requiring primary research** — they are
+The research returned **strong, primary-sourced** evidence on (a) bottom-up demand counts,
+(b) the technology-capability and minors'-privacy questions, and — after a **second pass (2026-06-23)** —
+(c) **competitor capability, pricing, and the commercial white-space** (§3). That second pass found the
+target cell is **no longer vacant**: **mpact.ai** already markets automated per-player stats from "any
+phone" at a consumer price, while every *automated* incumbent (Trace, Veo, Spiideo, zone14, Pixellot,
+XbotGo) is **hardware-gated** and **Hudl Assist** is **human-in-the-loop + structured capture**.
+It still returned **thin or no verified** evidence on: **top-down dollar TAM/CAGR** and the
+**funding/M&A landscape** (whether pro incumbents like Stats Perform are moving down-market is
+undetermined), plus willingness-to-pay/VOC. Treat those as **open questions requiring primary research** —
 listed explicitly in [section 5](docs/05-evidence-and-methodology.md#open-questions).
 
 ---

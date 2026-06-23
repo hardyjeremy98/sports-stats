@@ -47,7 +47,7 @@ every axis** (scale, occlusion, motion blur, pitch registration). `[VERIFIED]`
 | 9 | **Homography / pitch calibration** | SegFormer camera-param estimation; ViT-tiny keypoints + RANSAC (0.26 m on broadcast) | 🟡 **Works on operated cameras; fragile on amateur handheld** |
 | 10 | **Team ID by kit color** | roboflow/sports SigLIP + KMeans off-the-shelf | 🟢 **Solved/commodity** (do not confuse with individual ID) |
 | 11 | **End-to-end Game State Reconstruction** | **GS-HOTA 63.81** (2024 winner) vs 43.15 (2nd) — 1080p **broadcast** clips, 5 m tolerance | 🔴 **Research-grade, introduced 2024, not product-ready** |
-| 12 | **Foundation models** | SegFormer / ViT / SigLIP / PARSeq already inside SOTA — advanced sub-parts, didn't close the end-to-end gap | 🟡 **Promising / watch** — could compress timelines |
+| 12 | **Foundation models** | SegFormer / ViT / SigLIP / PARSeq already inside SOTA — advanced sub-parts, didn't close the end-to-end gap | 🟡 **Promising / watch** — could change what's tractable |
 
 ### The two numbers that matter most
 - **GS-HOTA ~64** is the closest single proxy for "the whole product." It means **roughly a third of
@@ -149,14 +149,15 @@ itself a risk (you cannot cite an accuracy you have not measured on your own inp
 
 ---
 
-## Overall verdict — years to a reliable consumer product
+## Overall verdict — what's solved vs. what blocks the full product
 
-A **reliable** consumer product doing accurate per-player event attribution from **one amateur phone**
-is **not near-term.** Components 1 and 10 are shipping-grade; 2, 4, 6, 9 are caveated; **3, 5(3D), 7, 11
-are the blockers.** The integration task is a benchmark *introduced in 2024*, scoring **~64/100 on easier
-broadcast input**. Bridging from research-grade broadcast GSR to a robust amateur-footage consumer
-product is plausibly a **multi-year (~3–5+ year) effort**, gated chiefly by re-ID, jersey-number
-legibility, and end-to-end attribution under amateur capture conditions.
+A **reliable** consumer product doing accurate per-player event attribution from **one amateur phone** is
+**not achievable with today's off-the-shelf state of the art.** Components 1 and 10 are shipping-grade;
+2, 4, 6, 9 are caveated; **3, 5(3D), 7, 11 are the blockers.** The integration task is a benchmark
+*introduced in 2024*, scoring **~64/100 on easier broadcast input**. The full per-player promise stays
+**gated on open research problems** — re-ID, jersey-number legibility, and end-to-end attribution under
+amateur capture conditions — not on routine engineering. (We make **no estimate of how long that takes
+to build**; it depends on research progress and the team, neither of which this dossier can forecast.)
 
 **What *is* achievable now (with caveats):** team-level analytics, heatmaps, and **event spotting +
 highlight clips** from raw video — which is exactly why section 0's recommended wedge (highlights /

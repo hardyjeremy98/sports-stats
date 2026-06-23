@@ -1,141 +1,207 @@
 # 3. Supply — Competition & How Money Is Made
 
-> **Evidence status:** Only **StepOut** was independently verified (its positioning + funding, plus a
-> critical **refutation** that it accepts phone footage). **Every other named competitor — Hudl, Veo,
-> Trace, Pixellot, Spiideo, zone14, XbotGo, Wyscout/InStat, Stats Perform/Opta, StatsBomb, SkillCorner
-> — was NOT independently verified.** Pricing anchors from the brief (Veo, Hudl Assist) are
-> **`[UNVERIFIED]`**. Treat the competitive map as a structured hypothesis to confirm with primary
-> vendor research; treat the StepOut findings as solid.
+> **Evidence status (updated 2026-06-23 by a second deep-research pass focused on this section):**
+> The competitive map is **now largely verified.** A dedicated 6-angle / 26-source / 25-claim adversarial
+> pass (see [§5](05-evidence-and-methodology.md)) confirmed each major competitor's business model,
+> segment, and — critically — **whether it accepts ordinary phone footage or requires its own hardware.**
+> **Pricing is now `[VERIFIED]`** for Hudl, Trace and Veo (replacing the old brief anchors). The two
+> things still **`[UNVERIFIED]`** are **dollar TAM/CAGR** and the **funding/M&A landscape** — both
+> returned no surviving claims and remain open questions. Unit economics are modelled in
+> [§6](06-unit-economics-deep-dive.md).
+>
+> **Headline change vs. the first pass:** the target cell is **no longer "verified empty."** Judged on
+> *commercial* grounds alone, **at least one entrant (mpact.ai) already claims the exact position** —
+> automated + any-phone + consumer-priced. The white-space is **thinly contested, not vacant.** See §3.2.
 
 ---
 
-## 3.1 Competitive landscape
+## 3.0 How to read this section — two different "white-space" questions
 
-### Verified competitor — StepOut `[VERIFIED]`
-- **Positioning (3-0):** spans the *full* range you target — clubs, academies, leagues, federations,
-  agents, tournament organisers, **plus** coaches, analysts and **individual players**. Markets marquee
-  logos (Real Madrid CF, AFC Ajax, Rayo Vallecano, Bengaluru FC, 60+ teams).
-- **Funding (3-0):** raised **$1.5M pre-Series A** (Rainmatter, 2025) — an active, funded competitor.
-- **⚠️ Marketing-generous "clients" (verified caveat):** independent reporting (YourStory, Prodwrks)
-  indicates the Real Madrid/Ajax relationships are **accelerator/challenge-derived pilots, not paid
-  commercial clients.**
-- **🚩 Critical refutations for your thesis:**
-  - **`[REFUTED 0-3]`** that StepOut **accepts ground-level phone footage**. → Even the closest funded
-    analogue does **not** clearly solve your hardest use case.
-  - **`[REFUTED 1-2]`** that it auto-generates "400+ datapoints per match … without manual tagging." →
-    The fully-automated claim is unproven.
+The brief asked whether a gap exists. That actually decomposes into **two independent questions**, and the
+first pass blurred them. This section keeps them apart:
 
-**Read:** StepOut both **validates the opportunity** (a funded company is chasing the same broad B2B+B2C
-range) **and validates the difficulty** (it is built around broadcast-grade input, not the phone footage
-that defines your wedge). The gap you want is *below* even StepOut.
+1. **The commercial question (this section):** *If the technology worked, is the competitive position
+   unoccupied?* This is answerable today by mapping what competitors **sell and claim**, regardless of
+   whether their AI is any good. **Answer below: the position is thinly contested — one early entrant
+   already claims it — not the virgin territory the brief assumed.**
+2. **The technology question ([§4](04-enabling-environment.md), [§7](07-technology-maturity-deep-dive.md)):**
+   *Can the thing actually be built on phone footage?* That is where the hard "MOT + re-ID + attribution
+   is unsolved on ground-level video" evidence lives.
 
-### Unverified competitors — confirm before relying `[UNVERIFIED]`
-The brief's landscape is a sound *list*; the research could not confirm any of their specifics. Map to
-fill in with primary research:
-
-| Competitor | Likely model (to verify) | Likely segment (to verify) | Key question to confirm |
-|------------|--------------------------|----------------------------|-------------------------|
-| **Hudl** (rolled up Wyscout, InStat) | SaaS + services | Consolidating top → mid | Does Hudl Assist accept single-phone footage or need hardware? |
-| **Veo** | Hardware + SaaS | Grassroots → semi-pro | Confirm ~$799 cam + ~$42/mo; auto-follow camera = capture solution |
-| **Trace** | Hardware + SaaS | Youth/grassroots | Camera-bound; per-player stats accuracy? |
-| **Pixellot** | Hardware/AI cameras | Clubs/venues/broadcast | B2B2C venue model |
-| **Spiideo** | Cloud + cameras | Clubs/venues | Multi-camera; phone footage? |
-| **zone14 / XbotGo** | AI auto-follow phone mount / camera | Consumer/grassroots | XbotGo closest to "phone-based"; verify analytics depth |
-| **Wyscout / InStat** | Data platform (Hudl-owned) | Pro/scouting | Not your segment |
-| **Stats Perform/Opta, StatsBomb, SkillCorner** | Data feeds/APIs, broadcast tracking | Pro/broadcast/betting | Potential down-market entrants (threat, §4) |
-
-**Structure (hypothesis):** consolidating at the top (Hudl roll-ups), fragmenting at the consumer end —
-which is *why* a consumer wedge looks open, and *why* it's crowded with small hardware+app players.
+The first pass collapsed these into "the cell is empty *because* the tech isn't solved." That conflation
+hid the commercially decisive fact: **competitors are already moving into the cell on a marketing basis,
+so you cannot assume you'd arrive first.** Treat §4/§7 as the *feasibility* gate and this section as the
+*occupancy* map.
 
 ---
 
-## 3.2 Positioning map (axes that matter here)
+## 3.1 Competitive landscape `[NOW VERIFIED]`
 
-The two axes that actually separate winners from losers in *your* niche are **how automated** the
-analysis is (vertical) and **how constrained the capture** has to be (horizontal). Reading the grid
-**left → right = progressively easier for the customer to supply footage**; **top → bottom = more human
-labour in the loop.**
+Each competitor was checked against three axes: **business model** (hardware / software-only /
+human-in-the-loop), **segment** (grassroots-consumer / academy / pro), and **capture requirement** (needs
+their hardware / structured-capture-on-phone / accepts any phone footage).
 
-| **Automation ↓ · Capture →** | **Needs their hardware**<br/>(own camera / fixed rig) | **Software-only, but needs<br/>broadcast-grade footage** | **Software-only, accepts<br/>any phone footage** |
+### A. The fully-automated stat producers — all hardware-gated `[VERIFIED 3-0]`
+Every competitor that produces **automated** per-player/team stats does so by **controlling the capture
+with proprietary or managed hardware**. None accepts arbitrary single-phone footage as its analytics input.
+
+| Competitor | Model | Segment | Capture requirement | Note |
+|------------|-------|---------|---------------------|------|
+| **Trace** | Hardware + SaaS | **Grassroots / youth families** | **Proprietary TraceCam** (16-ft tripod bundle); phone "MultiCam" is a *supplementary* angle, **not** the analytics input | Auto-edits per-player highlights for both teams. `[VERIFIED 3-0]` |
+| **Veo** (Analytics / Player Spotlight) | Hardware + SaaS add-ons | Grassroots → pro | **Veo Cam 3** (proprietary 4K). Per-player tracking (soccer-only) is a **paid add-on** on top of camera+base plan | `[VERIFIED 3-0]` |
+| **Veo Go** | Managed two-phone rig | Families / youth | Uses the user's iPhone — **but requires *two* iPhones + a rig**, a managed capture system, not arbitrary single-phone upload | `[VERIFIED 3-0]`; the "Veo Go = single-phone software-only" reading was **`[REFUTED 1-2]`** |
+| **Spiideo** (AutoData) | Cloud + fixed cameras | **Pro / elite / academy** | Fully machine-generated ("no human data collectors") — **but requires a Spiideo fixed-camera install** | Case studies: Utah women's, NWSL, Swedish academies. `[VERIFIED 3-0]` |
+| **zone14** (STATS) | AI camera + software | Clubs / academy | Automated without GPS/wearables/manual tagging; built around **panoramic** AI-camera footage but **not strictly locked** to one proprietary camera | The "zone14 is hardware-dependent" framing was **`[REFUTED 0-3]`** — it is more capture-flexible than assumed. `[VERIFIED 2-1]` that it produces automated stats |
+| **Pixellot** | Hardware/AI cameras | Clubs / venues / broadcast | Proprietary panoramic cameras (Air NXT etc.) | `[VERIFIED 3-0]` (trade press) |
+| **XbotGo** (Falcon / Chameleon) | AI auto-follow phone mount / camera | Consumer / grassroots | Proprietary auto-follow hardware | `[VERIFIED 3-0]` (trade press) |
+
+### B. The software-accepting incumbent — but human-in-the-loop & structured capture `[VERIFIED 3-0]`
+- **Hudl Assist** is the closest incumbent that takes **user-supplied** footage and returns per-player
+  soccer stats — **but it is not automated and not "any footage":**
+  - **Human-in-the-loop:** "the core of Hudl Assist relies on a team of **trained analysts who manually
+    tag every play, event, and statistic**"; AI tagging exists only in *some* sports (e.g. volleyball via
+    Balltime) — **soccer remains human-tagged.** "AI performance summaries" (beta) is a summarization
+    layer *over* human-tagged events, not CV event detection. `[VERIFIED 3-0]`
+  - **Structured capture, not arbitrary upload:** users must "follow the required recording workflow for
+    your sport," capturing **the entire playing surface** on Hudl Focus or a supported device. A phone is
+    allowed **only through this gate**, not as arbitrary ground-level footage. `[VERIFIED 3-0]`
+  - **~24h turnaround, staffed 24/7.** This is a **services** business wearing a SaaS skin — which is why
+    it is priced like one (§3.3) and why an *automated* entrant could undercut it structurally.
+
+### C. The emerging phone-footage entrants — the cell is being entered `[VERIFIED 3-0 / directional]`
+- **★ mpact.ai (Impact Soccer)** `[VERIFIED 3-0, marketing-claim basis]` — **occupies the exact target
+  cell.** Homepage: *"100% Automated… Your Entire Match Analyzed in Hours,"* *"the only solution that
+  provides 100% automated both on- and off-the-ball stats for every match,"* and *"Any Camera, Any
+  Time… **Even Your Phone!**"* (compatible with Apple, Android, YouTube). The FAQ confirms **no
+  proprietary hardware** ("phone-on-tripod gets the same results"), with a **free-match** consumer offer.
+  A 2025 press release corroborates automatic ball/player tracking "without any human intervention" in
+  4–6 hours.
+  - **⚠️ Critical caveat:** these are **unverified vendor marketing claims** with **no independent
+    accuracy benchmark.** The white-space question brackets *feasibility*, so this establishes
+    **commercial occupancy by claim, not a demonstrated working product or market traction.** But its mere
+    existence **refutes the "verified empty" thesis** — you would not be first to *pitch* this.
+- **playvista.ai** and others surfaced as additional phone-footage AI entrants (directional, not
+  independently verified); an SCMP report describes AI using **phone-recorded video** to surface football
+  talent. The signal: **multiple parties are now aiming at the phone-footage lane.**
+
+### D. Off-map for the consumer wedge (pro/data layer) `[context]`
+- **Hudl** (rolled up **Wyscout, InStat**, partnered with **StatsBomb**), **Stats Perform/Opta**,
+  **SkillCorner** — pro/scouting/broadcast data feeds and video-tracking. SkillCorner does *video-based*
+  tracking but for **broadcast/pro** feeds. These are **not your segment**, but they are the most credible
+  **down-market threat** (§4) — though the research found **no evidence any of them has shipped an
+  automated phone-footage consumer product.** Their positioning relative to the target cell is
+  **undetermined** (open question, §5).
+- **StepOut** `[VERIFIED 3-0, first pass]` — software-only, broadly positioned (clubs→individuals), raised
+  **$1.5M pre-Series A** (Rainmatter, 2025). But **`[REFUTED 0-3]`** that it accepts ground-level phone
+  footage, and **`[REFUTED 1-2]`** the fully-automated "400+ datapoints, no manual tagging" claim. It is
+  built around **broadcast-grade input** — so it sits one column *left* of the target. Marquee logos
+  (Real Madrid, Ajax) are **accelerator/pilot relationships, not paid clients.**
+
+---
+
+## 3.2 Positioning map `[NOW VERIFIED]`
+
+Two axes separate winners from losers here: **how automated** the analysis is (vertical) and **how
+constrained the capture** must be (horizontal). **Left → right = easier for the customer to supply
+footage; top → bottom = more human labour in the loop.**
+
+| **Automation ↓ · Capture →** | **Needs their hardware**<br/>(own camera / fixed rig / managed multi-phone) | **Software-only, but needs<br/>broadcast-/structured-grade footage** | **Software-only, accepts<br/>any single-phone footage** |
 |---|---|---|---|
-| **Fully automated**<br/>(no human tagging) | Veo · Trace · Pixellot<br/>· Spiideo · XbotGo ⁱ | StepOut ⁱⁱ<br/>*(needs good/elevated footage)* | **★ YOUR TARGET — EMPTY** ⁱⁱⁱ |
-| **Human-in-the-loop**<br/>(manual / paid tagging) | — | Wyscout / InStat ⁱ<br/>*(pro data, off-map for consumer)* | **Hudl Assist** ⁱ · manual tagging<br/>· spreadsheets · the coach's eye |
+| **Fully automated**<br/>(no human tagging) | Trace · Veo Analytics/Player Spotlight · Spiideo AutoData · zone14 · Pixellot · XbotGo · **Veo Go** (2-phone rig) `[VERIFIED 3-0]` | **StepOut** `[VERIFIED]`<br/>*(needs broadcast-grade footage)* | **★ mpact.ai — OCCUPIED (by claim)** ⁱ<br/>*+ emerging: playvista.ai, others* |
+| **Human-in-the-loop**<br/>(manual / paid tagging) | — | **Hudl Assist** `[VERIFIED 3-0]`<br/>*(prescribed full-field recording workflow)* | manual tagging · spreadsheets · the coach's eye |
 
-<sub>ⁱ **`[UNVERIFIED]`** — placement inferred from the brief; not independently confirmed in this research.
-ⁱⁱ **`[VERIFIED]`** StepOut is software-only and broadly positioned, but accepting phone footage was
-**`[REFUTED 0-3]`** — so it sits one column *left* of the target.
-ⁱⁱⁱ **`[VERIFIED]`** the target cell is empty: §4 shows single-camera ground-level per-player attribution
-isn't solved.</sub>
+<sub>ⁱ **`[VERIFIED 3-0]`** that mpact.ai *markets and sells* an automated, any-phone, consumer-priced
+product — **commercial occupancy.** **Not** verified: that it works, or has traction. Accuracy is
+bracketed by the white-space question; see §4/§7 for the feasibility gate.</sub>
 
-**Three things jump out of the grid:**
+**What changed and why it matters:**
 
-- **The top-right cell — automated *and* accepts any phone footage *and* consumer-priced — is empty.**
-  The verified evidence (§4, §7) says it is empty because **single-camera ground-level per-player
-  attribution isn't solved**, *not* because nobody tried. This is the whole white-space-vs-trap tension.
-- **Every credible *automated* competitor is pushed to the left**, into "needs their hardware" (or, like
-  StepOut, "needs broadcast-grade footage"), because **controlling the capture is how they make the CV
-  work.** That is the single most important strategic pattern in the set — and the reason "upload any
-  footage" is a position you have to *earn* with hard tech, not just declare.
-- **Hudl Assist defeats the difficulty by spending human labour** (bottom-right): it accepts uploaded
-  footage *and* produces per-player stats, but via paid human taggers — which is exactly why it costs
-  $700+/team/season (§3.3) and why an *automated* top-right entrant would undercut it on cost.
-
----
-
-## 3.3 Business models & pricing `[UNVERIFIED]`
-
-Revenue models in the category (catalogue; specifics to confirm):
-hardware sale · SaaS subscription · per-match credits · freemium · done-for-you analyst service ·
-data licensing.
-
-**Pricing anchors from the brief — `[UNVERIFIED]`, confirm directly with vendors:**
-- Veo ≈ **$799 camera + ~$42/mo** (hardware + SaaS).
-- Hudl Assist ≈ **$1,200–$5,000+/yr** (human-in-the-loop tagging service).
-
-> Note the implied gulf: incumbent automated/serviced offerings appear to sit at **$500–$5,000/yr-class**
-> price points, often **bundled with hardware**. A pure-software consumer play undercutting that on price
-> while *out-automating* it on phone footage is the bet — and §1.2 shows that means **low price × high
-> volume**, which makes the economics below decisive.
+- **The top-right cell is occupied — by claim, by an early entrant — not verified-empty.** The first pass
+  marked it `[VERIFIED] empty` on the strength of §4's *technology* argument. That was a **category
+  error**: a tech limitation is not a commercial scan. A direct commercial scan finds **mpact.ai sitting
+  in the exact cell**, and others (playvista.ai) aiming at it. The honest statement is: *no **entrenched,
+  proven** incumbent owns this cell, but it is **actively being entered**, so first-mover advantage is
+  **not** available for the taking.*
+- **Hudl Assist moved.** The first pass put it in the **bottom-right** ("accepts any uploaded footage").
+  Verification shows it belongs in the **bottom-*middle*** — it requires a **prescribed full-field
+  recording workflow**, not arbitrary phone footage. So even the human-in-the-loop incumbent **gates its
+  capture**. The bottom-right ("any phone footage" + human tagging) is occupied only by **DIY substitutes**
+  (spreadsheets, the coach's eye) — a real but unmonetised substitute pressure.
+- **Every automated competitor still controls capture via hardware** (or a managed multi-phone rig).
+  That remains the single most important structural pattern: **controlling capture is how they make the CV
+  work.** "Upload any footage" is therefore a position you must **earn with hard tech** (§4) — and now
+  also one you must **win against mpact.ai**, not merely invent.
 
 ---
 
-## 3.4 Unit economics `[UNVERIFIED — the top financial open question]`
+## 3.3 Business models & pricing `[NOW VERIFIED]`
 
-**No CAC, LTV, gross margin, or churn data was verified.** What is *structurally* known:
-- **Gross margin diverges sharply by model:** pure software (high margin) vs. hardware (low) vs.
-  human-in-the-loop tagging (low, labour-bound). Your software-only model is the *highest-margin* cell —
-  **if** inference cost per match stays low. Per-match GPU/CV compute is a real COGS line to model.
-- **Seasonal churn is the category's structural wound:** people cancel in the **off-season**. For a
-  seasonal sport this can be brutal and is the most likely LTV-killer. Annual or club-billed contracts
-  (B2B2C) mitigate it; month-to-month consumer billing exposes you to it.
-- **CAC vs LTV** at consumer price points is the make-or-break. Low ACV (§1.2) means CAC must be very
-  low — which points to **virality and B2B2C channel leverage**, not paid acquisition.
+The old brief anchors (Veo "$799 + $42/mo", Hudl Assist "$1,200–$5,000") are **superseded** by verified
+pricing below. The dominant revenue models are **(a) hardware-sale + SaaS** and **(b) human-tagging SaaS**
+— confirming a **pure software-only / any-phone / consumer** model is the **under-occupied contrarian
+lane.**
 
-→ **Build a unit-economics model as a first deliverable.** It is the single highest-leverage unknown.
+| Product | Model | Verified price | Tag |
+|---|---|---|---|
+| **Hudl** Club Soccer (video SaaS) | per team / year | Bronze **$400** (~20 games) · Silver **$1,000** (~65) · Gold **$1,600** (~130) | `[VERIFIED]` (tiers 2-1) |
+| **Hudl Assist** (human tagging) | per team / season | **$700–$1,600** | `[VERIFIED 3-0]` |
+| **Trace** PlayerFocus | per **family** / year | Basic **$180/yr** (2 seats) · Pro **$300/yr** (4 seats) | `[VERIFIED 3-0]` |
+| **Trace** hardware (TraceCam) | lease | free with yearly sub, **or $25/mo + $99** one-time | `[VERIFIED 3-0]` |
+| **Veo** | hardware + add-on SaaS | Cam 3 free on Performance Bundle; Analytics / Player Spotlight **~$33/mo** add-ons | `[VERIFIED 3-0]` |
+| **Veo Go** | managed 2-phone SaaS | **~$29/mo + ~$50** accessory kit | `[VERIFIED 3-0]` |
+
+**Anchors that matter for your pricing:**
+- **Automated per-player ceiling (self-serve):** Trace at **$180–$300 per *family* per year** is the
+  closest comparable to an automated per-player-stats consumer product. Note it is priced **per family,
+  not per team** — a materially different unit than the per-team SaaS above.
+- **Human-tagging ceiling:** Hudl Assist **$700–$1,600/team/season** is what the market pays when a
+  **human** does the work — leaving large headroom for an automated product priced well below it.
+- **No incumbent monetises pure software-only any-phone automated stats at a consumer price** — except the
+  unproven mpact.ai. That is the open commercial lane (with the §4 feasibility gate attached).
+
+---
+
+## 3.4 Unit economics → see [§6](06-unit-economics-deep-dive.md)
+
+The first pass flagged unit economics as the top open question; the **§6 deep-dive now models it** with
+verified GPU pricing. Headline: automated per-match COGS is **~$1.80–$4.70**, *not* the constraint;
+the binding constraints are **per-payer LTV** (≈$36 Year-1 consumer ceiling `[VERIFIED]`) and **seasonal
+churn** `[VERIFIED]`. The strategic implication for *this* section is unchanged: **low price × high volume
+→ CAC and churn decide viability**, which points to **B2B2C + virality**, not paid acquisition.
 
 ---
 
 ## 3.5 Go-to-market & distribution
 
-Channels that work in this category (hypotheses; the virality loop is the standout):
-- **D2C web + app stores** — high CAC, exposed to seasonal churn.
-- **Club / league / federation B2B2C** — *best fit*: amortises CAC over a roster, fixes capture, and
-  folds parental consent (§2.4) into the club's existing membership flow. Solves three risks at once.
+Channels that work in this category (the virality loop is the standout):
+- **D2C web + app stores** — high CAC, exposed to seasonal churn; this is the lane mpact.ai's free-match
+  offer is testing.
+- **Club / league / federation B2B2C** — *best fit*: amortises CAC over a roster, **fixes capture**
+  (directly attacking the structural hardware-vs-phone tension above), and folds parental consent (§2.4)
+  into the club's membership flow. Solves three risks at once. Note Trace's grassroots traction
+  (US Youth Soccer, ECNL partnerships) is exactly this motion.
 - **Coach referral & tournaments** — concentrated, trust-based.
-- **Retail** — only if you ship hardware.
+- **Retail** — only if you ship hardware (which the software-only thesis rejects).
 - **🟢 Highlight-sharing virality loop** — the growth engine Veo/Trace lean on: a player shares a
   highlight → teammates/parents/opponents see it → they want their own. This loop is **forgiving of
-  imperfect stats** (it sells clips, not Opta data), aligning perfectly with the safer
-  highlights/development wedge from §2.2 and driving CAC toward zero.
+  imperfect stats** (it sells clips, not Opta data), aligning with the safer highlights/development wedge
+  from §2.2 and driving CAC toward zero.
 
 ---
 
 ### Section 3 takeaways
-- ✅ **StepOut is real, funded, and broadly positioned — but does NOT accept phone footage** (verified).
-  The empty corner you want is below even the funded incumbents.
-- ⚠️ **All other competitors and all pricing/economics are unverified** — primary vendor research is the
-  next job.
-- 🧭 The dominant strategic pattern: **automated competitors control capture via hardware.** Going
-  software-only on "any phone footage" rejects the very lever that makes everyone else's CV work.
-- 💸 **Unit economics + seasonal churn** — not market size — decide viability. Model them first; lean on
-  **B2B2C + the highlight virality loop** to attack CAC and churn together.
+- 🟥 **The headline correction: the target cell is occupied by claim, not verified-empty.** **mpact.ai**
+  already markets automated + any-phone + consumer-priced per-player stats; **playvista.ai** and others
+  are aiming at the same lane. On *commercial* grounds the position is **thinly contested, not vacant** —
+  you would not be first to pitch it. `[VERIFIED 3-0, marketing-claim basis]`
+- 🧭 **The dominant structural pattern holds and is now verified:** **every automated incumbent controls
+  capture via hardware** (Trace, Veo, Spiideo, Pixellot, XbotGo) or a managed multi-phone rig (Veo Go).
+  Going software-only on "any phone footage" rejects the very lever that makes their CV work.
+- ✅ **Hudl Assist is human-in-the-loop and gates capture** (full-field recording workflow) — it is a
+  **services** business, priced $700–$1,600/team/season, *not* an automated any-footage product. The
+  automated lane below it is genuinely open on cost.
+- 💸 **Pricing is now verified** (Hudl, Trace, Veo) and **§6 models unit economics** — the contest is on
+  **CAC × seasonal churn**, won via **B2B2C + the highlight virality loop**.
+- ⚠️ **Still unverified:** **dollar TAM/CAGR** and the **funding/M&A landscape** (incl. whether pro
+  incumbents are moving down-market) — both returned no surviving claims and remain the primary open
+  questions (§5).
