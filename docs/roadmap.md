@@ -1,176 +1,202 @@
-Reasons to pursue it
-1. The market is enormous
+# Reasons to Pursue It
+
+## 1. The Market is Enormous
 
 Grassroots sports absolutely dwarf professional sports.
 
 There are:
 
-thousands of soccer clubs
-schools
-academies
-amateur leagues
-parents wanting recruitment footage
-players wanting statistics and highlights
+* Thousands of soccer clubs
+* Schools
+* Academies
+* Amateur leagues
+* Parents wanting recruitment footage
+* Players wanting statistics and highlights
 
 Even if you captured:
 
-0.01% of the market
-at $10/month per team
+* 0.01% of the market
+* At $10/month per team
 
-you could build a substantial business.
+You could build a substantial business.
 
-2. Existing solutions have weaknesses
+---
 
-From my research, current products generally have one or more of these problems:
+## 2. Existing Solutions Have Weaknesses
 
-expensive
-inaccurate
-require expensive cameras
-focused on teams rather than individual players
-poor UX
-don't work across many sports
-require manual tagging
-take hours or days to process
-don't provide the metrics users actually care about.
+Current products generally have one or more of these problems:
+
+* Expensive
+* Inaccurate
+* Require expensive cameras
+* Focused on teams rather than individual players
+* Poor user experience
+* Don't work across many sports
+* Require manual tagging
+* Take hours or days to process
+* Don't provide the metrics users actually care about
 
 Your positioning:
 
-"player-by-player sports analytics done right"
+> **Player-by-player sports analytics done right**
 
-is actually differentiated.
+is genuinely differentiated.
 
-3. Computer vision costs have collapsed
+---
 
-This idea would have been nearly impossible 5 years ago.
+## 3. Computer Vision Costs Have Collapsed
 
-Today you have:
+This idea would have been nearly impossible five years ago.
 
-YOLO
-ByteTrack
-SAM2
-foundation models
-cheap GPU inference
-cloud infrastructure
+Today you have access to:
 
-You can build an MVP with very little capital.
+* YOLO
+* ByteTrack
+* SAM2
+* Foundation models
+* Cheap GPU inference
+* Cloud infrastructure
 
-4. Distribution is unusually good
+You can build an MVP with relatively little capital.
+
+---
+
+## 4. Distribution is Unusually Good
 
 Your customers congregate in places that are easy to reach:
 
-clubs
-tournaments
-Facebook groups
-Reddit
-Discord communities
-schools
-sporting associations
+* Clubs
+* Tournaments
+* Facebook groups
+* Reddit communities
+* Discord communities
+* Schools
+* Sporting associations
 
 You don't need millions of consumers.
 
 You need:
 
-100 clubs
-then 1000 clubs.
-Reasons to be cautious
-1. Computer vision is not the hard part
+* The first 100 clubs
+* Then the first 1,000 clubs
 
-The hard part is:
+---
 
-getting footage
-customer acquisition
-trust
-retention
+# Reasons to Be Cautious
 
-I see many technical founders underestimate this.
+## 1. Computer Vision is Not the Hard Part
 
-2. Unit economics can get ugly
+The difficult parts are:
+
+* Getting footage
+* Customer acquisition
+* Building trust
+* Retention
+
+Many technical founders underestimate these challenges.
+
+---
+
+## 2. Unit Economics Can Get Ugly
 
 Suppose:
 
-upload = 90 minutes
-1080p video
-GPU inference
+* Upload = 90 minutes
+* 1080p video
+* GPU inference
 
-You may be spending dollars per match.
+You may be spending several dollars per match.
 
-If customers only pay $5-$10 per match, margins become problematic.
+If customers only pay $5–10 per match, margins become problematic.
 
 You need to model this carefully.
 
-3. Expectations are extremely high
+---
+
+## 3. Expectations Are Extremely High
 
 If you say:
 
-fully automated player analytics
+> Fully automated player analytics
 
 users expect:
 
-player identification
-perfect stats
-highlights
-heatmaps
-xG
-etc.
+* Player identification
+* Perfect statistics
+* Automatic highlights
+* Heatmaps
+* xG
+* Advanced metrics
 
-But amateur footage is terrible:
+But amateur footage is often:
 
-shaky phones
-parents walking in front
-poor lighting
-players far away.
+* Shaky phone footage
+* Parents walking in front of the camera
+* Poor lighting
+* Players appearing very small in frame
 
 This is arguably the biggest technical risk.
 
-4. The market may not care about advanced analytics
+---
 
-This is something you need to validate immediately.
+## 4. The Market May Not Care About Advanced Analytics
 
 You might think users want:
 
-pressure maps
-possession value
-spatial metrics
+* Pressure maps
+* Possession value
+* Spatial metrics
 
-but they may only want:
+But they may only want:
 
-goals
-assists
-minutes played
-highlights.
+* Goals
+* Assists
+* Minutes played
+* Highlights
 
 The market decides.
 
-My biggest concern with your current idea
+---
 
-Your landing page appears to assume:
+# My Biggest Concern With the Current Idea
 
-"People want analytics."
+The landing page appears to assume:
 
-I don't think that's true.
+> People want analytics.
 
-I think people want outcomes.
+That may not be true.
+
+People generally want outcomes.
 
 Different customers want different outcomes:
 
-Parents
-recruiting footage.
-Players
-personal improvement.
-Coaches
-save time.
-Clubs
-retain players.
-Recruiters
-screen talent faster.
+### Parents
 
-You should sell outcomes, not analytics.
+* Recruiting footage.
 
-The business I would build
+### Players
 
-I would start much smaller.
+* Personal improvement.
 
-Version 1
+### Coaches
+
+* Save time.
+
+### Clubs
+
+* Retain players.
+
+### Recruiters
+
+* Screen talent faster.
+
+Sell outcomes, not analytics.
+
+---
+
+# The Business I Would Build
+
+## Version 1
 
 One sport.
 
@@ -178,7 +204,7 @@ Probably soccer.
 
 One promise:
 
-Upload a match and automatically get player highlights and basic stats.
+> Upload a match and automatically get player highlights and basic stats.
 
 Nothing else.
 
@@ -192,22 +218,29 @@ No xG.
 
 No heatmaps.
 
-Version 2
+---
+
+## Version 2
 
 Add:
 
-player profiles
-season statistics
-recruiting pages.
-Version 3
+* Player profiles
+* Season statistics
+* Recruiting pages
+
+---
+
+## Version 3
 
 Add advanced analytics.
 
-What would dissuade me?
+---
+
+# What Would Dissuade Me?
 
 Only one thing:
 
-If you cannot get people to pay.
+**If you cannot get people to pay.**
 
 Nothing else matters.
 
@@ -217,45 +250,56 @@ Not technology.
 
 Not competition.
 
-What I would do next
+---
+
+# What I Would Do Next
 
 Before writing another line of code:
 
-Find 20 clubs.
-Find 20 coaches.
-Find 20 parents.
-Interview all of them.
+1. Find 20 clubs.
+2. Find 20 coaches.
+3. Find 20 parents.
+4. Interview all of them.
+
 Ask:
-How do you analyse games today?
-What do you hate?
-How much time do you spend?
-How much money do you spend?
-Would you pay for this?
-How much?
-Can I show you an MVP?
+
+* How do you analyse games today?
+* What do you hate about the current process?
+* How much time do you spend?
+* How much money do you spend?
+* Would you pay for this?
+* How much?
+* Can I show you an MVP?
 
 Then:
 
-Try to pre-sell it.
+## Try to Pre-Sell It
 
 Literally ask:
 
-"If I can do this, will you pay $20/month?"
+> If I can do this, will you pay $20/month?
 
 That answer is worth more than another six months of development.
 
-My assessment:
+---
 
-Area	Rating
-Technical feasibility	8/10
-Market size	9/10
-Competition	6/10
-Ease of customer acquisition	6/10
-Risk of customers not caring about analytics	8/10
-Potential upside	9/10
+# Assessment
 
-Overall:
+| Area                                         | Rating |
+| -------------------------------------------- | ------ |
+| Technical feasibility                        | 8/10   |
+| Market size                                  | 9/10   |
+| Competition                                  | 6/10   |
+| Ease of customer acquisition                 | 6/10   |
+| Risk of customers not caring about analytics | 8/10   |
+| Potential upside                             | 9/10   |
 
-Definitely worth pursuing. Not worth blindly building for another year without customer validation.
+## Overall
 
-The risk is not that the idea is bad. The risk is building sophisticated analytics that nobody actually values enough to pay for.
+**Definitely worth pursuing.**
+
+**Not worth blindly building for another year without customer validation.**
+
+The risk is not that the idea is bad.
+
+The risk is building sophisticated analytics that nobody actually values enough to pay for.
