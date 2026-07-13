@@ -1,0 +1,58 @@
+# The v1 production recipe: roboflow/sports hosted models + BoT-SORT.
+# Requires ROBOFLOW_API_KEY and `pip install 'pitchlab-core[cv]'`
+# (+ [face] extra for the identity stage — or set identity impl to "none").
+name: v1-default
+description: >
+  Roboflow fine-tuned detection, BoT-SORT tracking, SigLIP team clustering,
+  keypoint homography with temporal smoothing, global tracklet association,
+  face identity, heuristic possession events.
+sport: soccer
+video:
+  sample_stride: 2        # detection tolerates 12-15 fps; halves GPU cost
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: roboflow
+    params:
+      player_model_id: football-players-detection-3zvbc/11
+      ball_model_id: football-ball-detection-rejhg/2
+      use_ball_model: false   # enable for wide shots where the ball is tiny
+      confidence: 0.3
+  track:
+    impl: botsort
+    params:
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+  team:
+    impl: siglip-kmeans
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: roboflow-keypoints
+    params:
+      keypoint_confidence: 0.5
+      ema_alpha: 0.9
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: face
+    params:
+      upscaler: none        # 'realesrgan' to A/B upscaling in the Lab
+      candidates_per_entity: 6
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false          # v2 seam: learned action spotting
+  annotate:
+    impl: overlay
+    params: {}

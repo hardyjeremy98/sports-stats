@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  /* PitchLab palette: green-cast near-black + volt accent. */
+  --color-turf-950: #0b0f0d;
+  --color-turf-900: #101512;
+  --color-turf-850: #141a16;
+  --color-turf-800: #1a221d;
+  --color-turf-700: #242e27;
+
+  --color-volt-300: #c0f56f;
+  --color-volt-400: #9be532;
+  --color-volt-500: #84cc16;
+
+  --color-ink-100: #e8ede9;
+  --color-ink-400: #9aa59d;
+  --color-ink-500: #6f7a72;
+
+  --color-team-home: #2c91ff;
+  --color-team-away: #e7503c;
+  --color-team-ref: #f5c518;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-turf-950 text-ink-100 font-sans antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-volt-400) 30%, transparent);
+}
+
+/* Scrollbars that match the instrument feel. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-turf-700) transparent;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-dot {
+    animation: none;
+  }
+}

@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pitchlab
+      POSTGRES_PASSWORD: pitchlab
+      POSTGRES_DB: pitchlab
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pitchlab"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    command: uvicorn pitchlab_server.app:app --host 0.0.0.0 --port 8000
+    environment:
+      PITCHLAB_DATABASE_URL: postgresql+psycopg://pitchlab:pitchlab@db:5432/pitchlab
+      PITCHLAB_DATA_DIR: /data
+      ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Same image as api; in production this runs on GPU cloud instances
+  # (the queue is the seam — workers only need the DB and the data volume).
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    command: pitchlab-worker
+    environment:
+      PITCHLAB_DATABASE_URL: postgresql+psycopg://pitchlab:pitchlab@db:5432/pitchlab
+      PITCHLAB_DATA_DIR: /data
+      PITCHLAB_DEVICE: ${PITCHLAB_DEVICE:-auto}
+      ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY:-}
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    # For GPU workers, uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  web:
+    build:
+      context: web
+      dockerfile: ../docker/Dockerfile.web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  appdata:

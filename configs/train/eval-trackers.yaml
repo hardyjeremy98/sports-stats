@@ -1,0 +1,15 @@
+# Batch A/B of two pipeline configs over a clips directory — the CLI
+# counterpart of the Lab's run-diff view. Works with stub configs on CPU.
+name: eval-botsort-vs-iou
+task: eval-pipelines
+description: Compare the stub pipeline against itself with a looser tracker across demo clips.
+dataset:
+  kind: local
+  local_path: data/demo
+params:
+  config_a: configs/pipeline.stub.yaml
+  config_b: configs/pipeline.stub.yaml
+  clips_dir: data/demo
+  max_clips: 2
+  device: cpu
+output_dir: data/experiments

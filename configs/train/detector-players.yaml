@@ -1,0 +1,18 @@
+# Fine-tune the player/ball/GK/referee detector on the roboflow/sports dataset,
+# on a permissive (Apache-2.0) RF-DETR backbone instead of AGPL YOLO weights.
+# Needs: ROBOFLOW_API_KEY, pip install 'pitchlab-train[detector]', a GPU.
+name: detector-players-rfdetr
+task: detector-rfdetr
+description: RF-DETR base fine-tune on football-players-detection (ball, goalkeeper, player, referee).
+dataset:
+  kind: roboflow
+  reference: roboflow-jvuqo/football-players-detection-3zvbc/12
+  format: coco
+params:
+  model_size: base
+  epochs: 30
+  batch_size: 4
+  grad_accum_steps: 4
+  lr: 0.0001
+  resolution: 1280
+output_dir: data/experiments

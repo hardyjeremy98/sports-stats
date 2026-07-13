@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+# ffmpeg for video decode/encode; libgl for opencv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock* ./
+COPY packages ./packages
+COPY configs ./configs
+
+# INSTALL_CV=true bakes the full CV stack (torch, inference, trackers, SigLIP)
+# for GPU workers. The default image runs the API + stub pipelines only.
+ARG INSTALL_CV=false
+RUN if [ "$INSTALL_CV" = "true" ]; then \
+        uv sync --frozen --no-dev --group cv; \
+    else \
+        uv sync --frozen --no-dev; \
+    fi
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PITCHLAB_CONFIG_DIR=/app/configs
+
+CMD ["uvicorn", "pitchlab_server.app:app", "--host", "0.0.0.0", "--port", "8000"]

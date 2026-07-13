@@ -1,0 +1,56 @@
+# Local-weights evaluation recipe: the roboflow/sports fine-tuned YOLOv8x
+# models run via ultralytics (AGPL — LOCAL EVAL ONLY, never ship; see
+# technology/10-libraries.md). No API key needed. Weights land in
+# data/weights/ via the gdrive links in roboflow/sports setup.sh.
+name: v1-local-eval
+description: >
+  Real models, no API key: local fine-tuned YOLOv8x detection + pitch keypoints,
+  BoT-SORT tracking, kit-color teams, global association, heuristic possession.
+  AGPL weights - evaluation only.
+sport: soccer
+video:
+  sample_stride: 2
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.3
+  track:
+    impl: botsort
+    params:
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

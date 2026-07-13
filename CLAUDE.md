@@ -1,0 +1,113 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+make setup                    # uv sync + web npm install
+make dev                      # API :8000 + worker + web :5173 together (SQLite, stub-friendly)
+make demo                     # seed a synthetic run so the UI has data
+
+uv run pytest packages -q                                  # all tests
+uv run pytest packages/pitchlab_core/tests/test_gt_eval.py::test_load_soccernet_sequence -q
+uv run ruff check packages    # lint (line-length 100; config in root pyproject.toml)
+
+cd web && npm run build      # tsc --noEmit + vite build (this is the frontend typecheck)
+
+# Run a pipeline outside the server/worker:
+uv run --with ultralytics pitchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.v1-local-eval.yaml --device cuda --run-id my-run
+
+# Register SoccerNet tracking sequences as Lab videos with ground truth:
+uv run pitchlab-train ingest-soccernet --split test --limit 8
+
+uv run pitchlab-train run <experiment.yaml>   # config-driven experiments (pitchlab_train/experiments/)
+```
+
+### Dependency groups — sync them together
+
+`uv sync --group X` **removes** packages from unselected groups. The working dev set is:
+
+```bash
+uv sync --group cv --group eval --group dev
+```
+
+`cv` = real CV stages (torch, transformers, trackers…), `eval` = motmetrics for GT scoring,
+`face` = insightface (optional). Python is pinned to 3.12 via `.python-version` — system 3.14
+breaks pydantic-core builds; don't remove the pin.
+
+### Licensing boundaries (enforced by dependency layout, don't undo)
+
+- **ultralytics is AGPL and deliberately not a dependency.** The `yolo-local` detect/calibrate
+  stages import it lazily; supply it per-invocation with `uv run --with ultralytics`
+  (local-eval only, never shipped). Shipping configs use the Roboflow `inference` client.
+- **insightface model packs (buffalo_l) are research-only** — face identity stays behind the
+  `face` extra and a config flag.
+
+## Architecture
+
+Read `README.md` first for the pipeline diagram. The pieces that span multiple files:
+
+### Stage registry and configs
+
+`pitchlab_core` defines fixed stage slots (`StageKind` in `schemas/run.py`: detect, track,
+team, calibrate, associate, identity, fuse, events, spotting, annotate). Each implementation
+registers under a slot name; a YAML in `configs/` picks one impl + params per slot, plus
+top-level `video:` options (`sample_stride` etc.). `PipelineRunner` executes the slots in
+order against an `ArtifactStore`. Identity decisions are made **per tracklet, never per
+frame**; the associate stage groups tracklets into `PlayerEntity` records offline.
+
+### The run-directory contract
+
+Everything downstream reads plain files from `data/runs/<run_id>/`, mapped by
+`pitchlab_core/artifacts.py::ARTIFACT_FILES` (manifest.json, tracklets.json, players.json,
+eval.json, annotated.mp4, …). The server serves them by logical name at
+`GET /api/runs/{id}/artifacts/{name}`; the Lab UI fetches the JSON ones and draws overlays
+client-side (`web/src/components/VideoOverlay.tsx` + frame-indexed maps built in
+`web/src/lib/artifacts.ts`) — `annotated.mp4` is a user-facing deliverable the Lab does not
+use. Artifacts index by **source video frame_idx** even when the pipeline samples at a
+stride; consumers snap to the nearest sampled frame.
+
+Adding an artifact touches: `ArtifactName` enum + `ARTIFACT_FILES` (core), nothing in the
+server (the endpoint resolves via the map), `web/src/lib/types.ts` + `artifacts.ts` (UI).
+`web/src/lib/types.ts` mirrors the pydantic schemas by hand — keep them in sync.
+
+### Server, jobs, and evaluation
+
+`pitchlab_server` is FastAPI + a SQLAlchemy job table + a polling worker (`worker.py`) —
+deliberately no cloud vendor SDK; any box that reaches the DB and data volume can be a
+worker. SQLite at `data/pitchlab.db` by default; **there is no migration framework** — new
+columns are patched in `db.py::_micro_migrations` (additive ALTERs run by `init_db`).
+
+Ground truth belongs to a **video, not a run** (`videos.gt_path` → a
+`pitchlab_core/gt.py::GroundTruth` JSON). When a run's video has GT, the worker auto-scores
+it after completion (`pitchlab_core/evaluation.py`, motmetrics): IDF1/MOTA at two levels —
+raw tracklets vs post-association entities — writes `eval.json` (incl. per-instance ID
+switches for the Lab's failure browser) and folds headline metrics into `runs.metrics`,
+which is what the dashboard columns and the diff view's metric deltas read.
+`POST /api/runs/{id}/evaluate` re-scores on demand. Note: motmetrics 1.4.0 is
+incompatible with numpy 2 (`np.asfarray`), so `evaluation.py` computes its own IoU matrix —
+don't switch back to `mm.distances.iou_matrix`.
+
+### Training package
+
+`pitchlab_train` is a registry of config-driven experiments (`@register("name")` in
+`experiments/`) run via `pitchlab-train run <yaml>`, plus dataset adapters in `datasets/`
+(roboflow downloads, SoccerNet ingest, QA-label export). It may import `pitchlab_server`
+lazily (DB access) but server never imports train.
+
+## Domain constraints
+
+- Measured findings live in the experiment reports (see `runs` labelled `gt-eval`/`sweep` in
+  the Lab): kit-color association is ineffective; ID switches are a tracker-level problem
+  that association cannot fix.
+- **Player identity must work without jersey OCR** — the target market is amateur footage
+  where numbered kits can't be assumed. OCR results are benchmark references, not the
+  product path.
+
+## Data layout
+
+`data/` is gitignored: `data/videos/` (uploaded + ingested, with `.gt.json` ground truth),
+`data/runs/<id>/`, `data/clips/`, `data/weights/` (local YOLO weights from roboflow/sports),
+`data/soccernet/tracking/{train,test}/` (MOT sequences), `data/pitchlab.db`.

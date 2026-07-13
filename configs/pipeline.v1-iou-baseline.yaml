@@ -1,0 +1,44 @@
+# v1 recipe with the cheap IoU tracker instead of BoT-SORT.
+# Exists as the second config for Lab run-diffing (tracker A/B), per the
+# locked pluggability requirement.
+name: v1-iou-baseline
+description: Same as v1-default but with the greedy IoU baseline tracker — diff against v1-default in the Lab.
+sport: soccer
+video:
+  sample_stride: 2
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: roboflow
+    params:
+      confidence: 0.3
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.25
+      max_age_frames: 15
+  team:
+    impl: siglip-kmeans
+    params: {}
+  calibrate:
+    impl: roboflow-keypoints
+    params: {}
+  associate:
+    impl: global-color
+    params: {}
+  identity:
+    impl: face
+    params: {}
+  fuse:
+    impl: minimap
+    params: {}
+  events:
+    impl: possession-heuristic
+    params: {}
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

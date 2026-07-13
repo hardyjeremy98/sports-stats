@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Data & artifacts (uploads, run outputs, model weights)
+data/
+*.pt
+*.onnx
+*.engine
+
+# Node
+node_modules/
+web/dist/
+
+# Env & local
+.env
+.env.local
+*.db
+*.sqlite3
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
