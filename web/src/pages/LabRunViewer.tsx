@@ -1016,6 +1016,10 @@ function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () =>
     pair.dist_px != null && pair.gap_s != null && pair.gap_s > 0
       ? pair.dist_px / pair.gap_s
       : null;
+  // color distance is Lab-space units (~0-100s), embed distance is cosine
+  // (~0-2) — whichever the associator populated, format with matching precision.
+  const appearanceDist = pair.color_distance ?? pair.embed_distance;
+  const appearanceDigits = pair.color_distance != null ? 1 : 3;
   return (
     <button
       onClick={onClick}
@@ -1034,8 +1038,8 @@ function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () =>
         </span>
       )}
       <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-ink-500">
-        <span title="color distance">
-          d {pair.color_distance != null ? pair.color_distance.toFixed(1) : "—"}
+        <span title="appearance distance (color or embedding)">
+          d {appearanceDist != null ? appearanceDist.toFixed(appearanceDigits) : "—"}
         </span>
         <span title="gap seconds">g {pair.gap_s != null ? `${pair.gap_s.toFixed(2)}s` : "—"}</span>
         <span title="implied speed = dist_px / gap_s">

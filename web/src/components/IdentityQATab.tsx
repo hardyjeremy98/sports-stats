@@ -134,7 +134,11 @@ export function IdentityQATab({
     if (assoc) {
       const colorTooFar = assoc.pairs
         .filter((p) => p.decision === "rejected" && p.reason === "color_too_far")
-        .sort((x, y) => (x.color_distance ?? Infinity) - (y.color_distance ?? Infinity))
+        .sort(
+          (x, y) =>
+            (x.color_distance ?? x.embed_distance ?? Infinity) -
+            (y.color_distance ?? y.embed_distance ?? Infinity),
+        )
         .slice(0, ASSOC_CAP);
       for (const p of colorTooFar) add(p.a, p.b, "assoc_candidate", p.reason ?? undefined);
 

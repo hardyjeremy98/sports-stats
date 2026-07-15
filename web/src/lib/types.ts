@@ -302,6 +302,7 @@ export type AssociationRejectReason =
   | "gap_too_long"
   | "speed_implausible"
   | "color_too_far"
+  | "embed_too_far"
   | "span_conflict";
 
 export interface AssociationPair {
@@ -310,6 +311,7 @@ export interface AssociationPair {
   gap_s: number | null;
   dist_px: number | null;
   color_distance: number | null;
+  embed_distance: number | null;
   affinity: number | null;
   decision: "merged" | "rejected";
   reason: AssociationRejectReason | null;
