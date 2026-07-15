@@ -131,3 +131,29 @@ class LabeledExample(Base):
     qa_record_id: Mapped[int] = mapped_column(ForeignKey("qa_records.id"))
     payload: Mapped[dict] = mapped_column(JSON)  # schemas.qa.LabeledExample
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IdentityLabelKind(str, enum.Enum):
+    PAIR = "pair"
+    MERGE = "merge"
+    SPLIT = "split"
+    ROSTER = "roster"
+
+
+class IdentityLabel(Base):
+    """Human identity-QA decision: same/different tracklet pairs, entity merge/split
+    flags, or roster labels. An annotation only — never mutates run artifacts or
+    entities. A later task exports pair labels as re-ID training data."""
+
+    __tablename__ = "identity_labels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True)
+    # Denormalized from the run for cross-run/export queries without a join.
+    video_id: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[IdentityLabelKind] = mapped_column(
+        Enum(IdentityLabelKind, values_callable=lambda e: [m.value for m in e])
+    )
+    payload: Mapped[dict] = mapped_column(JSON)  # kind-specific, see api/schemas.py
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
