@@ -9,6 +9,7 @@ import pytest
 from pitchlab_core.config import PipelineConfig
 from pitchlab_core.demo import render_demo_video
 from pitchlab_core.runner import PipelineRunner
+from pitchlab_core.schemas.association import AssociationReport
 from pitchlab_core.schemas.run import StageStatus
 
 CONFIG_PATH = Path(__file__).parents[3] / "configs" / "pipeline.stub.yaml"
@@ -41,8 +42,19 @@ def test_artifacts_exist(run_dir):
         "detections.jsonl", "ball.jsonl", "tracklets.json", "teams.json",
         "calibration.jsonl", "players.json", "minimap.jsonl", "events.json",
         "stats.json", "qa_items.json", "timeline.json", "annotated.mp4",
+        "association.json",
     ]:
         assert (run_dir / f).exists(), f
+
+
+def test_association_report_indexed_and_parses(run_dir):
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["artifacts"]["association"] == "association.json"
+    report = AssociationReport.model_validate_json(
+        (run_dir / "association.json").read_text()
+    )
+    assert report.impl == "global-color"
+    assert report.entities
 
 
 def test_tracking_and_association(run_dir):

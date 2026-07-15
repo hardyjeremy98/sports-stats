@@ -26,6 +26,7 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.ANNOTATED_VIDEO: "annotated.mp4",
     ArtifactName.CROPS: "crops",
     ArtifactName.EVAL: "eval.json",
+    ArtifactName.ASSOCIATION: "association.json",
 }
 
 

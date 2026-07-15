@@ -72,6 +72,7 @@ class ArtifactName(StrEnum):
     ANNOTATED_VIDEO = "annotated_video"  # annotated.mp4
     CROPS = "crops"                  # crops/ dir — identity evidence images
     EVAL = "eval"                    # eval.json — MOT metrics vs ground truth (post-hoc)
+    ASSOCIATION = "association"      # association.json — AssociationReport (pair decisions)
 
 
 class TimelineBucket(BaseModel):

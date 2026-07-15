@@ -1,3 +1,9 @@
+from pitchlab_core.schemas.association import (
+    AssociationEntitySummary,
+    AssociationPair,
+    AssociationRejectReason,
+    AssociationReport,
+)
 from pitchlab_core.schemas.calibration import FrameCalibration
 from pitchlab_core.schemas.detections import (
     BallObservation,
@@ -35,6 +41,10 @@ from pitchlab_core.schemas.tracks import Tracklet, TrackletFrame
 
 __all__ = [
     "ArtifactName",
+    "AssociationEntitySummary",
+    "AssociationPair",
+    "AssociationRejectReason",
+    "AssociationReport",
     "BallObservation",
     "Box",
     "Detection",

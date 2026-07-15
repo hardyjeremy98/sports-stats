@@ -7,6 +7,9 @@ from __future__ import annotations
 from pitchlab_core.interfaces import Associator, StageContext
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import (
+    ArtifactName,
+    AssociationEntitySummary,
+    AssociationReport,
     DetectionClass,
     PlayerEntity,
     Team,
@@ -38,4 +41,17 @@ class PerTrackletAssociator(Associator):
         pass
 
     def associate(self, ctx: StageContext, tracklets, teams) -> list[PlayerEntity]:
-        return one_entity_per_tracklet(tracklets, teams)
+        entities = one_entity_per_tracklet(tracklets, teams)
+        report = AssociationReport(
+            impl="per-tracklet",
+            params={},
+            pairs=[],
+            entities=[
+                AssociationEntitySummary(
+                    player_id=e.player_id, tracklet_ids=e.tracklet_ids, merge_edges=[]
+                )
+                for e in entities
+            ],
+        )
+        ctx.store.write_json(ArtifactName.ASSOCIATION, report)
+        return entities
