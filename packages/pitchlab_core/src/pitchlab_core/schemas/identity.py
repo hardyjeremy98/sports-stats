@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from pitchlab_core.schemas.geometry import Box
 from pitchlab_core.schemas.team import Team
 
 
@@ -23,6 +24,8 @@ class IdentityEvidence(BaseModel):
     score: float
     crop_artifact: str | None = None  # relative path under the run dir, for the Lab UI
     upscaled: bool = False
+    box: Box | None = None  # head-crop region in source-frame pixel coords
+    raw_crop_artifact: str | None = None  # pre-upscale crop, present only when upscaling fired
 
 
 class PlayerIdentity(BaseModel):

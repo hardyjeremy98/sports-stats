@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from pitchlab_core.interfaces import IdentityResolver, StageContext
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import (
+    Box,
     IdentityEvidence,
     IdentityKind,
     PlayerEntity,
@@ -98,7 +99,7 @@ class FaceIdentityResolver(IdentityResolver):
                 box = cand_boxes.get((player_id, frame.frame_idx))
                 if box is None:
                     continue
-                crop, upscaled = self._head_crop(frame.image, box)
+                crop, rect, upscaled, raw_crop = self._head_crop(frame.image, box)
                 if crop is None:
                     continue
                 faces = self._app.get(crop)
@@ -110,9 +111,13 @@ class FaceIdentityResolver(IdentityResolver):
                 emb = best.normed_embedding
                 embeddings.setdefault(player_id, []).append((float(best.det_score), emb))
                 crop_rel = None
+                raw_crop_rel = None
                 if crops_dir is not None:
                     crop_rel = f"crops/face_p{player_id}_f{frame.frame_idx}.jpg"
                     cv2.imwrite(str(ctx.store.run_dir / crop_rel), crop)
+                    if upscaled and raw_crop is not None:
+                        raw_crop_rel = f"crops/face_p{player_id}_f{frame.frame_idx}_raw.jpg"
+                        cv2.imwrite(str(ctx.store.run_dir / raw_crop_rel), raw_crop)
                 evidence.setdefault(player_id, []).append(
                     IdentityEvidence(
                         tracklet_id=tid,
@@ -120,6 +125,8 @@ class FaceIdentityResolver(IdentityResolver):
                         score=round(float(best.det_score), 4),
                         crop_artifact=crop_rel,
                         upscaled=upscaled,
+                        box=Box(x1=rect[0], y1=rect[1], x2=rect[2], y2=rect[3]),
+                        raw_crop_artifact=raw_crop_rel,
                     )
                 )
 
@@ -151,8 +158,15 @@ class FaceIdentityResolver(IdentityResolver):
             out.append(ent)
         return out
 
-    def _head_crop(self, image: np.ndarray, box) -> tuple[np.ndarray | None, bool]:
-        """Upper ~40% of the player box, padded. Optionally super-resolved."""
+    def _head_crop(
+        self, image: np.ndarray, box: Box
+    ) -> tuple[np.ndarray | None, tuple[int, int, int, int] | None, bool, np.ndarray | None]:
+        """Upper ~40% of the player box, padded. Optionally super-resolved.
+
+        Returns (crop, rect, upscaled, raw_crop): `rect` is the crop region in
+        source-frame pixel coords (x1, y1, x2, y2); `raw_crop` is the
+        pre-upscale image, present only when upscaling actually fired.
+        """
         h, w = image.shape[:2]
         bw = box.width
         x1 = max(0, int(box.x1 - 0.2 * bw))
@@ -161,14 +175,16 @@ class FaceIdentityResolver(IdentityResolver):
         y2 = min(h, int(box.y1 + 0.4 * box.height))
         crop = image[y1:y2, x1:x2]
         if crop.size == 0:
-            return None, False
+            return None, None, False, None
+        rect = (x1, y1, x2, y2)
         if self._upscaler is not None and crop.shape[0] < self.params.upscale_below_px:
             try:
+                raw_crop = crop
                 crop, _ = self._upscaler.enhance(crop, outscale=2)
-                return crop, True
+                return crop, rect, True, raw_crop
             except Exception:
-                return crop, False
-        return crop, False
+                return crop, rect, False, None
+        return crop, rect, False, None
 
 
 def _cluster_labels(entity_emb: dict[int, np.ndarray], threshold: float) -> dict[int, str]:
