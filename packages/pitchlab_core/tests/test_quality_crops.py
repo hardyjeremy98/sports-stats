@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from pitchlab_core.crops import sample_quality_crops
-from pitchlab_core.schemas import Box, Tracklet, TrackletFrame
+from pitchlab_core.schemas import Box, DetectionClass, Tracklet, TrackletFrame
 from pitchlab_core.video import Frame
 
 IMG_H, IMG_W = 210, 300
@@ -49,8 +49,10 @@ def _tf(frame_idx: int, box: Box, confidence: float = 0.9) -> TrackletFrame:
     return TrackletFrame(frame_idx=frame_idx, box=box, confidence=confidence)
 
 
-def _tr(tid: int, frames: list[TrackletFrame]) -> Tracklet:
-    return Tracklet(tracklet_id=tid, frames=frames)
+def _tr(
+    tid: int, frames: list[TrackletFrame], cls: DetectionClass = DetectionClass.PLAYER
+) -> Tracklet:
+    return Tracklet(tracklet_id=tid, cls=cls, frames=frames)
 
 
 # 1. Isolation gate -----------------------------------------------------------
@@ -188,6 +190,51 @@ def test_sharpness_gate_drops_blurred_keeps_textured_crop():
 
     assert result[1] == []
     assert len(result[2]) == 1
+
+
+# 8. Off-frame box yields no crop (never a wrong region) --------------------------
+
+
+def test_box_entirely_outside_frame_yields_no_crop():
+    # Passes every metadata gate (tall, confident, isolated) but lies fully off
+    # the left edge — a negative slice stop must not return a wrong region.
+    off_frame = Box(x1=-120, y1=10, x2=-20, y2=200)
+    tr = _tr(1, [_tf(0, off_frame)])
+    ctx = _FakeCtx([Frame(frame_idx=0, t=0.0, image=_img())])
+
+    result = sample_quality_crops(ctx, [tr])
+
+    assert result[1] == []
+
+
+# 9. h95 normalization is PLAYER-only ---------------------------------------------
+
+
+def test_h95_ignores_non_player_tracklets():
+    player_box = Box(x1=10, y1=10, x2=100, y2=200)  # height 190, alone at frame 0
+    giant_gk_box = Box(x1=150, y1=0, x2=250, y2=400)  # height 400, alone at frame 1
+    tr_player = _tr(1, [_tf(0, player_box, confidence=0.9)])
+    tr_gk = _tr(2, [_tf(1, giant_gk_box, confidence=0.9)], cls=DetectionClass.GOALKEEPER)
+    ctx = _FakeCtx([Frame(frame_idx=i, t=i * 0.1, image=_img()) for i in range(2)])
+
+    result = sample_quality_crops(ctx, [tr_player, tr_gk])
+
+    # h95 comes from PLAYER heights only (= 190), so the player frame gets
+    # h_norm = 1.0 and quality = confidence exactly. If the goalkeeper's 400px
+    # box leaked into h95, quality would drop to roughly 0.44.
+    assert result[1][0].quality == pytest.approx(0.9)
+
+
+def test_all_non_player_tracklets_use_h_norm_guard_without_crashing():
+    box = Box(x1=10, y1=10, x2=100, y2=200)
+    tr = _tr(1, [_tf(0, box, confidence=0.8)], cls=DetectionClass.REFEREE)
+    ctx = _FakeCtx([Frame(frame_idx=0, t=0.0, image=_img())])
+
+    result = sample_quality_crops(ctx, [tr])
+
+    # No PLAYER heights -> h95 = 0 -> h_norm guard kicks in (1.0).
+    assert len(result[1]) == 1
+    assert result[1][0].quality == pytest.approx(0.8)
 
 
 if __name__ == "__main__":

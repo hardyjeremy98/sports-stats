@@ -178,7 +178,10 @@ def _pad_and_clamp(
     pad_y = pad_frac * box.height
     x1 = max(0, int(box.x1 - pad_x))
     y1 = max(0, int(box.y1 - pad_y))
-    x2 = min(w, int(box.x2 + pad_x))
-    y2 = min(h, int(box.y2 + pad_y))
+    # Upper bounds are clamped to >= the lower bounds: a box entirely off the
+    # left/top edge would otherwise leave x2/y2 negative, and a negative slice
+    # stop silently returns a large wrong region instead of an empty crop.
+    x2 = max(x1, min(w, int(box.x2 + pad_x)))
+    y2 = max(y1, min(h, int(box.y2 + pad_y)))
     crop = image[y1:y2, x1:x2]
     return crop if crop.size > 0 else None
