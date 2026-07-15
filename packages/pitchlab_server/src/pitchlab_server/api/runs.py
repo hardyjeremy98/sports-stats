@@ -163,6 +163,8 @@ def diff_runs(run_a: str, run_b: str, db: Session = Depends(get_db)):
     b = db.get(Run, run_b)
     if a is None or b is None:
         raise HTTPException(404, "Run not found")
+    if a.video_id != b.video_id:
+        raise HTTPException(status_code=422, detail="Run diff requires two runs on the same video")
 
     import yaml
 

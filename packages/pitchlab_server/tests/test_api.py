@@ -94,3 +94,42 @@ def test_path_traversal_blocked(client, video_id):
     )
     run_id = resp.json()["id"]
     assert client.get(f"/api/runs/{run_id}/files/../../secrets").status_code == 404
+
+
+def test_run_diff_same_video_guard(client, video_id):
+    """Verify that diffing two runs on different videos returns 422."""
+    # Create a second video
+    path_b = Path(os.environ["PITCHLAB_DATA_DIR"]) / "clip_b.mp4"
+    render_demo_video(path_b, duration_s=6, fps=20, width=960, height=540)
+    with open(path_b, "rb") as f:
+        resp = client.post("/api/videos", files={"file": ("clip_b.mp4", f, "video/mp4")})
+    assert resp.status_code == 200, resp.text
+    video_id_b = resp.json()["id"]
+
+    # Create runs on different videos
+    resp_a = client.post(
+        "/api/runs", json={"video_id": video_id, "config_name": "stub-synthetic"}
+    )
+    run_a = resp_a.json()["id"]
+    execute_job(claim_next_job())
+
+    resp_b = client.post(
+        "/api/runs", json={"video_id": video_id_b, "config_name": "stub-synthetic"}
+    )
+    run_b = resp_b.json()["id"]
+    execute_job(claim_next_job())
+
+    # Diffing runs on different videos should return 422
+    diff_resp = client.get(f"/api/runs/{run_a}/diff/{run_b}")
+    assert diff_resp.status_code == 422, diff_resp.text
+    assert diff_resp.json()["detail"] == "Run diff requires two runs on the same video"
+
+    # Diffing runs on the same video should still succeed
+    resp_c = client.post(
+        "/api/runs", json={"video_id": video_id, "config_name": "stub-synthetic"}
+    )
+    run_c = resp_c.json()["id"]
+    execute_job(claim_next_job())
+
+    diff_resp_same = client.get(f"/api/runs/{run_a}/diff/{run_c}")
+    assert diff_resp_same.status_code == 200, diff_resp_same.text
