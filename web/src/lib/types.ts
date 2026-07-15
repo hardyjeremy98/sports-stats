@@ -307,6 +307,13 @@ export interface ConfigChange {
   b: unknown;
 }
 
+export interface SwitchDiff {
+  fixed: EvalInstance[];
+  introduced: EvalInstance[];
+  persisted: { a: EvalInstance; b: EvalInstance }[];
+  counts: { fixed: number; introduced: number; persisted: number };
+}
+
 export interface RunDiff {
   run_a: RunDetail;
   run_b: RunDetail;
@@ -316,6 +323,9 @@ export interface RunDiff {
   stats_b: StatSheet | null;
   timeline_a: TimelineBucket[] | null;
   timeline_b: TimelineBucket[] | null;
+  eval_a: EvalResult | null;
+  eval_b: EvalResult | null;
+  switch_diff: SwitchDiff | null;
 }
 
 export type QAStatus = "pending" | "accepted" | "corrected" | "rejected";

@@ -9,6 +9,7 @@ import { trackletColor } from "../lib/colors";
 import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
 import { useEvaluateRun, useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
 import type { EvalInstance, EvalLevelMetrics, QARecord, RunDetail } from "../lib/types";
+import { SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
@@ -544,14 +545,6 @@ const EVAL_ROWS: { key: keyof EvalLevelMetrics; label: string; ratio?: boolean }
   { key: "mostly_lost", label: "Mostly lost" },
 ];
 
-function fmtPredId(level: "tracklet" | "entity", id: number | null): string {
-  if (id == null) return "?";
-  // Entities ≥ 100000 are unassociated tracklets given a synthetic identity.
-  if (level === "entity")
-    return id >= 100000 ? `T${id - 100000} (unassoc)` : `#${id}`;
-  return `T${id}`;
-}
-
 type EvalLevelFilter = "all" | "tracklet" | "entity";
 type EvalSortBy = "time" | "gt";
 
@@ -732,26 +725,7 @@ function EvalTab({
         </div>
       )}
       {visibleInstances.map((inst, i) => (
-        <button
-          key={i}
-          onClick={() => onInstance(inst)}
-          className="flex items-center gap-2.5 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-turf-800"
-        >
-          <Mono className="w-12 shrink-0 text-volt-300">{fmtClock(inst.t)}</Mono>
-          <span
-            className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${
-              inst.level === "tracklet"
-                ? "bg-turf-800 text-ink-400"
-                : "bg-team-ref/15 text-team-ref"
-            }`}
-          >
-            {inst.level}
-          </span>
-          <span className="text-[12px] text-ink-100">GT {inst.gt_label}</span>
-          <span className="ml-auto font-mono text-[11px] text-ink-500">
-            {fmtPredId(inst.level, inst.prev_id)} → {fmtPredId(inst.level, inst.new_id)}
-          </span>
-        </button>
+        <SwitchInstanceRow key={i} inst={inst} onClick={() => onInstance(inst)} />
       ))}
       {gt && (
         <div className="mt-1 text-[11px] leading-relaxed text-ink-500">

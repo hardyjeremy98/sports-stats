@@ -60,9 +60,19 @@ export const VideoOverlay = forwardRef<
     highlightTrackletId?: number | null;
     highlightPlayerId?: number | null;
     highlightGtTrackId?: number | null;
+    controls?: boolean;
   }
 >(function VideoOverlay(
-  { run, artifacts, layers, gt, highlightTrackletId, highlightPlayerId, highlightGtTrackId },
+  {
+    run,
+    artifacts,
+    layers,
+    gt,
+    highlightTrackletId,
+    highlightPlayerId,
+    highlightGtTrackId,
+    controls = true,
+  },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -253,7 +263,7 @@ export const VideoOverlay = forwardRef<
       <video
         ref={videoRef}
         src={`/api/videos/${run.video_id}/file`}
-        controls
+        controls={controls}
         playsInline
         className="block w-full"
       />

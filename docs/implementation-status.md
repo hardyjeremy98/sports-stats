@@ -57,12 +57,15 @@ stated.
 - Association IDF1 gain and ID-switch delta.
 - Per-instance ID-switch records used by the Lab failure browser.
 - Automatic worker evaluation when a registered video has ground truth.
+- Run-diff fixed/introduced/persisted ID-switch comparison between two runs on the same video
+  (`diff_switch_instances`, greedy nearest-time matching within a group of `(level, gt_track_id)`).
 
 Primary locations:
 
 - `packages/pitchlab_core/src/pitchlab_core/gt.py`
 - `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
 - `packages/pitchlab_server/src/pitchlab_server/worker.py`
+- `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
 
 ### Not implemented
 
@@ -121,12 +124,18 @@ uses entity `player_id`, not `PlayerIdentity.label`.
   empty state, for runs that predate a video's ground truth).
 - Run diff for configuration and headline metrics, with a same-video guard (enforced server-side;
   the dashboard also disables cross-video checkbox selection client-side).
+- Synchronized diff playback: two VideoOverlays (A master, B follower) driven by shared play/pause/
+  seek and a drift-correction loop, one shared layer-toggle row, and seekable timelines carrying
+  both runs' own eval markers plus fixed/introduced switch markers.
+- Fixed/introduced/persisted switch comparison in the diff view, browsable per category and
+  click-to-seek (reuses the run viewer's switch-instance row component).
+- Diff identity metrics: tracklet/entity IDF1, tracklet/entity IDSW, entity MOTA, and association
+  IDF1 gain, shown side by side with directional deltas, once both runs have an eval artifact.
 - Dashboard filters (video, config, status, ground-truth-only) and sortable metric/time columns.
 - Event-attribution QA with accept, correct, and reject actions.
 
 ### Limitations
 
-- Diff has no synchronized side-by-side video or fixed/new switch comparison.
 - QA cannot merge/split entities, label same/different tracklet pairs, or assign roster identities.
 - There is no embedding, affinity, or constraint-decision inspector.
 - Label export is CLI-only and contains event-attribution labels rather than re-ID pairs.
