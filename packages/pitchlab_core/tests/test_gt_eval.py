@@ -114,3 +114,149 @@ def test_evaluate_run_association_gain(tmp_path):
         "idsw_tracklet", "idsw_entity", "assoc_idf1_gain",
     }
     assert heads["idsw_tracklet"] == 1 and heads["idsw_entity"] == 0
+    # No identity stage output in this run -> third layer is absent entirely.
+    assert result["identity"] is None
+    assert "identity_coverage" not in heads and "cluster_purity" not in heads
+
+
+def _player(pid: int, tracklet_ids: list[int], label: str | None = None, kind: str = "face") -> dict:
+    return {
+        "player_id": pid,
+        "tracklet_ids": tracklet_ids,
+        "team": "home",
+        "identity": {"kind": kind, "label": label, "confidence": 0.9 if label else 0.0, "evidence": []},
+    }
+
+
+def test_identity_layer_perfect_labeling(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run, headline_metrics
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),  # overlaps gt track 1
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),  # overlaps gt track 2
+    ]
+    players = [
+        _player(1, [10], label="P1"),
+        _player(2, [11], label="P2"),
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity is not None
+    assert identity["n_entities_matched"] == 2
+    assert identity["n_labeled"] == 2
+    assert identity["coverage"] == 1.0
+    assert identity["abstention_rate"] == 0.0
+    assert identity["n_clusters"] == 2
+    assert identity["cluster_purity"] == 1.0
+    assert identity["cluster_completeness"] == 1.0
+
+    heads = headline_metrics(result)
+    assert heads["identity_coverage"] == 1.0
+    assert heads["cluster_purity"] == 1.0
+
+
+def test_identity_layer_merged_cluster(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),  # overlaps gt track 1
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),  # overlaps gt track 2
+    ]
+    # Both entities collapsed into a single identity label -> a merged cluster
+    # spanning two GT tracks.
+    players = [
+        _player(1, [10], label="P1"),
+        _player(2, [11], label="P1"),
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity["coverage"] == 1.0
+    assert identity["n_clusters"] == 1
+    assert identity["cluster_purity"] == 0.5
+    assert identity["cluster_completeness"] == 1.0
+
+
+def test_identity_layer_split_cluster(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Two entities both fully overlapping the SAME GT track (1), but labeled
+    # differently -> one GT track split across two clusters.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 100, 100) for f in range(0, 10)]),
+    ]
+    players = [
+        _player(1, [10], label="P1"),
+        _player(2, [11], label="P2"),
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity["coverage"] == 1.0
+    assert identity["n_clusters"] == 2
+    assert identity["cluster_purity"] == 1.0
+    assert identity["cluster_completeness"] == 0.5
+
+
+def test_identity_layer_full_abstention(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    # Identity stage ran (kind="face") but abstained on every entity.
+    players = [
+        _player(1, [10], label=None),
+        _player(2, [11], label=None),
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity is not None
+    assert identity["n_entities_matched"] == 2
+    assert identity["n_labeled"] == 0
+    assert identity["coverage"] == 0.0
+    assert identity["abstention_rate"] == 1.0
+    assert identity["n_clusters"] == 0
+    assert identity["cluster_purity"] is None
+    assert identity["cluster_completeness"] is None
+
+
+def test_identity_layer_stage_not_run(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    # identity.kind defaults to "none" for both -> stage never ran.
+    players = [
+        {"player_id": 1, "tracklet_ids": [10], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [11], "team": "away"},
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assert result["identity"] is None

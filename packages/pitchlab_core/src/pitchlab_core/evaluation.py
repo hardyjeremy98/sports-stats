@@ -6,6 +6,11 @@ Two levels are scored so the association stage's contribution is measurable:
 entity IDF1 minus tracklet IDF1 is the association gain: positive means the
 associator repaired identity fragmentation, negative means it merged wrongly.
 
+A third layer (ADR 004) scores the identity stage itself: cluster
+purity/completeness of `PlayerIdentity.label` against GT tracks, plus
+coverage/abstention so abstaining on everyone can't score well. See
+`_evaluate_identity`.
+
 Requires the `eval` extra (motmetrics). Imported lazily so the lean server
 install works without it.
 """
@@ -55,10 +60,10 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     tracklets = json.loads((run_dir / "tracklets.json").read_text())
     entity_of: dict[int, int] = {}
     players_path = run_dir / "players.json"
-    if players_path.exists():
-        for p in json.loads(players_path.read_text()):
-            for tid in p["tracklet_ids"]:
-                entity_of[tid] = p["player_id"]
+    players_data: list[dict] = json.loads(players_path.read_text()) if players_path.exists() else []
+    for p in players_data:
+        for tid in p["tracklet_ids"]:
+            entity_of[tid] = p["player_id"]
 
     # Predictions per frame, per level: frame_idx -> list[(id, xywh)].
     pred_tracklet: dict[int, list[tuple[int, list[float]]]] = {}
@@ -121,6 +126,7 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
             "idsw_delta": levels["entity"]["num_switches"] - levels["tracklet"]["num_switches"],
         },
         "instances": sorted(instances, key=lambda i: (i["frame_idx"], i["level"])),
+        "identity": _evaluate_identity(players_data, gt_by_frame, pred_entity, eval_frames, iou_threshold),
     }
     return result
 
@@ -128,13 +134,113 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
 def headline_metrics(result: dict) -> dict[str, float | int]:
     """The few numbers worth a dashboard column / diff delta."""
     lv = result["levels"]
-    return {
+    heads: dict[str, float | int | None] = {
         "idf1_tracklet": round(lv["tracklet"]["idf1"], 3),
         "idf1_entity": round(lv["entity"]["idf1"], 3),
         "mota_entity": round(lv["entity"]["mota"], 3),
         "idsw_tracklet": int(lv["tracklet"]["num_switches"]),
         "idsw_entity": int(lv["entity"]["num_switches"]),
         "assoc_idf1_gain": result["association"]["idf1_gain"],
+    }
+    identity = result.get("identity")
+    if identity is not None:
+        heads["identity_coverage"] = round(identity["coverage"], 3)
+        purity = identity["cluster_purity"]
+        heads["cluster_purity"] = round(purity, 3) if purity is not None else None
+    return heads
+
+
+def _evaluate_identity(
+    players_data: list[dict],
+    gt_by_frame: dict[int, list[tuple[int, list[float]]]],
+    pred_entity: dict[int, list[tuple[int, list[float]]]],
+    eval_frames: list[int],
+    iou_threshold: float,
+) -> dict | None:
+    """Third eval layer (ADR 004): does `identity.label` correspond to the
+    right person, judged against GT tracks — cluster purity/completeness plus
+    coverage so abstaining on everyone can't score well.
+
+    Synthetic entity ids (100000+tracklet_id, assigned to tracklets the
+    associator never grouped) never carry identity output and are excluded;
+    only real `player_id`s from players.json are in scope.
+    """
+    real_pids = {p["player_id"] for p in players_data}
+    if not real_pids:
+        return None
+
+    label_of: dict[int, str | None] = {}
+    kind_of: dict[int, str] = {}
+    for p in players_data:
+        identity = p.get("identity") or {}
+        kind_of[p["player_id"]] = identity.get("kind") or "none"
+        label_of[p["player_id"]] = identity.get("label")
+
+    if all(k == "none" for k in kind_of.values()):
+        return None
+
+    # (entity_player_id, gt_track_id) -> n_frames of qualifying (IoU >= threshold) overlap.
+    contingency: dict[tuple[int, int], int] = {}
+    for f in eval_frames:
+        gts = gt_by_frame.get(f, [])
+        hyps = [(eid, box) for eid, box in pred_entity.get(f, []) if eid in real_pids]
+        if not gts or not hyps:
+            continue
+        dist = _iou_distance([g[1] for g in gts], [h[1] for h in hyps], max_dist=1 - iou_threshold)
+        for gi, (gid, _) in enumerate(gts):
+            for hi, (eid, _) in enumerate(hyps):
+                if dist[gi, hi] == dist[gi, hi]:  # not NaN => qualifying overlap
+                    key = (eid, gid)
+                    contingency[key] = contingency.get(key, 0) + 1
+
+    # Collapse to entity -> {gt_track_id: n_frames}. An entity with an empty
+    # row has zero qualifying overlap with any GT track and is not matched.
+    entity_rows: dict[int, dict[int, int]] = {}
+    for (eid, gid), n in contingency.items():
+        entity_rows.setdefault(eid, {})[gid] = n
+
+    matched_pids = sorted(entity_rows)  # deterministic order
+    n_entities_matched = len(matched_pids)
+    labeled_matched = [pid for pid in matched_pids if label_of.get(pid)]
+    n_labeled = len(labeled_matched)
+
+    coverage = (n_labeled / n_entities_matched) if n_entities_matched else 0.0
+    abstention_rate = 1.0 - coverage
+
+    # Cluster (identity.label) x GT track mass, over labeled+matched entities
+    # only: unlabeled entities never pollute purity/completeness.
+    cluster_gt_mass: dict[str, dict[int, int]] = {}
+    for pid in labeled_matched:
+        label = label_of[pid]
+        bucket = cluster_gt_mass.setdefault(label, {})
+        for gid, n in entity_rows[pid].items():
+            bucket[gid] = bucket.get(gid, 0) + n
+
+    n_clusters = len(cluster_gt_mass)
+
+    purity: float | None = None
+    completeness: float | None = None
+    if n_labeled > 0:
+        purity_num = sum(max(bucket.values()) for bucket in cluster_gt_mass.values())
+        purity_den = sum(sum(bucket.values()) for bucket in cluster_gt_mass.values())
+        purity = purity_num / purity_den if purity_den else None
+
+        gt_cluster_mass: dict[int, dict[str, int]] = {}
+        for label, bucket in cluster_gt_mass.items():
+            for gid, n in bucket.items():
+                gt_cluster_mass.setdefault(gid, {})[label] = n
+        completeness_num = sum(max(bucket.values()) for bucket in gt_cluster_mass.values())
+        completeness_den = sum(sum(bucket.values()) for bucket in gt_cluster_mass.values())
+        completeness = completeness_num / completeness_den if completeness_den else None
+
+    return {
+        "n_entities_matched": n_entities_matched,
+        "n_labeled": n_labeled,
+        "coverage": round(coverage, 4),
+        "abstention_rate": round(abstention_rate, 4),
+        "n_clusters": n_clusters,
+        "cluster_purity": round(purity, 4) if purity is not None else None,
+        "cluster_completeness": round(completeness, 4) if completeness is not None else None,
     }
 
 
