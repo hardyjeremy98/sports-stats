@@ -164,6 +164,16 @@ def _evaluate_identity(
     Synthetic entity ids (100000+tracklet_id, assigned to tracklets the
     associator never grouped) never carry identity output and are excluded;
     only real `player_id`s from players.json are in scope.
+
+    Cluster mass assignment: an entity is one physical person with exactly
+    one true identity, so before aggregating purity/completeness each
+    matched, labeled entity's FULL overlap mass (every qualifying frame,
+    summed across all GT tracks it touched) is attributed to the single GT
+    track it overlaps most — argmax by frame count, ties broken by the
+    lowest gt_track_id for determinism. Incidental IoU overlap with a second
+    GT track (e.g. players crossing paths in a dense scene) is
+    detection/bbox noise, not a labeling error, and must not be smeared
+    across tracks — that would make a correctly-labeled cluster look impure.
     """
     real_pids = {p["player_id"] for p in players_data}
     if not real_pids:
@@ -208,13 +218,17 @@ def _evaluate_identity(
     abstention_rate = 1.0 - coverage
 
     # Cluster (identity.label) x GT track mass, over labeled+matched entities
-    # only: unlabeled entities never pollute purity/completeness.
+    # only: unlabeled entities never pollute purity/completeness. Each
+    # entity's full overlap mass goes to its single argmax GT track (see
+    # docstring) rather than being spread across every track it overlapped.
     cluster_gt_mass: dict[str, dict[int, int]] = {}
     for pid in labeled_matched:
         label = label_of[pid]
+        row = entity_rows[pid]
+        assigned_gid = min(row, key=lambda gid: (-row[gid], gid))
+        total_mass = sum(row.values())
         bucket = cluster_gt_mass.setdefault(label, {})
-        for gid, n in entity_rows[pid].items():
-            bucket[gid] = bucket.get(gid, 0) + n
+        bucket[assigned_gid] = bucket.get(assigned_gid, 0) + total_mass
 
     n_clusters = len(cluster_gt_mass)
 

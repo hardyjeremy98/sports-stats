@@ -212,6 +212,86 @@ def test_identity_layer_split_cluster(tmp_path):
     assert identity["cluster_completeness"] == 0.5
 
 
+def test_identity_layer_multi_track_overlap_uses_argmax(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # A single labeled entity: 8 frames sitting on GT track 1's box, 2 frames
+    # sitting on GT track 2's box (e.g. a dense-scene bbox brush against the
+    # other player). Its label is consistent with its majority track (1).
+    # Old per-frame smearing would score purity 8/10 = 0.8; per-entity argmax
+    # attributes the entity's FULL mass to track 1, so purity must be 1.0.
+    tracklets = [
+        _tracklet(
+            10,
+            [(f, 100, 100) for f in range(0, 8)] + [(f, 500, 200) for f in range(8, 10)],
+        ),
+    ]
+    players = [_player(1, [10], label="P1")]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity is not None
+    assert identity["n_entities_matched"] == 1
+    assert identity["n_labeled"] == 1
+    assert identity["n_clusters"] == 1
+    assert identity["cluster_purity"] == 1.0
+
+
+def test_identity_layer_multi_track_tie_breaks_to_lower_track_id(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Entity 1 splits evenly, 5 frames on track 1 and 5 on track 2 -> tie,
+    # broken to the lower gt_track_id (1). Entity 2 sits unambiguously on
+    # track 2 the whole time. If the tie broke the wrong way, entity 1's
+    # mass would land on track 2 too and completeness would drop from
+    # 1.0 to 0.5 (track 1 would get no cluster at all).
+    tracklets = [
+        _tracklet(
+            10,
+            [(f, 100, 100) for f in range(0, 5)] + [(f, 500, 200) for f in range(5, 10)],
+        ),
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    players = [
+        _player(1, [10], label="PA"),
+        _player(2, [11], label="PB"),
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity["n_clusters"] == 2
+    assert identity["cluster_completeness"] == 1.0
+
+
+def test_identity_layer_no_entities_matched(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Identity ran (kind="face") but the entity's box never overlaps any GT
+    # track above the IoU threshold -> zero qualifying overlap anywhere.
+    tracklets = [_tracklet(10, [(f, 0, 0) for f in range(0, 10)])]
+    players = [_player(1, [10], label="P1")]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    identity = result["identity"]
+    assert identity is not None
+    assert identity["n_entities_matched"] == 0
+    assert identity["n_labeled"] == 0
+    assert identity["coverage"] == 0.0
+    assert identity["cluster_purity"] is None
+
+
 def test_identity_layer_full_abstention(tmp_path):
     pytest.importorskip("motmetrics")
     from pitchlab_core.evaluation import evaluate_run
