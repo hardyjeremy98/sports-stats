@@ -22,6 +22,11 @@ def main() -> int:
     )
     labels_p.add_argument("--out", default="data/experiments", help="Output root")
 
+    reid_p = sub.add_parser(
+        "export-reid", help="Export identity-QA pair verdicts as re-ID training pairs"
+    )
+    reid_p.add_argument("--out", default="data/experiments", help="Output root")
+
     sn_p = sub.add_parser(
         "ingest-soccernet",
         help="Register SoccerNet tracking sequences as Lab videos with ground truth",
@@ -44,6 +49,14 @@ def main() -> int:
         from pitchlab_train.datasets.qa_labels import export_qa_labels
 
         export_qa_labels(Path(args.out))
+        return 0
+
+    if args.command == "export-reid":
+        from pathlib import Path
+
+        from pitchlab_train.datasets.reid_labels import export_reid_labels
+
+        export_reid_labels(Path(args.out))
         return 0
 
     if args.command == "ingest-soccernet":
