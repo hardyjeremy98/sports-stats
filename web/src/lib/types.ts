@@ -253,6 +253,40 @@ export interface EvalResult {
   instances: EvalInstance[];
 }
 
+// ---- Cross-tracklet association decision trail (association.json) ----
+
+export type AssociationRejectReason =
+  | "no_features"
+  | "temporal_overlap"
+  | "gap_too_long"
+  | "speed_implausible"
+  | "color_too_far"
+  | "span_conflict";
+
+export interface AssociationPair {
+  a: number; // tracklet ids, a = earlier-starting
+  b: number;
+  gap_s: number | null;
+  dist_px: number | null;
+  color_distance: number | null;
+  affinity: number | null;
+  decision: "merged" | "rejected";
+  reason: AssociationRejectReason | null;
+}
+
+export interface AssociationEntitySummary {
+  player_id: number;
+  tracklet_ids: number[];
+  merge_edges: [number, number][]; // accepted union-find edges, in union order
+}
+
+export interface AssociationReport {
+  impl: string;
+  params: Record<string, unknown>;
+  pairs: AssociationPair[];
+  entities: AssociationEntitySummary[];
+}
+
 // ---- API models ----
 
 export interface Video {

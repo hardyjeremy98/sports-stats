@@ -62,7 +62,7 @@ frame**; the associate stage groups tracklets into `PlayerEntity` records offlin
 
 Everything downstream reads plain files from `data/runs/<run_id>/`, mapped by
 `pitchlab_core/artifacts.py::ARTIFACT_FILES` (manifest.json, tracklets.json, players.json,
-eval.json, annotated.mp4, …). The server serves them by logical name at
+eval.json, association.json, annotated.mp4, …). The server serves them by logical name at
 `GET /api/runs/{id}/artifacts/{name}`; the Lab UI fetches the JSON ones and draws overlays
 client-side (`web/src/components/VideoOverlay.tsx` + frame-indexed maps built in
 `web/src/lib/artifacts.ts`) — `annotated.mp4` is a user-facing deliverable the Lab does not

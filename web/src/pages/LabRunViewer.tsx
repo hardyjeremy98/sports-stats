@@ -1,14 +1,21 @@
 // The Lab's forensic run viewer: overlay video, confidence timeline, and an
 // inspector (stages / tracklets / players / events / QA).
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
 import { trackletColor } from "../lib/colors";
 import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
 import { useEvaluateRun, useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
-import type { EvalInstance, EvalLevelMetrics, QARecord, RunDetail } from "../lib/types";
+import type {
+  AssociationEntitySummary,
+  AssociationPair,
+  EvalInstance,
+  EvalLevelMetrics,
+  QARecord,
+  RunDetail,
+} from "../lib/types";
 import { SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
 import { PitchCanvas } from "../components/PitchCanvas";
@@ -32,7 +39,7 @@ import {
   TeamDot,
 } from "../components/ui";
 
-type TabId = "stages" | "tracklets" | "players" | "events" | "eval" | "qa";
+type TabId = "stages" | "tracklets" | "assoc" | "players" | "events" | "eval" | "qa";
 
 export default function LabRunViewer() {
   const { runId = "" } = useParams();
@@ -49,6 +56,7 @@ export default function LabRunViewer() {
   const [hlTracklet, setHlTracklet] = useState<number | null>(null);
   const [hlPlayer, setHlPlayer] = useState<number | null>(null);
   const [hlGtTrack, setHlGtTrack] = useState<number | null>(null);
+  const [hlPair, setHlPair] = useState<[number, number] | null>(null);
   const [inspector, setInspector] = useState<{ playerId: number; evidenceIdx: number } | null>(
     null,
   );
@@ -71,6 +79,7 @@ export default function LabRunViewer() {
   if (run.isError) return <ErrorNote>{(run.error as Error).message}</ErrorNote>;
   const r = run.data!;
   const duration = r.video?.duration_s ?? r.manifest?.video.duration_s ?? 0;
+  const fps = r.video?.fps || r.manifest?.video.fps || 25;
   const pendingQA = (qa.data ?? []).filter((q) => q.status === "pending").length;
 
   return (
@@ -114,6 +123,7 @@ export default function LabRunViewer() {
             layers={layers}
             gt={gt}
             highlightTrackletId={hlTracklet}
+            highlightTrackletIds={hlPair}
             highlightPlayerId={hlPlayer}
             highlightGtTrackId={hlGtTrack}
           />
@@ -153,6 +163,9 @@ export default function LabRunViewer() {
             tabs={[
               { id: "stages", label: "Stages" },
               { id: "tracklets", label: "Tracklets", count: artifacts.tracklets?.length },
+              ...(artifacts.association
+                ? [{ id: "assoc" as const, label: "Assoc", count: artifacts.association.pairs.length }]
+                : []),
               { id: "players", label: "Players", count: artifacts.players?.length },
               { id: "events", label: "Events", count: artifacts.events?.length },
               ...(artifacts.eval
@@ -174,7 +187,34 @@ export default function LabRunViewer() {
                   setHlTracklet(tid === hlTracklet ? null : tid);
                   setHlPlayer(null);
                   setHlGtTrack(null);
+                  setHlPair(null);
                   if (t != null) seek(t);
+                }}
+              />
+            )}
+            {tab === "assoc" && (
+              <AssocTab
+                artifacts={artifacts}
+                fps={fps}
+                frameCount={r.manifest?.video.frame_count ?? Math.round(duration * fps)}
+                selectedEntity={hlPlayer}
+                onSelectEntity={(pid) => {
+                  setHlPlayer(pid);
+                  setHlTracklet(null);
+                  setHlGtTrack(null);
+                  setHlPair(null);
+                }}
+                onSelectTracklet={(tid, t) => {
+                  setHlTracklet(tid === hlTracklet ? null : tid);
+                  setHlPair(null);
+                  if (t != null) seek(t);
+                }}
+                onSelectPair={(pair) => {
+                  setHlPair([pair.a, pair.b]);
+                  setHlGtTrack(null);
+                  const aTracklet = artifacts.tracklets?.find((t) => t.tracklet_id === pair.a);
+                  const endFrame = aTracklet?.frames[aTracklet.frames.length - 1]?.frame_idx;
+                  if (endFrame != null) seek(endFrame / fps);
                 }}
               />
             )}
@@ -188,12 +228,14 @@ export default function LabRunViewer() {
                   setHlPlayer(pid === hlPlayer ? null : pid);
                   setHlTracklet(null);
                   setHlGtTrack(null);
+                  setHlPair(null);
                   if (t != null) seek(t);
                 }}
                 onEvidenceClick={(tid, pid, evidenceIdx) => {
                   setHlTracklet(tid);
                   setHlPlayer(pid);
                   setHlGtTrack(null);
+                  setHlPair(null);
                   setInspector({ playerId: pid, evidenceIdx });
                 }}
               />
@@ -210,6 +252,7 @@ export default function LabRunViewer() {
                   seek(Math.max(0, inst.t - 1)); // land just before the switch
                   setLayers((l) => ({ ...l, gt: true, tracklets: true }));
                   setHlGtTrack(inst.gt_track_id);
+                  setHlPair(null);
 
                   const newId = inst.new_id;
                   if (newId == null) {
@@ -254,6 +297,7 @@ export default function LabRunViewer() {
                 setHlTracklet(tid);
                 setHlPlayer(null);
                 setHlGtTrack(null);
+                setHlPair(null);
                 setTab("tracklets");
                 setInspector(null);
               }}
@@ -527,6 +571,274 @@ function EventsTab({
         <div className="py-6 text-center text-[13px] text-ink-500">No events detected.</div>
       )}
     </div>
+  );
+}
+
+/* ---------- association inspector ---------- */
+
+function AssocTab({
+  artifacts,
+  fps,
+  frameCount,
+  selectedEntity,
+  onSelectEntity,
+  onSelectTracklet,
+  onSelectPair,
+}: {
+  artifacts: RunArtifacts;
+  fps: number;
+  frameCount: number;
+  selectedEntity: number | null;
+  onSelectEntity: (playerId: number | null) => void;
+  onSelectTracklet: (trackletId: number, seekTo: number | null) => void;
+  onSelectPair: (pair: AssociationPair) => void;
+}) {
+  const report = artifacts.association;
+  const [showAllPairs, setShowAllPairs] = useState(false);
+  useEffect(() => setShowAllPairs(false), [selectedEntity]);
+
+  if (!report)
+    return (
+      <div className="py-6 text-center text-[13px] text-ink-500">No association artifact.</div>
+    );
+
+  const merged = report.pairs.filter((p) => p.decision === "merged").length;
+  const rejected = report.pairs.length - merged;
+
+  const rejectionCounts = new Map<string, number>();
+  for (const p of report.pairs) {
+    if (p.decision === "rejected" && p.reason) {
+      rejectionCounts.set(p.reason, (rejectionCounts.get(p.reason) ?? 0) + 1);
+    }
+  }
+
+  const entity =
+    selectedEntity != null
+      ? (report.entities.find((e) => e.player_id === selectedEntity) ?? null)
+      : null;
+
+  const trackletById = new Map((artifacts.tracklets ?? []).map((t) => [t.tracklet_id, t]));
+
+  // All pairs when no entity is selected; otherwise only pairs touching one
+  // of the entity's tracklets.
+  const filteredPairs = entity
+    ? report.pairs.filter(
+        (p) => entity.tracklet_ids.includes(p.a) || entity.tracklet_ids.includes(p.b),
+      )
+    : report.pairs;
+
+  const sortedPairs = [...filteredPairs].sort((x, y) => {
+    if (x.decision !== y.decision) return x.decision === "merged" ? -1 : 1;
+    if (x.affinity == null && y.affinity == null) return 0;
+    if (x.affinity == null) return 1; // nulls last
+    if (y.affinity == null) return -1;
+    return x.affinity - y.affinity; // ascending
+  });
+
+  const visiblePairs = showAllPairs ? sortedPairs : sortedPairs.slice(0, 100);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <Mono className="text-ink-100">{report.impl}</Mono>
+          <span className="font-mono text-[11px] text-ink-500">
+            {merged} merged · {rejected} rejected
+          </span>
+        </div>
+        {Object.keys(report.params).length > 0 && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-500">
+            {Object.entries(report.params).map(([k, v]) => (
+              <span key={k}>
+                {k}=<span className="text-ink-400">{String(v)}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+          Rejections by constraint
+        </div>
+        {rejectionCounts.size === 0 ? (
+          <div className="text-[12px] text-ink-500">No rejected pairs.</div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {[...rejectionCounts.entries()].map(([reason, count]) => (
+              <span
+                key={reason}
+                title={
+                  reason === "color_too_far"
+                    ? "appearance distance rejected the pair"
+                    : "a structural gate rejected the pair before appearance was compared"
+                }
+                className={`rounded-full px-2.5 py-1 font-mono text-[11px] ${
+                  reason === "color_too_far"
+                    ? "bg-team-ref/15 text-team-ref"
+                    : "bg-turf-800 text-ink-400"
+                }`}
+              >
+                {reason.replace(/_/g, " ")} · {count}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+            Entity tracklets
+          </div>
+          {entity && (
+            <button
+              onClick={() => onSelectEntity(null)}
+              className="text-[11px] text-ink-400 hover:text-ink-100"
+            >
+              ‹ change entity
+            </button>
+          )}
+        </div>
+        {!entity ? (
+          <EntityPicker entities={report.entities} onSelect={onSelectEntity} />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {entity.tracklet_ids.map((tid) => {
+              const tr = trackletById.get(tid);
+              if (!tr || tr.frames.length === 0) return null;
+              const start = tr.frames[0].frame_idx;
+              const end = tr.frames[tr.frames.length - 1].frame_idx;
+              const denom = Math.max(1, frameCount);
+              const left = (start / denom) * 100;
+              const width = Math.max(0.6, ((end - start) / denom) * 100);
+              return (
+                <button
+                  key={tid}
+                  onClick={() => onSelectTracklet(tid, start / fps)}
+                  className="flex items-center gap-2 text-left"
+                  title={`T${tid} · frames ${start}–${end}`}
+                >
+                  <Mono className="w-10 shrink-0 text-ink-400">T{tid}</Mono>
+                  <div className="relative h-3 flex-1 overflow-hidden rounded-sm bg-turf-800">
+                    <div
+                      className="absolute top-0 h-full rounded-sm"
+                      style={{ left: `${left}%`, width: `${width}%`, background: trackletColor(tid) }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+            Candidate pairs
+          </div>
+          <span className="text-[11px] text-ink-500">
+            {visiblePairs.length} of {sortedPairs.length}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {visiblePairs.map((p, i) => (
+            <AssocPairRow key={`${p.a}-${p.b}-${i}`} pair={p} onClick={() => onSelectPair(p)} />
+          ))}
+          {sortedPairs.length === 0 && (
+            <div className="py-3 text-center text-[13px] text-ink-500">No candidate pairs.</div>
+          )}
+        </div>
+        {!showAllPairs && sortedPairs.length > 100 && (
+          <button
+            onClick={() => setShowAllPairs(true)}
+            className="mt-2 text-[12px] text-ink-400 hover:text-ink-100"
+          >
+            Show {sortedPairs.length - 100} more
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EntityPicker({
+  entities,
+  onSelect,
+}: {
+  entities: AssociationEntitySummary[];
+  onSelect: (playerId: number) => void;
+}) {
+  // Entities with more than one tracklet are the interesting forensic case —
+  // surface them first.
+  const sorted = [...entities].sort((a, b) => {
+    const am = a.tracklet_ids.length > 1 ? 1 : 0;
+    const bm = b.tracklet_ids.length > 1 ? 1 : 0;
+    return bm - am;
+  });
+  return (
+    <div className="flex flex-col gap-1">
+      {sorted.map((e) => (
+        <button
+          key={e.player_id}
+          onClick={() => onSelect(e.player_id)}
+          className="flex items-center gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition-colors hover:bg-turf-800"
+        >
+          <Mono className="w-14 shrink-0 text-ink-100">#{e.player_id}</Mono>
+          <div className="flex flex-wrap gap-1 font-mono text-[10px] text-ink-500">
+            {e.tracklet_ids.map((tid) => (
+              <span key={tid} className="rounded bg-turf-800 px-1.5 py-0.5">
+                T{tid}
+              </span>
+            ))}
+          </div>
+        </button>
+      ))}
+      {sorted.length === 0 && (
+        <div className="py-3 text-center text-[13px] text-ink-500">No entities.</div>
+      )}
+    </div>
+  );
+}
+
+function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () => void }) {
+  // dist_px / gap_s: an implausible speed is one of the constraints that can
+  // reject a pair before appearance is even compared.
+  const speed =
+    pair.dist_px != null && pair.gap_s != null && pair.gap_s > 0
+      ? pair.dist_px / pair.gap_s
+      : null;
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition-colors hover:bg-turf-800"
+    >
+      <Mono className="w-[4.5rem] shrink-0 text-ink-100">
+        T{pair.a} ↔ T{pair.b}
+      </Mono>
+      {pair.decision === "merged" ? (
+        <span className="shrink-0 rounded-full bg-volt-400/15 px-2 py-0.5 font-mono text-[10px] text-volt-300">
+          merged
+        </span>
+      ) : (
+        <span className="shrink-0 rounded-full bg-team-away/15 px-2 py-0.5 font-mono text-[10px] text-team-away">
+          {pair.reason ? pair.reason.replace(/_/g, " ") : "rejected"}
+        </span>
+      )}
+      <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-ink-500">
+        <span title="color distance">
+          d {pair.color_distance != null ? pair.color_distance.toFixed(1) : "—"}
+        </span>
+        <span title="gap seconds">g {pair.gap_s != null ? `${pair.gap_s.toFixed(2)}s` : "—"}</span>
+        <span title="implied speed = dist_px / gap_s">
+          v {speed != null ? speed.toFixed(0) : "—"}
+        </span>
+        <span title="affinity" className="text-ink-400">
+          a {pair.affinity != null ? pair.affinity.toFixed(2) : "—"}
+        </span>
+      </span>
+    </button>
   );
 }
 

@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, fetchJson, fetchJsonl } from "./api";
 import type {
+  AssociationReport,
   BallObservation,
   EvalResult,
   FrameCalibration,
@@ -41,6 +42,7 @@ export interface RunArtifacts {
   stats: StatSheet | null;
   timeline: TimelineBucket[] | null;
   eval: EvalResult | null;
+  association: AssociationReport | null;
   // Derived indexes.
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
@@ -78,6 +80,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "stats", fn: () => fetchJson<StatSheet>(api.artifactUrl(runId, "stats")) },
   { key: "timeline", fn: () => fetchJson<TimelineBucket[]>(api.artifactUrl(runId, "timeline")) },
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
+  { key: "association", fn: () => fetchJson<AssociationReport>(api.artifactUrl(runId, "association")) },
 ].map((q) => ({
   queryKey: ["artifact", runId, q.key],
   queryFn: q.fn,
@@ -89,8 +92,20 @@ const artifactQueries = (runId: string, enabled: boolean) => [
 export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
   const results = useQueries({ queries: artifactQueries(runId, enabled) });
 
-  const [detections, ball, tracklets, teams, calibration, players, minimap, events, stats, timeline, evalResult] =
-    results.map((r) => (r.isSuccess ? r.data : null));
+  const [
+    detections,
+    ball,
+    tracklets,
+    teams,
+    calibration,
+    players,
+    minimap,
+    events,
+    stats,
+    timeline,
+    evalResult,
+    association,
+  ] = results.map((r) => (r.isSuccess ? r.data : null));
 
   const trackletBoxesByFrame = new Map<number, TrackletBox[]>();
   if (tracklets) {
@@ -130,6 +145,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     stats: stats as StatSheet | null,
     timeline: timeline as TimelineBucket[] | null,
     eval: evalResult as EvalResult | null,
+    association: association as AssociationReport | null,
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,

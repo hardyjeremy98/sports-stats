@@ -172,6 +172,8 @@ class GlobalColorAssociator(Associator):
             parent[rb] = ra
             spans[ra] = sorted(spans[ra] + spans[rb])
             pair.decision = "merged"
+            # Appended in the order union-find resolves candidates (ascending
+            # affinity), not tracklet start order — don't assume otherwise.
             merge_edges.append((a, b))
 
         groups: dict[int, list[int]] = {}

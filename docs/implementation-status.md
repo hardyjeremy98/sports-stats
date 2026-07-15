@@ -25,7 +25,7 @@ research belongs in [`../technology/`](../technology/).
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `pitchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `pitchlab_core/stages/calibrate/` |
-| Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour | `stages/associate/global_embed.py` |
+| Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
@@ -133,11 +133,17 @@ uses entity `player_id`, not `PlayerIdentity.label`.
   IDF1 gain, shown side by side with directional deltas, once both runs have an eval artifact.
 - Dashboard filters (video, config, status, ground-truth-only) and sortable metric/time columns.
 - Event-attribution QA with accept, correct, and reject actions.
+- Association decision artifact (`association.json`): per-pair affinity, distance, and
+  rejection-reason recording alongside the accepted merge edges, from the associate stage
+  (`stages/associate/global_embed.py`).
+- Association inspector tab in the run viewer: impl/params header with merged/rejected pair
+  counts, a rejection-reason constraint summary (gate vs colour-distance), an entity-to-tracklet
+  mini-gantt, and a filterable/sortable candidate-pair list that seeks to and highlights both
+  tracklets of a pair in the video overlay.
 
 ### Limitations
 
 - QA cannot merge/split entities, label same/different tracklet pairs, or assign roster identities.
-- There is no embedding, affinity, or constraint-decision inspector.
 - Label export is CLI-only and contains event-attribution labels rather than re-ID pairs.
 
 ## Known findings

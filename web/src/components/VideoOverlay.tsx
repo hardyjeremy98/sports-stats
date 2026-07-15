@@ -58,6 +58,7 @@ export const VideoOverlay = forwardRef<
     layers: LayerState;
     gt?: GtIndex | null;
     highlightTrackletId?: number | null;
+    highlightTrackletIds?: number[] | null;
     highlightPlayerId?: number | null;
     highlightGtTrackId?: number | null;
     controls?: boolean;
@@ -69,6 +70,7 @@ export const VideoOverlay = forwardRef<
     layers,
     gt,
     highlightTrackletId,
+    highlightTrackletIds,
     highlightPlayerId,
     highlightGtTrackId,
     controls = true,
@@ -163,6 +165,7 @@ export const VideoOverlay = forwardRef<
           if (layers.team && team) color = teamColor(team);
           const isHl =
             (highlightTrackletId != null && b.tracklet_id === highlightTrackletId) ||
+            (highlightTrackletIds != null && highlightTrackletIds.includes(b.tracklet_id)) ||
             (highlightPlayerId != null && ent?.player_id === highlightPlayerId);
           ctx.strokeStyle = isHl ? "#9BE532" : color;
           ctx.lineWidth = (isHl ? 3.5 : 2) * px;
@@ -254,6 +257,7 @@ export const VideoOverlay = forwardRef<
     fps,
     eventsSorted,
     highlightTrackletId,
+    highlightTrackletIds,
     highlightPlayerId,
     highlightGtTrackId,
   ]);
