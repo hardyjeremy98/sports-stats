@@ -5,12 +5,13 @@ all dependency-free stage implementations."""
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
-from pitchlab_core.config import PipelineConfig
+from pitchlab_core.config import PipelineConfig, StageConfig
 from pitchlab_core.demo import render_demo_video
 from pitchlab_core.runner import PipelineRunner
 from pitchlab_core.schemas.association import AssociationReport
-from pitchlab_core.schemas.run import StageStatus
+from pitchlab_core.schemas.run import StageKind, StageStatus
 
 CONFIG_PATH = Path(__file__).parents[3] / "configs" / "pipeline.stub.yaml"
 
@@ -88,3 +89,82 @@ def test_events_and_stats(run_dir):
     assert stats["players"], "stat sheet should not be empty"
     total_touches = sum(p["touches"] for p in stats["players"])
     assert total_touches == sum(1 for e in events if e["type"] == "touch")
+
+
+def test_global_color_manifest_omits_reid_embeddings(run_dir):
+    """Negative case for the global-reid regression below: global-color never
+    produces reid_embeddings.npz, so the runner must not index it."""
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert "reid_embeddings" not in manifest["artifacts"]
+    assert not (run_dir / "reid_embeddings.npz").exists()
+
+
+# --- global-reid regression: proves the runner indexes reid_embeddings.npz --------
+#
+# Everything above this line uses the stub config's default `global-color`
+# associator. This section swaps in `global-reid` (with the deterministic
+# `fake-reid` embedder from conftest.py — no torch needed) to prove, without a
+# GPU, that a real PipelineRunner run: writes reid_embeddings.npz, indexes it
+# in manifest.artifacts (and hence the server can serve it per the
+# run-directory contract), and still produces a coherent players.json.
+
+
+@pytest.fixture(scope="module")
+def run_dir_reid(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("stub-reid")
+    video = render_demo_video(tmp / "clip.mp4", duration_s=8, fps=20, width=960, height=540)
+    config = PipelineConfig.from_yaml(CONFIG_PATH)
+    # The synthetic detector's box heights (30-80px, perspective-scaled) sit
+    # well under global-reid's real-footage defaults (min_box_height_px=60) —
+    # loosen the crop-quality gates so the stub video's tracklets actually
+    # produce features; the point of this test is a non-empty npz, not
+    # exercising the gates themselves (those are covered by
+    # test_associate_reid.py / test_quality_crops.py).
+    config.stages[StageKind.ASSOCIATE] = StageConfig(
+        impl="global-reid",
+        params={
+            "embedder": "fake-reid",
+            "min_box_height_px": 10,
+            "min_crop_confidence": 0.1,
+            "max_isolation_iou": 0.9,
+        },
+    )
+    runner = PipelineRunner(
+        run_id="test-reid", video_path=video, config=config, run_dir=tmp / "run"
+    )
+    manifest = runner.run()
+    assert manifest.status == StageStatus.COMPLETED, manifest.error
+    return tmp / "run"
+
+
+def test_reid_embeddings_indexed_in_manifest(run_dir_reid):
+    manifest = json.loads((run_dir_reid / "manifest.json").read_text())
+    assert manifest["artifacts"]["reid_embeddings"] == "reid_embeddings.npz"
+    npz_path = run_dir_reid / "reid_embeddings.npz"
+    assert npz_path.exists()
+
+    with np.load(npz_path) as data:
+        tracklet_ids = data["tracklet_ids"]
+        embeddings = data["embeddings"]
+        assert tracklet_ids.shape[0] > 0
+        assert embeddings.shape[0] == tracklet_ids.shape[0]
+        assert data["n_crops"].shape == tracklet_ids.shape
+        assert data["mean_quality"].shape == tracklet_ids.shape
+
+
+def test_reid_association_report_indexed_and_parses(run_dir_reid):
+    manifest = json.loads((run_dir_reid / "manifest.json").read_text())
+    assert manifest["artifacts"]["association"] == "association.json"
+    report = AssociationReport.model_validate_json(
+        (run_dir_reid / "association.json").read_text()
+    )
+    assert report.impl == "global-reid"
+    assert report.entities
+
+
+def test_reid_players_present_and_coherent(run_dir_reid):
+    tracklets = json.loads((run_dir_reid / "tracklets.json").read_text())
+    players = json.loads((run_dir_reid / "players.json").read_text())
+    assert players
+    owned = [tid for p in players for tid in p["tracklet_ids"]]
+    assert sorted(owned) == sorted(t["tracklet_id"] for t in tracklets)
