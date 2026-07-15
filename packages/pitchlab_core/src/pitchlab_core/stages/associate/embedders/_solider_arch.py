@@ -1,10 +1,12 @@
 # Vendored from tinyvision/SOLIDER-REID (MIT License), commit 8c08e1c
 # (2023-05-04), model/backbones/swin_transformer.py, fetched 2026-07-16
 # during the Task-9 SOLIDER-REID compat spike. This is the Swin-Transformer
-# backbone used by the released MSMT17 Swin-Base re-ID checkpoint; the
-# reid-specific head (make_model.py::build_transformer — bottleneck/BN +
-# classifier) is NOT vendored since inference only needs the backbones
-# pooled feature (equivalent to the eval-time TEST.NECK_FEAT="before" path).
+# backbone used by the released MSMT17 Swin-Base re-ID checkpoint. The
+# reid head (make_model.py::build_transformer) is not vendored: its BN-neck
+# (`bottleneck`, a plain BatchNorm1d over the pooled feature — required at
+# inference, see solider.py's module docstring for why) is reconstructed
+# directly in solider.py from the checkpoint's `bottleneck.*` keys, and its
+# `classifier` is the training-time MSMT17 softmax head, unused at inference.
 #
 # Modified from upstream in exactly one place: the top-level
 # `from mmcv.runner import load_checkpoint as _load_checkpoint` import is

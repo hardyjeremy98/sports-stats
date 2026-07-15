@@ -12,6 +12,19 @@ A Task-9 compat spike proved this exact arch + weights combination under
 torch>=2.3 (this repo's `cv` extra pin): 373/373 backbone (`base.*`)
 state_dict keys matched, a (2,3,384,128) forward pass -> (2,1024),
 deterministic, L2-normalizable. See task-9-report.md.
+
+The embedding is the BN-neck output (checkpoint's trained `bottleneck.*`
+BatchNorm1d applied to the backbone's pooled feature — upstream
+`build_transformer`'s TEST.NECK_FEAT='after' path), NOT the raw pooled
+feature. Raw Swin pooled features are strongly anisotropic (a large shared
+mean component drives all pairwise cosine similarities toward 1): measured
+on 12 distinct GT players from SNMOT-116 frame 100, raw-feature pairwise
+cosine distances collapsed to median 0.070 / max 0.102, while the same
+features after the BN-neck spread to median 0.387 / max 0.545 (OSNet
+reference: median 0.353 / max 0.636). Upstream's own msmt17 eval config
+uses NECK_FEAT='before' (raw), but its mAP/CMC metrics are pure ranking
+metrics, invariant to that compression — the global-reid associator gates
+on ABSOLUTE cosine distance, which requires the centered BN-neck geometry.
 """
 
 from __future__ import annotations
@@ -52,6 +65,7 @@ class SoliderEmbedder(BodyEmbedder):
         self.weights = weights
         self.batch_size = batch_size
         self._model = None
+        self._bn_neck = None
         self._device = "cpu"
 
     def prepare(self, device: str) -> None:
@@ -113,6 +127,26 @@ class SoliderEmbedder(BodyEmbedder):
         model_dict.update(matched)
         model.load_state_dict(model_dict, strict=False)
 
+        # BN-neck: the checkpoint's trained BatchNorm1d over the pooled backbone
+        # feature (upstream build_transformer.bottleneck, TEST.NECK_FEAT='after'
+        # path). Required — without it the raw pooled features are anisotropic
+        # and pairwise cosine distances collapse to < ~0.13 (see module docstring),
+        # which silently breaks absolute-distance gating downstream.
+        bn_sd = {
+            k[len("bottleneck.") :]: v for k, v in state_dict.items()
+            if k.startswith("bottleneck.")
+        }
+        bn_neck = torch.nn.BatchNorm1d(self.dim)
+        try:
+            bn_neck.load_state_dict(bn_sd, strict=True)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"SOLIDER-REID checkpoint at {weights_path} is missing (or has "
+                f"incompatible) 'bottleneck.*' BN-neck keys (found {sorted(bn_sd)}). "
+                "The embedder requires the trained BN-neck: raw backbone features "
+                "have collapsed cosine geometry and are unusable for distance gating."
+            ) from exc
+
         # NOT chained as `model.eval().to(device)`: the vendored SwinTransformer
         # overrides nn.Module.train() (to keep frozen stages in eval mode) without
         # `return self` (upstream bug), so nn.Module.eval() — which is just
@@ -120,6 +154,8 @@ class SoliderEmbedder(BodyEmbedder):
         # returns self correctly.
         model.eval()
         self._model = model.to(device)
+        bn_neck.eval()
+        self._bn_neck = bn_neck.to(device)
         self._device = device
 
     def embed(self, crops: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray | None]:
@@ -147,7 +183,8 @@ class SoliderEmbedder(BodyEmbedder):
                 sw = torch.full((x.shape[0], 1), _SEMANTIC_WEIGHT, device=self._device)
                 sw = torch.cat([sw, 1 - sw], dim=-1)
 
-                feats, _ = self._model(x, semantic_weight=sw)
+                global_feat, _ = self._model(x, semantic_weight=sw)
+                feats = self._bn_neck(global_feat)  # BN-neck: see module docstring
                 batches.append(feats.cpu().numpy())
 
         emb = np.concatenate(batches).astype(np.float32)

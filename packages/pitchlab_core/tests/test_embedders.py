@@ -194,3 +194,35 @@ def test_solider_real_prepare_and_embed_smoke():
     assert quality is None
     norms = np.linalg.norm(out, axis=1)
     np.testing.assert_allclose(norms, 1.0, atol=1e-5)
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not os.environ.get("PITCHLAB_SLOW_TESTS"),
+    reason="needs the downloaded SOLIDER-REID checkpoint; set PITCHLAB_SLOW_TESTS=1 to run",
+)
+def test_solider_embeddings_are_not_anisotropically_collapsed():
+    """Regression test for the BN-neck bug: embedding the RAW Swin pooled
+    feature (instead of the checkpoint's bottleneck/BN-neck output) produces
+    anisotropic features whose pairwise cosine distances all collapse below
+    ~0.13, silently defeating absolute-distance gating in the associator.
+    With the BN-neck applied, visually distinct crops must separate well past
+    that ceiling (measured 0.41-0.56 for these solid-colour crops; distinct
+    real players from SNMOT-116 spread to median 0.387 / max 0.545)."""
+    emb = get_embedder("solider")
+    emb.prepare("cpu")
+
+    red = np.zeros((180, 80, 3), np.uint8)
+    red[:, :, 2] = 220
+    blue = np.zeros((180, 80, 3), np.uint8)
+    blue[:, :, 0] = 220
+    green = np.zeros((180, 80, 3), np.uint8)
+    green[:, :, 1] = 180
+    out, _ = emb.embed([red, blue, green])
+
+    sim = out @ out.T
+    pair_dists = [1 - sim[0, 1], 1 - sim[0, 2], 1 - sim[1, 2]]
+    assert min(pair_dists) > 0.2, (
+        f"pairwise cosine distances {pair_dists} are collapsed — is embed() "
+        "returning raw backbone features instead of the BN-neck output?"
+    )
