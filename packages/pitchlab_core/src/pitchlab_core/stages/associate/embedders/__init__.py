@@ -1,0 +1,17 @@
+"""Body re-ID embedder implementations. Importing this package registers
+every embedder with EMBEDDERS — add new modules to the list below (same
+pattern as pitchlab_core/stages/__init__.py registering stage implementations).
+
+Consumed by associate-stage implementations (e.g. the `global-reid`
+associator) via `get_embedder(name, **params)`. None of these imports pull in
+torch — implementations lazy-import heavy CV deps inside `prepare()`."""
+
+from pitchlab_core.stages.associate.embedders import osnet  # noqa: F401
+from pitchlab_core.stages.associate.embedders.base import (
+    EMBEDDERS,
+    BodyEmbedder,
+    get_embedder,
+    register_embedder,
+)
+
+__all__ = ["BodyEmbedder", "EMBEDDERS", "get_embedder", "register_embedder"]

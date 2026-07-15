@@ -52,3 +52,6 @@ ignore = ["E501", "B008", "B905", "UP042", "B027"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["packages"]
+markers = [
+    "slow: real-model smoke test (network/heavy deps); gated by an env var, skipped by default",
+]

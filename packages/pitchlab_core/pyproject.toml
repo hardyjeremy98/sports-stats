@@ -20,6 +20,7 @@ cv = [
     "torch>=2.3",
     "umap-learn>=0.5",
     "scikit-learn>=1.4",
+    "huggingface-hub>=0.24",    # OSNet-AIN weight download (currently transitive; make explicit)
 ]
 # Face identity path (note: insightface CODE is MIT, but its distributed model
 # packs (buffalo_l) are research-only — commercial use needs a license from

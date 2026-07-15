@@ -3328,6 +3328,7 @@ dependencies = [
 
 [package.optional-dependencies]
 cv = [
+    { name = "huggingface-hub" },
     { name = "inference" },
     { name = "scikit-learn" },
     { name = "supervision" },
@@ -3346,6 +3347,7 @@ face = [
 
 [package.metadata]
 requires-dist = [
+    { name = "huggingface-hub", marker = "extra == 'cv'", specifier = ">=0.24" },
     { name = "inference", marker = "extra == 'cv'", specifier = ">=0.29" },
     { name = "insightface", marker = "extra == 'face'", specifier = ">=0.7" },
     { name = "motmetrics", marker = "extra == 'eval'", specifier = ">=1.4" },
