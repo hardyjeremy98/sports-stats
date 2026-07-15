@@ -480,6 +480,58 @@ def test_merge_quality_majority_vote(tmp_path):
     assert result["association"]["merge_precision"] == 1.0
 
 
+def _write_overlapping_gt_seq(root: Path) -> Path:
+    """Two player GT tracks whose boxes overlap each other in frames 1-2:
+    track 1 fixed at (100,100); track 2 at (110,100) — IoU 0.6 with track 1's
+    box — then away at (500,200) from frame 3 on. A hypothesis box sitting
+    exactly on track 1 clears the 0.5 IoU threshold against BOTH tracks in
+    frames 1-2, with track 1 the strictly better match."""
+    seq = root / "SNMOT-002"
+    (seq / "gt").mkdir(parents=True)
+    (seq / "seqinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-002\nimDir=img1\nframeRate=25\nseqLength=10\n"
+        "imWidth=1920\nimHeight=1080\nimExt=.jpg\n"
+    )
+    (seq / "gameinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-002\nnum_tracklets=2\n"
+        "trackletID_1= player team left;10\n"
+        "trackletID_2= player team right;7\n"
+    )
+    rows = []
+    for frame in range(1, 11):  # 1-based MOT frames
+        rows.append(f"{frame},1,100,100,40,120,1,-1,-1,-1")
+        x2, y2 = (110, 100) if frame <= 2 else (500, 200)
+        rows.append(f"{frame},2,{x2},{y2},40,120,1,-1,-1,-1")
+    (seq / "gt" / "gt.txt").write_text("\n".join(rows))
+    return seq
+
+
+def test_merge_quality_votes_best_iou_only_per_frame(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_overlapping_gt_seq(tmp_path))
+
+    # Tracklet 10: frames 0-1 exactly on GT track 1 (IoU 1.0) while GT track
+    # 2's box also clears the threshold there (IoU 0.6); frame 2 exactly on
+    # GT track 2 only. Single-best voting: track1=2, track2=1 -> gt_id 1.
+    # If overlapping frames voted for EVERY qualifying GT box, track 2 would
+    # collect 3 votes to track 1's 2 and win — the wrong assignment.
+    tracklets = [
+        _tracklet(10, [(0, 100, 100), (1, 100, 100), (2, 500, 200)]),
+        _tracklet(11, [(f, 100, 100) for f in range(3, 10)]),  # cleanly GT track 1
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    pair = assoc["merged_pairs"][0]
+    assert pair["gt_a"] == 1 and pair["gt_b"] == 1
+    assert pair["correct"] is True
+    assert assoc["merge_precision"] == 1.0
+
+
 def test_merge_quality_three_way_merge(tmp_path):
     pytest.importorskip("motmetrics")
     from pitchlab_core.evaluation import evaluate_run

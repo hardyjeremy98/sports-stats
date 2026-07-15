@@ -151,9 +151,10 @@ def merge_quality(
 
     Each tracklet is first assigned a majority-vote GT track id: over its
     frames, match its box to GT boxes in that frame by IoU (>= iou_threshold,
-    same rule as the MOT levels); each matched frame casts one vote, and the
-    tracklet's gt_id is the argmax (ties -> lowest gt id, deterministic).
-    Tracklets with zero matched frames get gt_id None.
+    same rule as the MOT levels); each matched frame casts ONE vote, for the
+    single best-IoU qualifying GT box, and the tracklet's gt_id is the argmax
+    (ties -> lowest gt id, deterministic). Tracklets with zero matched frames
+    get gt_id None.
 
     Then every entity (players.json record) with more than one tracklet
     contributes one "was this merge right?" judgment per unordered tracklet
@@ -179,9 +180,18 @@ def merge_quality(
             if not gts:
                 continue
             dist = _iou_distance([g[1] for g in gts], [box], max_dist=1 - iou_threshold)
-            for gi, (gid, _) in enumerate(gts):
-                if dist[gi, 0] == dist[gi, 0]:  # not NaN => qualifying match
-                    votes[gid] = votes.get(gid, 0) + 1
+            # One vote per frame, for the single best (lowest-distance) GT box
+            # among those clearing the threshold — voting for EVERY qualifying
+            # box would let a brushing neighbour outvote the true track in
+            # crowded scenes, the exact failure this metric polices.
+            best_gi: int | None = None
+            for gi in range(len(gts)):
+                d = dist[gi, 0]
+                if d == d and (best_gi is None or d < dist[best_gi, 0]):  # not NaN
+                    best_gi = gi
+            if best_gi is not None:
+                gid = gts[best_gi][0]
+                votes[gid] = votes.get(gid, 0) + 1
         gt_id_of_tracklet[tid] = min(votes, key=lambda gid: (-votes[gid], gid)) if votes else None
 
     n_entities_merged = 0
