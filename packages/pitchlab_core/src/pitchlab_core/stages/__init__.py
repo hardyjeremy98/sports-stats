@@ -2,7 +2,11 @@
 with the registry — add new modules to the list below."""
 
 from pitchlab_core.stages.annotate import overlay  # noqa: F401
-from pitchlab_core.stages.associate import global_embed, identity_fallback  # noqa: F401
+from pitchlab_core.stages.associate import (  # noqa: F401
+    global_embed,
+    global_reid,
+    identity_fallback,
+)
 from pitchlab_core.stages.calibrate import (  # noqa: F401
     roboflow_keypoints,
     static,

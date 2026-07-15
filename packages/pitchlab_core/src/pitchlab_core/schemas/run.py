@@ -73,6 +73,7 @@ class ArtifactName(StrEnum):
     CROPS = "crops"                  # crops/ dir — identity evidence images
     EVAL = "eval"                    # eval.json — MOT metrics vs ground truth (post-hoc)
     ASSOCIATION = "association"      # association.json — AssociationReport (pair decisions)
+    REID_EMBEDDINGS = "reid_embeddings"  # reid_embeddings.npz — per-tracklet re-ID features
 
 
 class TimelineBucket(BaseModel):

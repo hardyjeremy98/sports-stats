@@ -114,7 +114,7 @@ class PipelineRunner:
         players = self._exec(
             StageKind.ASSOCIATE, lambda s: s.associate(ctx, tracklets, teams)
         )
-        self._index(ArtifactName.ASSOCIATION)
+        self._index(ArtifactName.ASSOCIATION, ArtifactName.REID_EMBEDDINGS)
         if players is None:
             # No associator configured: degrade to one entity per tracklet.
             from pitchlab_core.stages.associate.identity_fallback import one_entity_per_tracklet
