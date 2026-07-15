@@ -89,21 +89,28 @@ def test_empty_instance_lists_return_empty_buckets():
 
 
 def test_greedy_matching_prefers_closest_pairs_first():
-    # Group (tracklet, 1) has two A instances and two B instances; the closest
-    # pairing should win even though a farther-but-still-in-tolerance pairing
-    # would also be valid for the "wrong" partner.
+    # Group (tracklet, 1) has two A instances and two B instances. The globally
+    # sorted greedy matcher should pair by closest distance first, even when the
+    # enumeration order would pair differently. Naive enumeration-order greedy
+    # would incorrectly match (10.0↔10.4, 10.5↔10.05) instead of the correct
+    # (10.0↔10.05, 10.5↔10.4).
     a1 = _inst(10.0)
-    a2 = _inst(10.9)
-    b1 = _inst(10.1)
-    b2 = _inst(11.0)
+    a2 = _inst(10.5)
+    b1 = _inst(10.4)
+    b2 = _inst(10.05)
     result = diff_switch_instances(
         {"instances": [a1, a2]}, {"instances": [b1, b2]}, tol_s=1.0
     )
     assert result["counts"] == {"fixed": 0, "introduced": 0, "persisted": 2}
-    pairs = {(p["a"]["t"], p["b"]["t"]) for p in result["persisted"]}
-    # a1(10.0)<->b1(10.1) is closest (0.1); a2(10.9)<->b2(11.0) is next (0.1).
-    # a1<->b2 (1.0) and a2<->b1 (0.8) would leave a worse/invalid pairing.
-    assert pairs == {(10.0, 10.1), (10.9, 11.0)}
+    # Verify exact pairings (sorted by closest distance first):
+    # - (10.0, 10.05): distance 0.05 (closest)
+    # - (10.5, 10.4): distance 0.1 (second closest)
+    persisted = result["persisted"]
+    assert len(persisted) == 2
+    # Extract pairs for easier verification
+    pairs = [(p["a"]["t"], p["b"]["t"]) for p in persisted]
+    assert (10.0, 10.05) in pairs, f"Expected (10.0, 10.05) in {pairs}"
+    assert (10.5, 10.4) in pairs, f"Expected (10.5, 10.4) in {pairs}"
 
 
 def test_counts_consistent_with_list_lengths():
