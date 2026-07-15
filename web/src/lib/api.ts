@@ -1,4 +1,7 @@
 import type {
+  IdentityLabel,
+  IdentityLabelKind,
+  IdentityLabelPayload,
   PipelineConfigOut,
   QARecord,
   Registry,
@@ -76,6 +79,27 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+
+  identityQa: (params?: { run_id?: string; kind?: IdentityLabelKind }) => {
+    const q = new URLSearchParams();
+    if (params?.run_id) q.set("run_id", params.run_id);
+    if (params?.kind) q.set("kind", params.kind);
+    const qs = q.toString();
+    return request<IdentityLabel[]>(`/api/identity_qa${qs ? `?${qs}` : ""}`);
+  },
+  createIdentityLabel: (body: {
+    run_id: string;
+    kind: IdentityLabelKind;
+    payload: IdentityLabelPayload;
+    note?: string | null;
+  }) =>
+    request<IdentityLabel>("/api/identity_qa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteIdentityLabel: (id: number) =>
+    request<{ ok: boolean }>(`/api/identity_qa/${id}`, { method: "DELETE" }),
 };
 
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

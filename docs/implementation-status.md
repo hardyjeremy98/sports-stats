@@ -36,7 +36,7 @@ research belongs in [`../technology/`](../technology/).
 | Quality-guided multimodal fusion | Planned | No fusion implementation; would require a composite or revised inference flow | — |
 | Match-level constrained optimizer | Planned | Only local pair filtering and greedy merging exist | — |
 | Roster enrollment and assignment | Planned | No roster model or assignment workflow exists | — |
-| Identity-specific human QA | Planned | Current QA corrects event attribution, not identity entities | — |
+| Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `pitchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `pitchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
 | Learned action spotting | Stub | Registered no-op implementation | `stages/events/spotting_stub.py` |
@@ -92,6 +92,9 @@ uses entity `player_id`, not `PlayerIdentity.label`.
 - A run-diff API and UI for config, headline metric, timeline, and stat differences.
 - CLI `eval-pipelines` experiment that runs two configurations over multiple clips.
 - SoccerNet ingestion and QA-label export commands.
+- `pitchlab-train export-reid`: exports identity-QA "same"/"different" pair verdicts (unsure
+  pairs excluded) as re-ID training pairs with copied crop images, cross-run crop-name-collision
+  safe.
 
 ### Limitations
 
@@ -140,11 +143,25 @@ uses entity `player_id`, not `PlayerIdentity.label`.
   counts, a rejection-reason constraint summary (gate vs colour-distance), an entity-to-tracklet
   mini-gantt, and a filterable/sortable candidate-pair list that seeks to and highlights both
   tracklets of a pair in the video overlay.
+- Identity QA sub-tab (`IdentityQATab`) in the run viewer's QA tab: a same/different/unsure pair
+  queue seeded from association near-misses (`color_too_far`, sorted closest-miss-first, plus
+  `span_conflict`/`speed_implausible`) and eval entity-level ID switches (prev/new tracklets
+  derived deterministically around the switch frame), deduped against already-labeled pairs by
+  unordered tracklet-pair equality; crop-strip evidence per tracklet with seek/highlight
+  fallbacks when no evidence crops exist; keyboard shortcuts (s/d/u) that act on the first
+  visible candidate, guarded against firing while an input is focused; a manual pair-entry
+  degradation path for runs without association/eval artifacts; a labels-collected counter; and
+  a run-scoped recent-labels list with undo (delete).
+- PlayersTab entity actions: multi-select checkboxes with a floating "flag merge" action row,
+  per-entity inline tracklet multi-select "flag split", and a per-entity roster-label input —
+  all annotations that do not mutate the run's entities, with UI copy saying so.
+- Cross-run identity-label browser on the global QA page (`pages/LabQA.tsx`): a read-only table
+  of every pair/merge/split/roster label across all runs, with a run-viewer link and delete.
 
 ### Limitations
 
-- QA cannot merge/split entities, label same/different tracklet pairs, or assign roster identities.
-- Label export is CLI-only and contains event-attribution labels rather than re-ID pairs.
+- Merge/split/roster flags are annotations only; nothing currently consumes them to actually
+  re-associate entities or rewrite a roster short of the offline `export-reid` pair pipeline.
 
 ## Known findings
 

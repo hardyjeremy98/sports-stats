@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { Run } from "./types";
+import type { IdentityLabelKind, Run } from "./types";
 
 const ACTIVE = (runs: Run[] | undefined) =>
   runs?.some((r) => r.status === "queued" || r.status === "running") ?? false;
@@ -74,6 +74,21 @@ export function useQAActions() {
     onSuccess: invalidate,
   });
   return { accept, reject, correct };
+}
+
+export function useIdentityQA(runId?: string, kind?: IdentityLabelKind) {
+  return useQuery({
+    queryKey: ["identity_qa", runId ?? "all", kind ?? "all"],
+    queryFn: () => api.identityQa({ run_id: runId, kind }),
+  });
+}
+
+export function useIdentityQAActions() {
+  const qc = useQueryClient();
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["identity_qa"] });
+  const create = useMutation({ mutationFn: api.createIdentityLabel, onSuccess: invalidate });
+  const remove = useMutation({ mutationFn: api.deleteIdentityLabel, onSuccess: invalidate });
+  return { create, remove };
 }
 
 export function useCreateRun() {

@@ -2,9 +2,11 @@
 // Every decision writes a labeled example — the v2 training set.
 
 import { useMemo, useState } from "react";
-import { useQA, useRuns } from "../lib/hooks";
-import type { QAStatus } from "../lib/types";
+import { Link } from "react-router-dom";
+import { useIdentityQA, useIdentityQAActions, useQA, useRuns } from "../lib/hooks";
+import type { IdentityLabel, QAStatus } from "../lib/types";
 import { QATab } from "./LabRunViewer";
+import { summarizeIdentityLabel } from "../components/IdentityQATab";
 import { Card, PageTitle, Spinner } from "../components/ui";
 
 const FILTERS: { id: QAStatus | "all"; label: string }[] = [
@@ -15,7 +17,10 @@ const FILTERS: { id: QAStatus | "all"; label: string }[] = [
   { id: "all", label: "All" },
 ];
 
+type Section = "events" | "identity";
+
 export default function LabQA() {
+  const [section, setSection] = useState<Section>("events");
   const [status, setStatus] = useState<QAStatus | "all">("pending");
   const [runId, setRunId] = useState<string>("");
   const qa = useQA({
@@ -23,6 +28,7 @@ export default function LabQA() {
     status: status === "all" ? undefined : status,
   });
   const allQa = useQA(); // for the labels-collected counter
+  const identityLabels = useIdentityQA(); // unfiltered, all runs
   const runs = useRuns();
 
   const labelsCollected = useMemo(
@@ -38,48 +44,139 @@ export default function LabQA() {
         title="QA queue"
         sub="Contested and low-confidence pipeline decisions. Each verdict becomes a training label."
         right={
-          <div className="rounded-lg border border-white/8 bg-turf-900 px-4 py-2 text-right">
-            <div className="font-mono text-xl text-volt-300">{labelsCollected}</div>
-            <div className="font-mono text-[10px] uppercase tracking-wider text-ink-500">
-              labels collected
+          section === "events" ? (
+            <div className="rounded-lg border border-white/8 bg-turf-900 px-4 py-2 text-right">
+              <div className="font-mono text-xl text-volt-300">{labelsCollected}</div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-ink-500">
+                labels collected
+              </div>
             </div>
-          </div>
+          ) : undefined
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setStatus(f.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
-                status === f.id
-                  ? "bg-turf-800 text-ink-100"
-                  : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <select
-          value={runId}
-          onChange={(e) => setRunId(e.target.value)}
-          className="ml-auto rounded-lg border border-white/10 bg-turf-850 px-3 py-1.5 text-[12px] text-ink-400 outline-none focus:border-volt-400/60"
-        >
-          <option value="">All runs</option>
-          {(runs.data ?? []).map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.id} — {r.label ?? r.config_name}
-            </option>
-          ))}
-        </select>
+      <div className="mb-4 flex items-center gap-1">
+        {(["events", "identity"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSection(s)}
+            className={`rounded-md px-2.5 py-1 text-[12px] capitalize transition-colors ${
+              section === s
+                ? "bg-turf-800 text-ink-100"
+                : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
       </div>
 
-      <Card className="p-3">
-        {qa.isLoading ? <Spinner label="Loading queue" /> : <QATab records={qa.data ?? []} showRunId />}
-      </Card>
+      {section === "events" && (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setStatus(f.id)}
+                  className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                    status === f.id
+                      ? "bg-turf-800 text-ink-100"
+                      : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <select
+              value={runId}
+              onChange={(e) => setRunId(e.target.value)}
+              className="ml-auto rounded-lg border border-white/10 bg-turf-850 px-3 py-1.5 text-[12px] text-ink-400 outline-none focus:border-volt-400/60"
+            >
+              <option value="">All runs</option>
+              {(runs.data ?? []).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.id} — {r.label ?? r.config_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Card className="p-3">
+            {qa.isLoading ? (
+              <Spinner label="Loading queue" />
+            ) : (
+              <QATab records={qa.data ?? []} showRunId />
+            )}
+          </Card>
+        </>
+      )}
+
+      {section === "identity" && (
+        <Card className="overflow-hidden">
+          {identityLabels.isLoading ? (
+            <Spinner label="Loading identity labels" />
+          ) : (
+            <IdentityLabelsTable labels={identityLabels.data ?? []} />
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// Read-only cross-run identity label browser: every pair verdict, merge/
+// split/roster flag ever recorded, regardless of run.
+function IdentityLabelsTable({ labels }: { labels: IdentityLabel[] }) {
+  const { remove } = useIdentityQAActions();
+  if (labels.length === 0)
+    return <div className="py-10 text-center text-[13px] text-ink-500">No identity labels yet.</div>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="border-b border-white/8 text-left font-mono text-[10px] uppercase tracking-wider text-ink-500">
+            <th className="px-3 py-2 font-normal">Kind</th>
+            <th className="px-3 py-2 font-normal">Run</th>
+            <th className="px-3 py-2 font-normal">Payload</th>
+            <th className="px-3 py-2 font-normal">Created</th>
+            <th className="px-3 py-2 font-normal" />
+          </tr>
+        </thead>
+        <tbody>
+          {labels.map((l) => (
+            <tr key={l.id} className="border-b border-white/5 last:border-0">
+              <td className="px-3 py-2">
+                <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
+                  {l.kind}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                <Link
+                  to={`/lab/runs/${l.run_id}`}
+                  className="font-mono text-[11px] text-volt-300 hover:underline"
+                >
+                  {l.run_id}
+                </Link>
+              </td>
+              <td className="px-3 py-2 text-ink-300">{summarizeIdentityLabel(l)}</td>
+              <td className="px-3 py-2 font-mono text-[11px] text-ink-500">
+                {new Date(l.created_at).toLocaleString()}
+              </td>
+              <td className="px-3 py-2 text-right">
+                <button
+                  onClick={() => remove.mutate(l.id)}
+                  disabled={remove.isPending}
+                  className="text-[11px] text-ink-500 hover:text-team-away"
+                >
+                  delete
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

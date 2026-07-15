@@ -287,6 +287,49 @@ export interface AssociationReport {
   entities: AssociationEntitySummary[];
 }
 
+// ---- Identity QA labels (human annotations; never mutate run artifacts/entities) ----
+
+export type IdentityLabelKind = "pair" | "merge" | "split" | "roster";
+export type PairVerdict = "same" | "different" | "unsure";
+export type PairSource = "manual" | "assoc_candidate" | "eval_switch";
+
+export interface PairPayload {
+  tracklet_a: number;
+  tracklet_b: number;
+  verdict: PairVerdict;
+  crop_a: string | null;
+  crop_b: string | null;
+  frame_a: number | null;
+  frame_b: number | null;
+  source: PairSource;
+}
+
+export interface MergePayload {
+  player_ids: number[];
+}
+
+export interface SplitPayload {
+  player_id: number;
+  tracklet_ids_out: number[];
+}
+
+export interface RosterPayload {
+  player_id: number;
+  roster_label: string;
+}
+
+export type IdentityLabelPayload = PairPayload | MergePayload | SplitPayload | RosterPayload;
+
+export interface IdentityLabel {
+  id: number;
+  run_id: string;
+  video_id: number;
+  kind: IdentityLabelKind;
+  payload: IdentityLabelPayload;
+  note: string | null;
+  created_at: string;
+}
+
 // ---- API models ----
 
 export interface Video {

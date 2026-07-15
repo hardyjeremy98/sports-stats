@@ -7,7 +7,14 @@ import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
 import { trackletColor } from "../lib/colors";
 import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
-import { useEvaluateRun, useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
+import {
+  useEvaluateRun,
+  useIdentityQAActions,
+  useQA,
+  useQAActions,
+  useRun,
+  useRuns,
+} from "../lib/hooks";
 import type {
   AssociationEntitySummary,
   AssociationPair,
@@ -18,6 +25,7 @@ import type {
 } from "../lib/types";
 import { SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
+import { IdentityQATab } from "../components/IdentityQATab";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
 import {
@@ -53,6 +61,7 @@ export default function LabRunViewer() {
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [signal, setSignal] = useState<SignalId>("detection_confidence");
   const [tab, setTab] = useState<TabId>("stages");
+  const [qaSubTab, setQaSubTab] = useState<"events" | "identity">("events");
   const [hlTracklet, setHlTracklet] = useState<number | null>(null);
   const [hlPlayer, setHlPlayer] = useState<number | null>(null);
   const [hlGtTrack, setHlGtTrack] = useState<number | null>(null);
@@ -276,7 +285,40 @@ export default function LabRunViewer() {
                 }}
               />
             )}
-            {tab === "qa" && <QATab records={qa.data ?? []} onSeek={seek} />}
+            {tab === "qa" && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-1">
+                  {(["events", "identity"] as const).map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setQaSubTab(st)}
+                      className={`rounded-md px-2.5 py-1 text-[12px] capitalize transition-colors ${
+                        qaSubTab === st
+                          ? "bg-turf-800 text-ink-100"
+                          : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+                {qaSubTab === "events" && <QATab records={qa.data ?? []} onSeek={seek} />}
+                {qaSubTab === "identity" && (
+                  <IdentityQATab
+                    runId={r.id}
+                    artifacts={artifacts}
+                    fps={fps}
+                    seek={seek}
+                    onSelectPairHighlight={(a, b) => {
+                      setHlPair([a, b]);
+                      setHlTracklet(null);
+                      setHlPlayer(null);
+                      setHlGtTrack(null);
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -466,11 +508,105 @@ function PlayersTab({
   onSelect: (pid: number, seekTo: number | null) => void;
   onEvidenceClick: (trackletId: number, playerId: number, evidenceIdx: number) => void;
 }) {
+  const { create } = useIdentityQAActions();
+  const [merging, setMerging] = useState<Set<number>>(new Set());
+  const [splittingId, setSplittingId] = useState<number | null>(null);
+  const [splitSelected, setSplitSelected] = useState<Set<number>>(new Set());
+  const [rosterInput, setRosterInput] = useState<Record<number, string>>({});
+  const [flash, setFlash] = useState<{ id: string; msg: string } | null>(null);
+
+  function showFlash(id: string, msg: string) {
+    setFlash({ id, msg });
+    window.setTimeout(() => setFlash((f) => (f?.id === id ? null : f)), 2500);
+  }
+
+  function toggleMerge(pid: number) {
+    setMerging((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  }
+
+  function flagMerge() {
+    const ids = [...merging];
+    if (ids.length < 2) return;
+    create.mutate(
+      { run_id: runId, kind: "merge", payload: { player_ids: ids } },
+      {
+        onSuccess: () => {
+          showFlash("merge", `Flagged merge of ${ids.length} entities`);
+          setMerging(new Set());
+        },
+      },
+    );
+  }
+
+  function openSplit(pid: number) {
+    setSplittingId(pid === splittingId ? null : pid);
+    setSplitSelected(new Set());
+  }
+
+  function toggleSplitTracklet(tid: number) {
+    setSplitSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(tid)) next.delete(tid);
+      else next.add(tid);
+      return next;
+    });
+  }
+
+  function confirmSplit(pid: number) {
+    const ids = [...splitSelected];
+    if (ids.length === 0) return;
+    create.mutate(
+      { run_id: runId, kind: "split", payload: { player_id: pid, tracklet_ids_out: ids } },
+      {
+        onSuccess: () => {
+          showFlash(`split-${pid}`, "Flagged split");
+          setSplittingId(null);
+          setSplitSelected(new Set());
+        },
+      },
+    );
+  }
+
+  function saveRoster(pid: number) {
+    const label = (rosterInput[pid] ?? "").trim();
+    if (!label) return;
+    create.mutate(
+      { run_id: runId, kind: "roster", payload: { player_id: pid, roster_label: label } },
+      { onSuccess: () => showFlash(`roster-${pid}`, "Saved roster label") },
+    );
+  }
+
   if (!artifacts.players)
     return <div className="py-6 text-center text-[13px] text-ink-500">No players artifact.</div>;
   const trackletById = new Map((artifacts.tracklets ?? []).map((t) => [t.tracklet_id, t]));
   return (
     <div className="flex flex-col gap-1.5">
+      <div className="text-[11px] leading-relaxed text-ink-500">
+        Merge/split/roster flags are annotations — they don't change this run's entities; they
+        take effect on a future re-run or training pass.
+      </div>
+      {merging.size >= 2 && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-volt-400/40 bg-turf-900 px-3 py-2">
+          <span className="text-[12px] text-ink-100">{merging.size} selected</span>
+          <Button className="!py-1" onClick={flagMerge} disabled={create.isPending}>
+            Flag merge
+          </Button>
+          <button
+            onClick={() => setMerging(new Set())}
+            className="text-[11px] text-ink-400 hover:text-ink-100"
+          >
+            clear
+          </button>
+          {flash?.id === "merge" && (
+            <span className="ml-auto text-[11px] text-volt-300">{flash.msg}</span>
+          )}
+        </div>
+      )}
       {artifacts.players.map((p) => {
         const first = p.tracklet_ids
           .map((tid) => trackletById.get(tid)?.frames[0]?.frame_idx)
@@ -485,33 +621,43 @@ function PlayersTab({
               isSel ? "border-volt-400/60 bg-volt-400/10" : "border-transparent hover:bg-turf-800"
             }`}
           >
-            <button
-              onClick={() => onSelect(p.player_id, first != null ? first / fps : null)}
-              className="w-full px-3 py-2.5 text-left"
-            >
-              <div className="flex items-center gap-2.5">
-                <TeamDot team={p.team} />
-                <span className="text-[13px] font-medium">
-                  {p.identity.label ?? `Player ${p.player_id}`}
-                </span>
-                {p.identity.kind !== "none" && (
-                  <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
-                    {p.identity.kind} {fmtConf(p.identity.confidence)}
+            <div className="flex items-start gap-1.5 pl-2 pr-1 pt-2">
+              <input
+                type="checkbox"
+                checked={merging.has(p.player_id)}
+                onChange={() => toggleMerge(p.player_id)}
+                title="select for merge flag"
+                className="mt-3.5 h-3.5 w-3.5 shrink-0 accent-volt-400"
+              />
+              <button
+                onClick={() => onSelect(p.player_id, first != null ? first / fps : null)}
+                className="min-w-0 flex-1 px-1.5 py-1 text-left"
+              >
+                <div className="flex items-center gap-2.5">
+                  <TeamDot team={p.team} />
+                  <span className="text-[13px] font-medium">
+                    {p.identity.label ?? `Player ${p.player_id}`}
                   </span>
-                )}
-                <span className="ml-auto font-mono text-[11px] text-ink-500">
-                  {p.tracklet_ids.length} tracklet{p.tracklet_ids.length === 1 ? "" : "s"}
-                  {p.association_confidence < 1 && ` · assoc ${fmtConf(p.association_confidence)}`}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] text-ink-500">
-                {p.tracklet_ids.map((tid) => (
-                  <span key={tid} className="rounded bg-turf-800 px-1.5 py-0.5">
-                    T{tid}
+                  {p.identity.kind !== "none" && (
+                    <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
+                      {p.identity.kind} {fmtConf(p.identity.confidence)}
+                    </span>
+                  )}
+                  <span className="ml-auto font-mono text-[11px] text-ink-500">
+                    {p.tracklet_ids.length} tracklet{p.tracklet_ids.length === 1 ? "" : "s"}
+                    {p.association_confidence < 1 &&
+                      ` · assoc ${fmtConf(p.association_confidence)}`}
                   </span>
-                ))}
-              </div>
-            </button>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] text-ink-500">
+                  {p.tracklet_ids.map((tid) => (
+                    <span key={tid} className="rounded bg-turf-800 px-1.5 py-0.5">
+                      T{tid}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            </div>
             {evidence.length > 0 && (
               <div className="flex gap-1.5 overflow-x-auto px-3 pb-2.5">
                 {evidence.map((ev, i) => (
@@ -527,6 +673,64 @@ function PlayersTab({
                     />
                   </button>
                 ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[11px]">
+              <button
+                onClick={() => openSplit(p.player_id)}
+                className="text-ink-400 hover:text-ink-100"
+              >
+                {splittingId === p.player_id ? "cancel split" : "flag split"}
+              </button>
+              <span className="text-ink-600">·</span>
+              <input
+                value={rosterInput[p.player_id] ?? ""}
+                onChange={(e) =>
+                  setRosterInput((s) => ({ ...s, [p.player_id]: e.target.value }))
+                }
+                placeholder="roster label"
+                className="w-28 rounded-md border border-white/10 bg-turf-850 px-1.5 py-0.5 text-[11px] outline-none focus:border-volt-400/60"
+              />
+              <button
+                onClick={() => saveRoster(p.player_id)}
+                disabled={!(rosterInput[p.player_id] ?? "").trim() || create.isPending}
+                className="text-ink-400 hover:text-ink-100 disabled:opacity-40"
+              >
+                save
+              </button>
+              {flash?.id === `roster-${p.player_id}` && (
+                <span className="text-volt-300">{flash.msg}</span>
+              )}
+            </div>
+            {splittingId === p.player_id && (
+              <div className="flex flex-col gap-1.5 px-3 pb-2.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {p.tracklet_ids.map((tid) => (
+                    <button
+                      key={tid}
+                      onClick={() => toggleSplitTracklet(tid)}
+                      className={`rounded-full border px-2 py-0.5 font-mono text-[10px] transition-colors ${
+                        splitSelected.has(tid)
+                          ? "border-volt-400 bg-volt-400/15 text-volt-300"
+                          : "border-white/10 text-ink-400 hover:border-white/30"
+                      }`}
+                    >
+                      T{tid}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="!py-1"
+                    onClick={() => confirmSplit(p.player_id)}
+                    disabled={splitSelected.size === 0 || create.isPending}
+                  >
+                    Confirm split ({splitSelected.size})
+                  </Button>
+                  {flash?.id === `split-${p.player_id}` && (
+                    <span className="text-[11px] text-volt-300">{flash.msg}</span>
+                  )}
+                </div>
               </div>
             )}
           </div>
