@@ -74,27 +74,60 @@ def test_calibrate_picks_largest_qualifying_threshold():
         0.20: [_row(0.03, 10, 9), _row(0.01, 10, 9)],  # pooled 18/20 = 0.9, gains >= 0
         0.25: [_row(0.01, 10, 8), _row(-0.01, 10, 8)],  # pooled 0.8 (also negative gain)
     }
-    assert _calibrate(sweep) == 0.20
+    cal = _calibrate(sweep, n_clips_total=2)
+    assert cal == {"threshold": 0.20, "n_clips_covered": 2, "n_clips_total": 2}
 
 
-def test_calibrate_returns_none_when_gate_never_passes():
+def test_calibrate_returns_none_threshold_when_gate_never_passes():
     sweep = {
         0.15: [_row(0.1, 10, 5)],  # pooled 0.5, well under the gate
         0.20: [_row(0.1, 10, 6)],  # pooled 0.6
     }
-    assert _calibrate(sweep) is None
+    cal = _calibrate(sweep, n_clips_total=1)
+    assert cal["threshold"] is None
+    # Coverage is still diagnosable: every threshold covered the one clip.
+    assert cal["n_clips_covered"] == 1
+    assert cal["n_clips_total"] == 1
 
 
 def test_calibrate_disqualifies_threshold_with_any_negative_clip_gain():
     # Pooled precision is perfect, but one clip's gain is negative -> the
     # threshold must not qualify even though the gate alone would pass.
     sweep = {0.15: [_row(0.1, 10, 10), _row(-0.01, 10, 10)]}
-    assert _calibrate(sweep) is None
+    assert _calibrate(sweep, n_clips_total=2)["threshold"] is None
 
 
 def test_calibrate_empty_rows_at_a_threshold_are_skipped():
     sweep = {0.15: [], 0.20: [_row(0.05, 10, 10)]}
-    assert _calibrate(sweep) == 0.20
+    cal = _calibrate(sweep, n_clips_total=1)
+    assert cal["threshold"] == 0.20
+    assert cal["n_clips_covered"] == 1
+
+
+def test_calibrate_incomplete_clip_coverage_disqualifies():
+    # 7 of 8 clips produced sweep rows (one clip's npz never materialized —
+    # e.g. every tracklet starved on crops). Precision and gains pass, but a
+    # threshold judged on a shrunken subset must NOT qualify, and the result
+    # must say 7/8 so the starved variant is diagnosable at a glance.
+    sweep = {0.15: [_row(0.05, 10, 10) for _ in range(7)]}
+    cal = _calibrate(sweep, n_clips_total=8)
+    assert cal == {"threshold": None, "n_clips_covered": 7, "n_clips_total": 8}
+
+
+def test_calibrate_coverage_reported_from_best_covered_threshold():
+    # Nothing qualifies (both fail the gate); coverage numbers come from the
+    # best-covered threshold (2 clips at 0.20), not the worst.
+    sweep = {
+        0.15: [_row(0.1, 10, 5)],
+        0.20: [_row(0.1, 10, 5), _row(0.1, 10, 5)],
+    }
+    cal = _calibrate(sweep, n_clips_total=3)
+    assert cal == {"threshold": None, "n_clips_covered": 2, "n_clips_total": 3}
+
+
+def test_calibrate_no_rows_at_all():
+    cal = _calibrate({0.15: [], 0.20: []}, n_clips_total=8)
+    assert cal == {"threshold": None, "n_clips_covered": 0, "n_clips_total": 8}
 
 
 def test_merge_precision_gate_is_090():
@@ -187,6 +220,89 @@ def test_rescore_with_players_writes_expected_files(tmp_path):
             "association_confidence": 1.0,
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# _sweep_one embedder provenance
+# ---------------------------------------------------------------------------
+
+
+def _write_sweep_run_dir(root: Path, npz_embedder: str) -> tuple[Path, Path]:
+    import numpy as np
+
+    run_dir = _write_synthetic_run_dir(root)
+    teams = [
+        {"tracklet_id": 10, "team": "home", "confidence": 0.9},
+        {"tracklet_id": 11, "team": "home", "confidence": 0.9},
+    ]
+    (run_dir / "teams.json").write_text(json.dumps(teams))
+    npz_path = run_dir / "reid_embeddings.npz"
+    np.savez_compressed(
+        npz_path,
+        tracklet_ids=np.array([10, 11], dtype=np.int64),
+        embeddings=np.array([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32),
+        n_crops=np.array([4, 4], dtype=np.int64),
+        mean_quality=np.array([0.9, 0.9], dtype=np.float32),
+        meta=json.dumps({"embedder": npz_embedder, "params": {}}),
+    )
+    return run_dir, npz_path
+
+
+def _sweep_gt() -> GroundTruth:
+    return GroundTruth(
+        source="test",
+        sequence="s1",
+        fps=25.0,
+        seq_length=10,
+        tracks=[
+            GroundTruthTrack(
+                track_id=1,
+                role="player",
+                frames=[
+                    GroundTruthFrame(frame_idx=f, box=Box(x1=100, y1=100, x2=140, y2=220))
+                    for f in range(10)
+                ],
+            )
+        ],
+    )
+
+
+def test_sweep_one_raises_on_embedder_provenance_mismatch(tmp_path):
+    from pitchlab_train.experiments.reid_ablation import _sweep_one
+
+    run_dir, npz_path = _write_sweep_run_dir(tmp_path, npz_embedder="clip-reid")
+    with pytest.raises(RuntimeError, match="clip-reid"):
+        _sweep_one(
+            run_dir=run_dir,
+            npz_path=npz_path,
+            base_params={"embedder": "osnet"},
+            threshold=0.3,
+            gt=_sweep_gt(),
+            iou_threshold=0.5,
+            scratch_dir=tmp_path / "scratch",
+        )
+
+
+def test_sweep_one_carries_embedder_into_row(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_train.experiments.reid_ablation import _sweep_one
+
+    run_dir, npz_path = _write_sweep_run_dir(tmp_path, npz_embedder="osnet")
+    row = _sweep_one(
+        run_dir=run_dir,
+        npz_path=npz_path,
+        base_params={"embedder": "osnet"},
+        threshold=0.3,
+        gt=_sweep_gt(),
+        iou_threshold=0.5,
+        scratch_dir=tmp_path / "scratch",
+    )
+    assert row["embedder"] == "osnet"
+    # Identical embeddings, same team, tiny gap -> the two fragments merge,
+    # and both sit on GT track 1 -> a correct merge.
+    assert row["n_pairs"] == 1
+    assert row["n_pairs_correct"] == 1
+    assert row["merge_precision"] == 1.0
 
 
 def test_rescore_with_players_scratch_dir_is_scoreable(tmp_path):

@@ -12,9 +12,10 @@ detect/track/team/calibrate) and re-scoring against a scratch run dir.
 Calibration picks a threshold via `MERGE_PRECISION_GATE`: silent wrong merges
 are worse than temporarily unknown identity (locked product invariant), so a
 threshold only qualifies if it is provably not making any clip worse (gain
->= 0 everywhere) *and* clears the merge-precision floor pooled across all
-clips — never mean-of-ratios, which would let a bad clip hide behind a good
-one.
+>= 0 everywhere), clears the merge-precision floor pooled across all clips —
+never mean-of-ratios, which would let a bad clip hide behind a good one —
+*and* has sweep rows for every discovered clip, so a starved clip (no
+reid_embeddings.npz) can't silently shrink the evidence base.
 """
 
 from __future__ import annotations
@@ -125,7 +126,7 @@ class ReidAblationExperiment(Experiment):
             if any(sweep_by_threshold.values()):
                 sweep_runs[name] = sweep_by_threshold
 
-        summary = _summarize(variant_runs, sweep_runs)
+        summary = _summarize(variant_runs, sweep_runs, n_clips_total=len(clip_gt_pairs))
         result = {
             "base_config": base_cfg.name,
             "clips": [clip.name for clip, _ in clip_gt_pairs],
@@ -183,17 +184,31 @@ def _sweep_one(
     tracklets = [Tracklet.model_validate(t) for t in json.loads((run_dir / "tracklets.json").read_text())]
     teams = [TeamAssignment.model_validate(t) for t in json.loads((run_dir / "teams.json").read_text())]
 
+    associator = GlobalReidAssociator(**{**base_params, "max_embed_distance": threshold, "save_embeddings": False})
+
     npz = np.load(npz_path)
+    # Provenance gate: the sweep scores the npz's embeddings as if this
+    # variant produced them. If the npz was written by a different embedder,
+    # the run dir isn't what the sweep thinks it is — refuse to score it.
+    meta = json.loads(npz["meta"].item()) if "meta" in npz else {}
+    npz_embedder = meta.get("embedder")
+    if npz_embedder is not None and npz_embedder != associator.params.embedder:
+        raise RuntimeError(
+            f"Embedder provenance mismatch in {npz_path}: npz was written by "
+            f"'{npz_embedder}' but the variant is configured with "
+            f"'{associator.params.embedder}'."
+        )
     feats = {int(tid): emb for tid, emb in zip(npz["tracklet_ids"], npz["embeddings"], strict=True)}
 
-    associator = GlobalReidAssociator(**{**base_params, "max_embed_distance": threshold, "save_embeddings": False})
     entities = associator._associate_with_features(
         None, tracklets, teams, feats, fps=fps, write_report=False
     )
 
     _rescore_with_players(run_dir, scratch_dir, entities)
     result = evaluate_run(scratch_dir, gt, iou_threshold)
-    return _metric_row(result)
+    row = _metric_row(result)
+    row["embedder"] = associator.params.embedder
+    return row
 
 
 def _rescore_with_players(run_dir: Path, scratch_dir: Path, entities: list[PlayerEntity]) -> Path:
@@ -231,14 +246,26 @@ def _aggregate(rows: list[dict]) -> dict:
     }
 
 
-def _calibrate(sweep_by_threshold: dict[float, list[dict]]) -> float | None:
+def _calibrate(sweep_by_threshold: dict[float, list[dict]], n_clips_total: int) -> dict:
     """Largest threshold whose pooled merge precision clears
-    MERGE_PRECISION_GATE *and* has non-negative assoc_idf1_gain on every
-    clip (never makes any clip worse). None if no threshold qualifies."""
+    MERGE_PRECISION_GATE, has non-negative assoc_idf1_gain on every clip
+    (never makes any clip worse), *and* covers ALL discovered clips — a clip
+    whose reid_embeddings.npz never materialized (e.g. every tracklet starved
+    on crops) drops out of the sweep rows, and a threshold judged on that
+    shrunken subset must not qualify.
+
+    Returns {"threshold": float|None, "n_clips_covered": int,
+    "n_clips_total": int}; threshold is None when nothing qualifies, with
+    coverage still reported from the best-covered threshold so a starved
+    variant is diagnosable at a glance."""
     best: float | None = None
+    best_covered = 0
     for t in sorted(sweep_by_threshold):
         rows = sweep_by_threshold[t]
         if not rows:
+            continue
+        best_covered = max(best_covered, len(rows))
+        if len(rows) != n_clips_total:
             continue
         total_pairs = sum(r["n_pairs"] for r in rows)
         total_correct = sum(r["n_pairs_correct"] for r in rows)
@@ -247,12 +274,17 @@ def _calibrate(sweep_by_threshold: dict[float, list[dict]]) -> float | None:
         gain_ok = all(r["assoc_idf1_gain"] >= 0 for r in rows)
         if gate_ok and gain_ok:
             best = t
-    return best
+    return {
+        "threshold": best,
+        "n_clips_covered": n_clips_total if best is not None else best_covered,
+        "n_clips_total": n_clips_total,
+    }
 
 
 def _summarize(
     variant_runs: dict[str, list[dict]],
     sweep_runs: dict[str, dict[float, list[dict]]],
+    n_clips_total: int,
 ) -> dict:
     return {
         "variants": {
@@ -262,5 +294,7 @@ def _summarize(
             name: {t: _aggregate(rows) for t, rows in sweep.items() if rows}
             for name, sweep in sweep_runs.items()
         },
-        "calibration": {name: _calibrate(sweep) for name, sweep in sweep_runs.items()},
+        "calibration": {
+            name: _calibrate(sweep, n_clips_total) for name, sweep in sweep_runs.items()
+        },
     }
