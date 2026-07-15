@@ -59,8 +59,12 @@ export const VideoOverlay = forwardRef<
     gt?: GtIndex | null;
     highlightTrackletId?: number | null;
     highlightPlayerId?: number | null;
+    highlightGtTrackId?: number | null;
   }
->(function VideoOverlay({ run, artifacts, layers, gt, highlightTrackletId, highlightPlayerId }, ref) {
+>(function VideoOverlay(
+  { run, artifacts, layers, gt, highlightTrackletId, highlightPlayerId, highlightGtTrackId },
+  ref,
+) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -117,11 +121,16 @@ export const VideoOverlay = forwardRef<
       // Ground truth first, so predicted boxes draw on top of the reference.
       if (layers.gt && gt) {
         const boxes = gt.byFrame.get(Math.min(frameIdx, gt.gt.seq_length - 1)) ?? [];
-        ctx.setLineDash([6 * px, 4 * px]);
         for (const b of boxes) {
-          const color = b.role === "referee" ? "rgba(245,197,24,0.85)" : "rgba(232,237,233,0.75)";
+          const isHlGt = highlightGtTrackId != null && b.track_id === highlightGtTrackId;
+          const color = isHlGt
+            ? "#9BE532"
+            : b.role === "referee"
+              ? "rgba(245,197,24,0.85)"
+              : "rgba(232,237,233,0.75)";
+          ctx.setLineDash(isHlGt ? [] : [6 * px, 4 * px]);
           ctx.strokeStyle = color;
-          ctx.lineWidth = 1.5 * px;
+          ctx.lineWidth = (isHlGt ? 3.5 : 1.5) * px;
           ctx.strokeRect(b.box.x1, b.box.y1, b.box.x2 - b.box.x1, b.box.y2 - b.box.y1);
           const text =
             b.role === "referee"
@@ -228,7 +237,16 @@ export const VideoOverlay = forwardRef<
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [artifacts, layers, gt, fps, eventsSorted, highlightTrackletId, highlightPlayerId]);
+  }, [
+    artifacts,
+    layers,
+    gt,
+    fps,
+    eventsSorted,
+    highlightTrackletId,
+    highlightPlayerId,
+    highlightGtTrackId,
+  ]);
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-white/8 bg-black">

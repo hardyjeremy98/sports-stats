@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
 import { trackletColor } from "../lib/colors";
 import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
-import { useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
+import { useEvaluateRun, useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
 import type { EvalInstance, EvalLevelMetrics, QARecord, RunDetail } from "../lib/types";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
@@ -38,6 +38,7 @@ export default function LabRunViewer() {
   const artifacts = useRunArtifacts(runId, run.data?.status === "completed");
   const gt = useGroundTruth(run.data?.video_id, !!run.data?.video?.has_ground_truth);
   const qa = useQA({ run_id: runId });
+  const reEvaluate = useEvaluateRun(runId);
 
   const playerRef = useRef<VideoOverlayHandle>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
@@ -45,9 +46,21 @@ export default function LabRunViewer() {
   const [tab, setTab] = useState<TabId>("stages");
   const [hlTracklet, setHlTracklet] = useState<number | null>(null);
   const [hlPlayer, setHlPlayer] = useState<number | null>(null);
+  const [hlGtTrack, setHlGtTrack] = useState<number | null>(null);
 
   const getTime = useMemo(() => () => playerRef.current?.getTime() ?? 0, []);
   const seek = (t: number) => playerRef.current?.seek(t);
+
+  const evalMarkers = useMemo(() => {
+    const ev = artifacts.eval;
+    if (!ev || ev.instances.length === 0) return undefined;
+    return ev.instances.map((inst) => ({
+      t: Math.max(0, inst.t),
+      color: inst.level === "entity" ? "#F5C518" : "#8B949E",
+      title: `${inst.level} switch @ ${fmtClock(inst.t)} GT ${inst.gt_label}`,
+      onClick: () => seek(Math.max(0, inst.t - 1)),
+    }));
+  }, [artifacts.eval]);
 
   if (run.isLoading) return <Spinner label="Loading run" />;
   if (run.isError) return <ErrorNote>{(run.error as Error).message}</ErrorNote>;
@@ -97,6 +110,7 @@ export default function LabRunViewer() {
             gt={gt}
             highlightTrackletId={hlTracklet}
             highlightPlayerId={hlPlayer}
+            highlightGtTrackId={hlGtTrack}
           />
           <LayerChips layers={layers} onChange={setLayers} artifacts={artifacts} gt={gt} />
           <Card className="p-4">
@@ -113,6 +127,7 @@ export default function LabRunViewer() {
               signal={signal}
               onSeek={seek}
               getTime={getTime}
+              markers={evalMarkers}
             />
           </Card>
           <Card className="p-4">
@@ -153,6 +168,7 @@ export default function LabRunViewer() {
                 onSelect={(tid, t) => {
                   setHlTracklet(tid === hlTracklet ? null : tid);
                   setHlPlayer(null);
+                  setHlGtTrack(null);
                   if (t != null) seek(t);
                 }}
               />
@@ -161,12 +177,19 @@ export default function LabRunViewer() {
               <PlayersTab
                 artifacts={artifacts}
                 runId={r.id}
-                fps={r.video?.fps ?? 25}
+                fps={r.video?.fps || r.manifest?.video.fps || 25}
                 selected={hlPlayer}
                 onSelect={(pid, t) => {
                   setHlPlayer(pid === hlPlayer ? null : pid);
                   setHlTracklet(null);
+                  setHlGtTrack(null);
                   if (t != null) seek(t);
+                }}
+                onEvidenceClick={(tid, pid, t) => {
+                  setHlTracklet(tid);
+                  setHlPlayer(pid);
+                  setHlGtTrack(null);
+                  seek(t);
                 }}
               />
             )}
@@ -175,12 +198,30 @@ export default function LabRunViewer() {
               <EvalTab
                 artifacts={artifacts}
                 gt={gt}
+                hasGroundTruth={!!r.video?.has_ground_truth}
+                onReEvaluate={() => reEvaluate.mutate()}
+                reEvaluating={reEvaluate.isPending}
                 onInstance={(inst) => {
                   seek(Math.max(0, inst.t - 1)); // land just before the switch
                   setLayers((l) => ({ ...l, gt: true, tracklets: true }));
-                  if (inst.level === "tracklet" && inst.new_id != null && inst.new_id < 100000) {
-                    setHlTracklet(inst.new_id);
+                  setHlGtTrack(inst.gt_track_id);
+
+                  const newId = inst.new_id;
+                  if (newId == null) {
+                    // no better identity known — leave existing highlights alone
+                  } else if (newId >= 100000) {
+                    // synthetic id for an unassociated tracklet — no real entity
+                    setHlTracklet(newId - 100000);
                     setHlPlayer(null);
+                  } else if (inst.level === "entity") {
+                    setHlPlayer(newId);
+                    // keep the tracklet highlight only if it still belongs to this entity
+                    if (artifacts.entityByTracklet.get(hlTracklet ?? -1)?.player_id !== newId) {
+                      setHlTracklet(null);
+                    }
+                  } else {
+                    setHlTracklet(newId);
+                    setHlPlayer(artifacts.entityByTracklet.get(newId)?.player_id ?? null);
                   }
                 }}
               />
@@ -335,12 +376,14 @@ function PlayersTab({
   fps,
   selected,
   onSelect,
+  onEvidenceClick,
 }: {
   artifacts: RunArtifacts;
   runId: string;
   fps: number;
   selected: number | null;
   onSelect: (pid: number, seekTo: number | null) => void;
+  onEvidenceClick: (trackletId: number, playerId: number, seekTo: number) => void;
 }) {
   if (!artifacts.players)
     return <div className="py-6 text-center text-[13px] text-ink-500">No players artifact.</div>;
@@ -353,52 +396,59 @@ function PlayersTab({
           .filter((x): x is number => x != null)
           .sort((a, b) => a - b)[0];
         const isSel = selected === p.player_id;
+        const evidence = p.identity.evidence.filter((ev) => ev.crop_artifact);
         return (
-          <button
+          <div
             key={p.player_id}
-            onClick={() => onSelect(p.player_id, first != null ? first / fps : null)}
-            className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+            className={`rounded-lg border transition-colors ${
               isSel ? "border-volt-400/60 bg-volt-400/10" : "border-transparent hover:bg-turf-800"
             }`}
           >
-            <div className="flex items-center gap-2.5">
-              <TeamDot team={p.team} />
-              <span className="text-[13px] font-medium">
-                {p.identity.label ?? `Player ${p.player_id}`}
-              </span>
-              {p.identity.kind !== "none" && (
-                <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
-                  {p.identity.kind} {fmtConf(p.identity.confidence)}
+            <button
+              onClick={() => onSelect(p.player_id, first != null ? first / fps : null)}
+              className="w-full px-3 py-2.5 text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <TeamDot team={p.team} />
+                <span className="text-[13px] font-medium">
+                  {p.identity.label ?? `Player ${p.player_id}`}
                 </span>
-              )}
-              <span className="ml-auto font-mono text-[11px] text-ink-500">
-                {p.tracklet_ids.length} tracklet{p.tracklet_ids.length === 1 ? "" : "s"}
-                {p.association_confidence < 1 && ` · assoc ${fmtConf(p.association_confidence)}`}
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] text-ink-500">
-              {p.tracklet_ids.map((tid) => (
-                <span key={tid} className="rounded bg-turf-800 px-1.5 py-0.5">
-                  T{tid}
+                {p.identity.kind !== "none" && (
+                  <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
+                    {p.identity.kind} {fmtConf(p.identity.confidence)}
+                  </span>
+                )}
+                <span className="ml-auto font-mono text-[11px] text-ink-500">
+                  {p.tracklet_ids.length} tracklet{p.tracklet_ids.length === 1 ? "" : "s"}
+                  {p.association_confidence < 1 && ` · assoc ${fmtConf(p.association_confidence)}`}
                 </span>
-              ))}
-            </div>
-            {p.identity.evidence.length > 0 && (
-              <div className="mt-2 flex gap-1.5 overflow-x-auto">
-                {p.identity.evidence
-                  .filter((ev) => ev.crop_artifact)
-                  .slice(0, 6)
-                  .map((ev) => (
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] text-ink-500">
+                {p.tracklet_ids.map((tid) => (
+                  <span key={tid} className="rounded bg-turf-800 px-1.5 py-0.5">
+                    T{tid}
+                  </span>
+                ))}
+              </div>
+            </button>
+            {evidence.length > 0 && (
+              <div className="flex gap-1.5 overflow-x-auto px-3 pb-2.5">
+                {evidence.map((ev) => (
+                  <button
+                    key={`${ev.tracklet_id}-${ev.frame_idx}`}
+                    onClick={() => onEvidenceClick(ev.tracklet_id, p.player_id, ev.frame_idx / fps)}
+                    title={`frame ${ev.frame_idx} · score ${fmtConf(ev.score)}${ev.upscaled ? " · upscaled" : ""}`}
+                    className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-white/10 transition-colors hover:border-volt-400/60"
+                  >
                     <img
-                      key={`${ev.tracklet_id}-${ev.frame_idx}`}
                       src={api.runFileUrl(runId, ev.crop_artifact!)}
-                      title={`frame ${ev.frame_idx} · score ${fmtConf(ev.score)}${ev.upscaled ? " · upscaled" : ""}`}
-                      className="h-12 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                      className="h-full w-full object-cover"
                     />
-                  ))}
+                  </button>
+                ))}
               </div>
             )}
-          </button>
+          </div>
         );
       })}
     </div>
@@ -468,29 +518,82 @@ function fmtPredId(level: "tracklet" | "entity", id: number | null): string {
   return `T${id}`;
 }
 
+type EvalLevelFilter = "all" | "tracklet" | "entity";
+type EvalSortBy = "time" | "gt";
+
 function EvalTab({
   artifacts,
   gt,
+  hasGroundTruth,
+  onReEvaluate,
+  reEvaluating,
   onInstance,
 }: {
   artifacts: RunArtifacts;
   gt: GtIndex | null;
+  hasGroundTruth: boolean;
+  onReEvaluate: () => void;
+  reEvaluating: boolean;
   onInstance: (inst: EvalInstance) => void;
 }) {
   const ev = artifacts.eval;
+  const [levelFilter, setLevelFilter] = useState<EvalLevelFilter>("all");
+  const [gtFilter, setGtFilter] = useState<number | "all">("all");
+  const [sortBy, setSortBy] = useState<EvalSortBy>("time");
+
+  const gtOptions = useMemo(() => {
+    if (!ev) return [];
+    const byTrack = new Map<number, string>();
+    for (const inst of ev.instances)
+      if (!byTrack.has(inst.gt_track_id)) byTrack.set(inst.gt_track_id, inst.gt_label);
+    return [...byTrack.entries()].sort((a, b) => a[0] - b[0]);
+  }, [ev]);
+
+  const visibleInstances = useMemo(() => {
+    if (!ev) return [];
+    let list = ev.instances;
+    if (levelFilter !== "all") list = list.filter((inst) => inst.level === levelFilter);
+    if (gtFilter !== "all") list = list.filter((inst) => inst.gt_track_id === gtFilter);
+    return [...list].sort((a, b) =>
+      sortBy === "time" ? a.t - b.t : a.gt_track_id - b.gt_track_id || a.t - b.t,
+    );
+  }, [ev, levelFilter, gtFilter, sortBy]);
+
   if (!ev)
     return (
-      <div className="py-6 text-center text-[13px] text-ink-500">
-        No eval artifact — this video has no ground truth, or the run predates it.
+      <div className="flex flex-col items-center gap-3 py-6 text-center text-[13px] text-ink-500">
+        <div>No eval artifact — this video has no ground truth, or the run predates it.</div>
+        {hasGroundTruth && (
+          <>
+            <div className="text-[12px]">
+              This run predates ground truth — re-evaluate to score it.
+            </div>
+            <Button onClick={onReEvaluate} disabled={reEvaluating}>
+              {reEvaluating ? "Evaluating…" : "Re-evaluate"}
+            </Button>
+          </>
+        )}
       </div>
     );
   const gain = ev.association.idf1_gain;
   const fmt = (v: number, ratio?: boolean) => (ratio ? v.toFixed(3) : String(Math.round(v)));
   return (
     <div className="flex flex-col gap-3">
-      <div className="font-mono text-[11px] text-ink-500">
-        {ev.sequence ?? ev.source} · {ev.n_frames_evaluated} frames (stride {ev.sample_stride}) ·{" "}
-        {ev.n_gt_tracks} GT tracks · IoU ≥ {ev.iou_threshold}
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-mono text-[11px] text-ink-500">
+          {ev.sequence ?? ev.source} · {ev.n_frames_evaluated} frames (stride {ev.sample_stride}) ·{" "}
+          {ev.n_gt_tracks} GT tracks · IoU ≥ {ev.iou_threshold}
+        </div>
+        {hasGroundTruth && (
+          <Button
+            variant="ghost"
+            onClick={onReEvaluate}
+            disabled={reEvaluating}
+            className="!py-1 shrink-0"
+          >
+            {reEvaluating ? "Evaluating…" : "Re-evaluate"}
+          </Button>
+        )}
       </div>
 
       <table className="w-full text-[13px]">
@@ -534,13 +637,67 @@ function EvalTab({
         {Math.abs(gain) <= 0.001 && " — the associator is not changing identity quality"}
       </div>
 
-      <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
-        ID switches — click to inspect
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+          ID switches — click to inspect
+        </div>
+        <span className="text-[11px] text-ink-500">
+          {visibleInstances.length} of {ev.instances.length}
+        </span>
       </div>
-      {ev.instances.length === 0 && (
-        <div className="py-3 text-center text-[13px] text-ink-500">No ID switches. Clean run.</div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1">
+          {(["all", "tracklet", "entity"] as const).map((lvl) => (
+            <button
+              key={lvl}
+              onClick={() => setLevelFilter(lvl)}
+              className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                levelFilter === lvl
+                  ? "bg-turf-800 text-ink-100"
+                  : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+              }`}
+            >
+              {lvl}
+            </button>
+          ))}
+        </div>
+        <select
+          value={gtFilter === "all" ? "" : gtFilter}
+          onChange={(e) => setGtFilter(e.target.value === "" ? "all" : Number(e.target.value))}
+          className="rounded-lg border border-white/10 bg-turf-850 px-2.5 py-1 text-[12px] text-ink-400 outline-none focus:border-volt-400/60"
+        >
+          <option value="">All GT tracks</option>
+          {gtOptions.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label} (GT{id})
+            </option>
+          ))}
+        </select>
+        <div className="ml-auto flex items-center gap-1 text-[12px] text-ink-500">
+          sort:
+          {(["time", "gt"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSortBy(s)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                sortBy === s
+                  ? "bg-turf-800 text-ink-100"
+                  : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+              }`}
+            >
+              {s === "time" ? "time" : "GT track"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {visibleInstances.length === 0 && (
+        <div className="py-3 text-center text-[13px] text-ink-500">
+          {ev.instances.length === 0 ? "No ID switches. Clean run." : "No switches match the filters."}
+        </div>
       )}
-      {ev.instances.map((inst, i) => (
+      {visibleInstances.map((inst, i) => (
         <button
           key={i}
           onClick={() => onInstance(inst)}

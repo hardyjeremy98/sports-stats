@@ -37,6 +37,17 @@ export function useRun(runId: string) {
   });
 }
 
+export function useEvaluateRun(runId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evaluateRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["run", runId] });
+      qc.invalidateQueries({ queryKey: ["artifact", runId, "eval"] });
+    },
+  });
+}
+
 export function useRunDiff(a: string, b: string) {
   return useQuery({
     queryKey: ["diff", a, b],

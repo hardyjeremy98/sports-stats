@@ -49,6 +49,7 @@ export function TimelineStrip({
   signal,
   onSeek,
   getTime,
+  markers,
 }: {
   timeline: TimelineBucket[] | null;
   events: MatchEvent[] | null;
@@ -56,6 +57,7 @@ export function TimelineStrip({
   signal: SignalId;
   onSeek: (t: number) => void;
   getTime?: () => number;
+  markers?: { t: number; color: string; title: string; onClick?: () => void }[];
 }) {
   const cursorRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -132,6 +134,27 @@ export function TimelineStrip({
             />
           ))}
         </div>
+
+        {/* Eval failure markers */}
+        {markers && markers.length > 0 && (
+          <div className="relative mt-1 h-3">
+            {markers.map((m, i) => (
+              <div
+                key={i}
+                title={m.title}
+                className="absolute top-0 h-3 w-[3px] rounded-sm"
+                style={{
+                  left: `${(m.t / Math.max(duration, 0.01)) * 100}%`,
+                  background: m.color,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  m.onClick?.();
+                }}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Cursor */}
         {getTime && (

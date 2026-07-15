@@ -105,16 +105,23 @@ uses entity `player_id`, not `PlayerIdentity.label`.
 - Source-video playback with client-side prediction overlays.
 - Tracklet, team, player identity, calibration, minimap, event, and GT layers.
 - Tracklet and player lists with selection and seeking.
-- Face evidence thumbnails with frame, score, and upscaled metadata in the tooltip.
+- Face evidence thumbnails with frame, score, and upscaled metadata in the tooltip, clickable to
+  seek to their frame and highlight the source tracklet/player.
 - Tracklet-versus-entity evaluation metrics.
-- Clickable ID-switch instances that seek to the failure time.
-- Run diff for configuration and headline metrics.
+- A filterable, sortable identity-failure browser: ID-switch instances filter by level and GT
+  track, sort by time or GT track, and click-to-inspect highlights the tracklet, entity, and GT
+  track together (dual highlighting) in the video overlay.
+- Timeline markers for ID-switch instances, color-coded by level (tracklet vs entity).
+- Re-evaluate a run against ground truth on demand from the run viewer (and from the eval-missing
+  empty state, for runs that predate a video's ground truth).
+- Run diff for configuration and headline metrics, with a same-video guard (enforced server-side;
+  the dashboard also disables cross-video checkbox selection client-side).
+- Dashboard filters (video, config, status, ground-truth-only) and sortable metric/time columns.
 - Event-attribution QA with accept, correct, and reject actions.
 
 ### Limitations
 
-- Evidence thumbnails do not open a detailed anchor inspector or seek directly to their frame.
-- Entity-level switch inspection does not fully highlight the associated entity path.
+- Evidence thumbnails do not open a detailed anchor inspector.
 - Diff has no synchronized side-by-side video or fixed/new switch comparison.
 - QA cannot merge/split entities, label same/different tracklet pairs, or assign roster identities.
 - There is no embedding, affinity, or constraint-decision inspector.
