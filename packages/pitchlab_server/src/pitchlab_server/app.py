@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pitchlab_server.api import configs, datasets, identity_qa, qa, runs, videos
+from pitchlab_server.api import benchmark, configs, datasets, identity_qa, qa, runs, videos
 from pitchlab_server.db import init_db
 
 
@@ -31,6 +31,7 @@ app.include_router(datasets.router)
 app.include_router(runs.router)
 app.include_router(qa.router)
 app.include_router(identity_qa.router)
+app.include_router(benchmark.router)
 
 
 @app.get("/api/health")

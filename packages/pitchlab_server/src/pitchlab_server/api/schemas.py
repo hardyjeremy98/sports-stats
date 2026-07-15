@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VideoOut(BaseModel):
@@ -82,6 +82,36 @@ class RunDiffOut(BaseModel):
     eval_a: dict | None = None
     eval_b: dict | None = None
     switch_diff: dict | None = None  # fixed/introduced/persisted ID-switch instances
+
+
+# --- Benchmark (P6b) ---------------------------------------------------------
+# Config x GT-video matrix aggregating repeat completed runs (ADR 004: batch
+# experiments aggregate GT metrics, never raw artifact counts).
+
+
+class BenchmarkVideoOut(BaseModel):
+    video_id: int
+    filename: str
+    sequence: str | None = None
+
+
+class BenchmarkCellOut(BaseModel):
+    n_runs: int
+    run_ids: list[str]  # newest first
+    metrics_mean: dict[str, float] = Field(default_factory=dict)
+    metrics_range: dict[str, list[float]] = Field(default_factory=dict)
+
+
+class BenchmarkGroupOut(BaseModel):
+    config_name: str
+    config_hash: str
+    n_runs: int
+    cells: dict[str, BenchmarkCellOut]  # keyed by video_id (str)
+
+
+class BenchmarkOut(BaseModel):
+    videos: list[BenchmarkVideoOut]
+    groups: list[BenchmarkGroupOut]  # sorted by config_name then config_hash
 
 
 class QAOut(BaseModel):
