@@ -66,6 +66,8 @@ class OsnetEmbedder(BodyEmbedder):
             )
 
         model = osnet_ain_x1_0(num_classes=1000, pretrained=False)
+        # weights_only=False accepted: the checkpoint source is pinned (constant HF
+        # repo/filename above, or a user-supplied local path), not arbitrary input.
         checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
         state_dict = (
             checkpoint["state_dict"]
@@ -79,11 +81,15 @@ class OsnetEmbedder(BodyEmbedder):
             k = k[7:] if k.startswith("module.") else k  # strip DataParallel prefix
             if k in model_dict and model_dict[k].shape == v.shape:
                 matched[k] = v
-        assert len(matched) >= _MIN_MATCHED_KEYS, (
-            f"OSNet weight load matched only {len(matched)}/{len(model_dict)} keys "
-            f"(expected >= {_MIN_MATCHED_KEYS}) — checkpoint may be corrupt or "
-            "architecturally incompatible with the vendored osnet_ain_x1_0 definition."
-        )
+        if len(matched) < _MIN_MATCHED_KEYS:
+            # Explicit raise, not assert: asserts are stripped under `python -O`,
+            # which would let a corrupt/incompatible checkpoint load silently.
+            raise RuntimeError(
+                f"OSNet weight load from {weights_path} matched only "
+                f"{len(matched)}/{len(model_dict)} keys (expected >= {_MIN_MATCHED_KEYS}) "
+                "— checkpoint may be corrupt or architecturally incompatible with the "
+                "vendored osnet_ain_x1_0 definition."
+            )
         model_dict.update(matched)
         model.load_state_dict(model_dict, strict=False)
 
