@@ -97,14 +97,54 @@ don't switch back to `mm.distances.iou_matrix`.
 (roboflow downloads, SoccerNet ingest, QA-label export). It may import `pitchlab_server`
 lazily (DB access) but server never imports train.
 
-## Domain constraints
+## Product and identity direction
 
-- Measured findings live in the experiment reports (see `runs` labelled `gt-eval`/`sweep` in
-  the Lab): kit-color association is ineffective; ID switches are a tracker-level problem
-  that association cannot fix.
-- **Player identity must work without jersey OCR** — the target market is amateur footage
-  where numbered kits can't be assumed. OCR results are benchmark references, not the
-  product path.
+Canonical source: [`docs/player-identity-vision.md`](docs/player-identity-vision.md) and the
+accepted ADRs in [`docs/decisions/`](docs/decisions/). Non-negotiable invariants:
+
+- PitchLab produces player-by-player analytics from ordinary single-camera amateur footage.
+- **Player identity must work without jersey OCR**, numbered kits, special cameras, or
+  wearable hardware (ADR 001). OCR is optional benchmark/reference evidence, never the
+  identity foundation.
+- Team classification, physical-player association, and roster identity are **three separate
+  tasks** — never describe or measure them interchangeably.
+- Identity evidence is aggregated at tracklet/entity level, never decided independently per
+  frame (ADR 002). The final system uses the complete uploaded match so strong later
+  observations can backfill earlier ambiguous tracklets.
+- Face, body appearance, structured attributes, gait, motion, and position are
+  **quality-gated evidence modalities**, not universally available inputs (ADR 003).
+  Missing or low-quality evidence is neutral — abstention is a valid outcome.
+- Silent player swaps are more harmful than temporary unknown identity.
+- New identity approaches require controlled ablations and semantic identity metrics
+  (ADR 004), not just tracking counts.
+- Implementation truth is [`docs/implementation-status.md`](docs/implementation-status.md) —
+  researched technologies in `technology/` are not necessarily implemented.
+
+Measured findings so far (details and caveats in `implementation-status.md` → Known
+findings): kit-colour association is ineffective for player-level identity; remaining ID
+switches are substantially a tracker-level problem that simple post-association cannot fix.
+
+## Documentation governance
+
+Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md). Summary:
+
+1. `docs/decisions/` — accepted ADRs, highest precedence. Supersede with a new ADR, never
+   edit one to reverse its meaning.
+2. `docs/player-identity-vision.md` — canonical product/identity direction. Update only
+   when intended strategy or hard constraints change.
+3. `docs/implementation-status.md` — what exists now, verified against code. Update
+   whenever capability status, evaluation, artifacts, APIs, or Lab functionality changes.
+4. `CLAUDE.md` — concise, repeatedly useful operating guidance; link to canonical docs
+   instead of duplicating them.
+5. `README.md` — contributor-facing overview. Update when setup, public behavior, or
+   top-level architecture changes.
+6. `technology/` — historical research dossier (dated 2026-06-24); may contain superseded
+   recommendations. Not implementation truth.
+
+When docs contradict: apply the precedence order and mark stale material superseded — never
+silently average conflicting documents. Keep measured claims linked to a dataset, split,
+run set, model version, and code revision. Never describe a researched model as implemented
+without runnable code.
 
 ## Data layout
 
