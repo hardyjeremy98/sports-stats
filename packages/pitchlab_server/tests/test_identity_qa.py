@@ -206,6 +206,44 @@ def test_list_filters_by_run_id_and_kind_newest_first(client, run_id, video_id):
     assert all(item["run_id"] == run_id and item["kind"] == "roster" for item in by_run)
 
 
+def test_get_with_unknown_kind_422(client, run_id):
+    resp = client.get("/api/identity_qa", params={"run_id": run_id, "kind": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_get_with_valid_kind_filter(client, run_id):
+    # Ensure at least one pair label exists for this run
+    client.post(
+        "/api/identity_qa",
+        json={
+            "run_id": run_id,
+            "kind": "pair",
+            "payload": _pair_payload(),
+            "note": None,
+        },
+    )
+    # Filter by valid kind and verify it returns 200 and items match kind
+    resp = client.get("/api/identity_qa", params={"run_id": run_id, "kind": "pair"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert all(item["kind"] == "pair" for item in body)
+
+
+def test_post_merge_payload_with_pair_kind_422(client, run_id):
+    # POST a merge payload (well-formed for merge) under kind="pair" should fail 422
+    # because pair expects tracklet_a, tracklet_b, verdict, etc., not player_ids
+    resp = client.post(
+        "/api/identity_qa",
+        json={
+            "run_id": run_id,
+            "kind": "pair",
+            "payload": {"player_ids": [1, 2]},
+            "note": None,
+        },
+    )
+    assert resp.status_code == 422
+
+
 def test_delete_label_then_404_on_second_delete(client, run_id):
     resp = client.post(
         "/api/identity_qa",
