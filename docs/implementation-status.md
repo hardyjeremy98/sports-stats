@@ -106,7 +106,12 @@ uses entity `player_id`, not `PlayerIdentity.label`.
 - Tracklet, team, player identity, calibration, minimap, event, and GT layers.
 - Tracklet and player lists with selection and seeking.
 - Face evidence thumbnails with frame, score, and upscaled metadata in the tooltip, clickable to
-  seek to their frame and highlight the source tracklet/player.
+  open an anchor-frame inspector.
+- Anchor-frame inspector with full-frame context (crop box outlined on the source frame), a ~4×
+  zoom panel, a raw-vs-upscaled crop pair (when raw persistence fired), quality metadata (face
+  score, upscaled flag, crop box size, frame/clock time), a jump-to-tracklet action, and prev/next
+  navigation across a player's evidence without closing. Degrades gracefully for older runs
+  lacking crop geometry (`box`).
 - Tracklet-versus-entity evaluation metrics.
 - A filterable, sortable identity-failure browser: ID-switch instances filter by level and GT
   track, sort by time or GT track, and click-to-inspect highlights the tracklet, entity, and GT
@@ -121,7 +126,6 @@ uses entity `player_id`, not `PlayerIdentity.label`.
 
 ### Limitations
 
-- Evidence thumbnails do not open a detailed anchor inspector.
 - Diff has no synchronized side-by-side video or fixed/new switch comparison.
 - QA cannot merge/split entities, label same/different tracklet pairs, or assign roster identities.
 - There is no embedding, affinity, or constraint-decision inspector.

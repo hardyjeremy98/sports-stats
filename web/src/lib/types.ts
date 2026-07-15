@@ -67,6 +67,8 @@ export interface IdentityEvidence {
   score: number;
   crop_artifact: string | null;
   upscaled: boolean;
+  box?: Box | null;
+  raw_crop_artifact?: string | null;
 }
 
 export interface PlayerIdentity {

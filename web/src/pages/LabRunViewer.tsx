@@ -9,6 +9,7 @@ import { trackletColor } from "../lib/colors";
 import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
 import { useEvaluateRun, useQA, useQAActions, useRun, useRuns } from "../lib/hooks";
 import type { EvalInstance, EvalLevelMetrics, QARecord, RunDetail } from "../lib/types";
+import { EvidenceInspector } from "../components/EvidenceInspector";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
 import {
@@ -47,6 +48,9 @@ export default function LabRunViewer() {
   const [hlTracklet, setHlTracklet] = useState<number | null>(null);
   const [hlPlayer, setHlPlayer] = useState<number | null>(null);
   const [hlGtTrack, setHlGtTrack] = useState<number | null>(null);
+  const [inspector, setInspector] = useState<{ playerId: number; evidenceIdx: number } | null>(
+    null,
+  );
 
   const getTime = useMemo(() => () => playerRef.current?.getTime() ?? 0, []);
   const seek = (t: number) => playerRef.current?.seek(t);
@@ -185,11 +189,11 @@ export default function LabRunViewer() {
                   setHlGtTrack(null);
                   if (t != null) seek(t);
                 }}
-                onEvidenceClick={(tid, pid, t) => {
+                onEvidenceClick={(tid, pid, evidenceIdx) => {
                   setHlTracklet(tid);
                   setHlPlayer(pid);
                   setHlGtTrack(null);
-                  seek(t);
+                  setInspector({ playerId: pid, evidenceIdx });
                 }}
               />
             )}
@@ -230,6 +234,36 @@ export default function LabRunViewer() {
           </div>
         </Card>
       </div>
+
+      {inspector &&
+        (() => {
+          const inspectorPlayer = artifacts.players?.find(
+            (p) => p.player_id === inspector.playerId,
+          );
+          if (!inspectorPlayer) return null;
+          return (
+            <EvidenceInspector
+              runId={r.id}
+              player={inspectorPlayer}
+              evidenceIdx={inspector.evidenceIdx}
+              fps={r.video?.fps || r.manifest?.video.fps || 25}
+              playerRef={playerRef}
+              onClose={() => setInspector(null)}
+              onSelectTracklet={(tid) => {
+                setHlTracklet(tid);
+                setHlPlayer(null);
+                setHlGtTrack(null);
+                setTab("tracklets");
+                setInspector(null);
+              }}
+              onNavigate={(evidenceIdx, tid) => {
+                setInspector({ playerId: inspector.playerId, evidenceIdx });
+                setHlTracklet(tid);
+                setHlPlayer(inspector.playerId);
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }
@@ -383,7 +417,7 @@ function PlayersTab({
   fps: number;
   selected: number | null;
   onSelect: (pid: number, seekTo: number | null) => void;
-  onEvidenceClick: (trackletId: number, playerId: number, seekTo: number) => void;
+  onEvidenceClick: (trackletId: number, playerId: number, evidenceIdx: number) => void;
 }) {
   if (!artifacts.players)
     return <div className="py-6 text-center text-[13px] text-ink-500">No players artifact.</div>;
@@ -433,10 +467,10 @@ function PlayersTab({
             </button>
             {evidence.length > 0 && (
               <div className="flex gap-1.5 overflow-x-auto px-3 pb-2.5">
-                {evidence.map((ev) => (
+                {evidence.map((ev, i) => (
                   <button
                     key={`${ev.tracklet_id}-${ev.frame_idx}`}
-                    onClick={() => onEvidenceClick(ev.tracklet_id, p.player_id, ev.frame_idx / fps)}
+                    onClick={() => onEvidenceClick(ev.tracklet_id, p.player_id, i)}
                     title={`frame ${ev.frame_idx} · score ${fmtConf(ev.score)}${ev.upscaled ? " · upscaled" : ""}`}
                     className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-white/10 transition-colors hover:border-volt-400/60"
                   >
