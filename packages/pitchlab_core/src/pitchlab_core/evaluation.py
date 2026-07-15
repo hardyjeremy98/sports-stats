@@ -68,15 +68,20 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     # Predictions per frame, per level: frame_idx -> list[(id, xywh)].
     pred_tracklet: dict[int, list[tuple[int, list[float]]]] = {}
     pred_entity: dict[int, list[tuple[int, list[float]]]] = {}
+    # Same boxes, indexed per tracklet instead of per frame, for merge_quality.
+    tracklets_by_id: dict[int, list[tuple[int, list[float]]]] = {}
     for tr in tracklets:
         tid = tr["tracklet_id"]
         # Tracklets the associator never saw (e.g. referees) stay their own
         # identity; offset avoids colliding with player_ids.
         eid = entity_of.get(tid, 100000 + tid)
+        frames_xywh: list[tuple[int, list[float]]] = []
         for f in tr["frames"]:
             xywh = _xywh(f["box"])
             pred_tracklet.setdefault(f["frame_idx"], []).append((tid, xywh))
             pred_entity.setdefault(f["frame_idx"], []).append((eid, xywh))
+            frames_xywh.append((f["frame_idx"], xywh))
+        tracklets_by_id[tid] = frames_xywh
 
     # GT per frame, restricted to scored roles.
     scored_tracks = [t for t in gt.tracks if t.role in _SCORED_ROLES]
@@ -128,7 +133,99 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
         "instances": sorted(instances, key=lambda i: (i["frame_idx"], i["level"])),
         "identity": _evaluate_identity(players_data, gt_by_frame, pred_entity, eval_frames, iou_threshold),
     }
+    mq = merge_quality(tracklets_by_id, players_data, gt_by_frame, iou_threshold)
+    result["association"].update({k: v for k, v in mq.items() if k != "merged_pairs"})
+    result["association"]["merged_pairs"] = mq["merged_pairs"]
     return result
+
+
+def merge_quality(
+    tracklets_by_id: dict[int, list[tuple[int, list[float]]]],
+    entities: list[dict],
+    gt_by_frame: dict[int, list[tuple[int, list[float]]]],
+    iou_threshold: float = 0.5,
+) -> dict:
+    """Judge association's tracklet-to-tracklet merges for correctness, not
+    just tracking-count deltas (July-2026 finding: colour merges looked fine
+    on IDF1 but were 76% wrong against GT identity).
+
+    Each tracklet is first assigned a majority-vote GT track id: over its
+    frames, match its box to GT boxes in that frame by IoU (>= iou_threshold,
+    same rule as the MOT levels); each matched frame casts one vote, and the
+    tracklet's gt_id is the argmax (ties -> lowest gt id, deterministic).
+    Tracklets with zero matched frames get gt_id None.
+
+    Then every entity (players.json record) with more than one tracklet
+    contributes one "was this merge right?" judgment per unordered tracklet
+    pair. A pair is correct iff both sides have a (non-None) gt_id and they
+    match. A pair where either side never matched any GT box is an
+    unverifiable merge -- counted incorrect for precision (silent wrong
+    merges are worse than unmerged tracklets, so "unknown" must not read as
+    "correct") but tallied separately as `n_pairs_unmatched` so a run heavy in
+    off-pitch/occluded fragments doesn't get misread as badly wrong.
+
+    Synthetic referee/unseen-tracklet entities (100000+tracklet_id) are never
+    passed in here -- `entities` is players.json's real records -- so they
+    can't manufacture pairs; entities always have >1 real tracklet or none.
+
+    numpy-only (via `_iou_distance`); no motmetrics, so the reid-ablation
+    experiment can call this standalone against tracker output.
+    """
+    gt_id_of_tracklet: dict[int, int | None] = {}
+    for tid, frames in tracklets_by_id.items():
+        votes: dict[int, int] = {}
+        for frame_idx, box in frames:
+            gts = gt_by_frame.get(frame_idx, [])
+            if not gts:
+                continue
+            dist = _iou_distance([g[1] for g in gts], [box], max_dist=1 - iou_threshold)
+            for gi, (gid, _) in enumerate(gts):
+                if dist[gi, 0] == dist[gi, 0]:  # not NaN => qualifying match
+                    votes[gid] = votes.get(gid, 0) + 1
+        gt_id_of_tracklet[tid] = min(votes, key=lambda gid: (-votes[gid], gid)) if votes else None
+
+    n_entities_merged = 0
+    n_pairs = 0
+    n_pairs_correct = 0
+    n_pairs_unmatched = 0
+    merged_pairs: list[dict] = []
+    for e in entities:
+        tids = e["tracklet_ids"]
+        if len(tids) < 2:
+            continue
+        n_entities_merged += 1
+        for i in range(len(tids)):
+            for j in range(i + 1, len(tids)):
+                a, b = tids[i], tids[j]
+                gt_a = gt_id_of_tracklet.get(a)
+                gt_b = gt_id_of_tracklet.get(b)
+                unmatched = gt_a is None or gt_b is None
+                correct = not unmatched and gt_a == gt_b
+                n_pairs += 1
+                if unmatched:
+                    n_pairs_unmatched += 1
+                if correct:
+                    n_pairs_correct += 1
+                merged_pairs.append(
+                    {
+                        "a": a,
+                        "b": b,
+                        "player_id": e["player_id"],
+                        "gt_a": gt_a,
+                        "gt_b": gt_b,
+                        "correct": correct,
+                    }
+                )
+
+    merge_precision = (n_pairs_correct / n_pairs) if n_pairs else None
+    return {
+        "n_entities_merged": n_entities_merged,
+        "n_pairs": n_pairs,
+        "n_pairs_correct": n_pairs_correct,
+        "n_pairs_unmatched": n_pairs_unmatched,
+        "merge_precision": merge_precision,
+        "merged_pairs": merged_pairs,
+    }
 
 
 def headline_metrics(result: dict) -> dict[str, float | int | None]:
@@ -141,6 +238,11 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         "idsw_tracklet": int(lv["tracklet"]["num_switches"]),
         "idsw_entity": int(lv["entity"]["num_switches"]),
         "assoc_idf1_gain": result["association"]["idf1_gain"],
+        "merge_precision": (
+            round(result["association"]["merge_precision"], 3)
+            if result["association"]["merge_precision"] is not None
+            else None
+        ),
     }
     identity = result.get("identity")
     if identity is not None:

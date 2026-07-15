@@ -111,9 +111,11 @@ def test_evaluate_run_association_gain(tmp_path):
     heads = headline_metrics(result)
     assert set(heads) == {
         "idf1_tracklet", "idf1_entity", "mota_entity",
-        "idsw_tracklet", "idsw_entity", "assoc_idf1_gain",
+        "idsw_tracklet", "idsw_entity", "assoc_idf1_gain", "merge_precision",
     }
     assert heads["idsw_tracklet"] == 1 and heads["idsw_entity"] == 0
+    # The one merged entity (10+11) both vote GT track 1 -> a correct merge.
+    assert heads["merge_precision"] == 1.0
     # No identity stage output in this run -> third layer is absent entirely.
     assert result["identity"] is None
     assert "identity_coverage" not in heads and "cluster_purity" not in heads
@@ -340,3 +342,162 @@ def test_identity_layer_stage_not_run(tmp_path):
 
     result = evaluate_run(run_dir, gt)
     assert result["identity"] is None
+
+
+def test_merge_quality_correct_merge(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run, headline_metrics
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Two tracklet fragments of GT track 1, correctly merged into one entity.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 5)]),
+        _tracklet(11, [(f, 100, 100) for f in range(5, 10)]),
+        _tracklet(12, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    players = [
+        {"player_id": 1, "tracklet_ids": [10, 11], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [12], "team": "away"},
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    assert assoc["n_entities_merged"] == 1
+    assert assoc["n_pairs"] == 1
+    assert assoc["n_pairs_correct"] == 1
+    assert assoc["n_pairs_unmatched"] == 0
+    assert assoc["merge_precision"] == 1.0
+    assert assoc["merged_pairs"] == [
+        {"a": 10, "b": 11, "player_id": 1, "gt_a": 1, "gt_b": 1, "correct": True}
+    ]
+
+    heads = headline_metrics(result)
+    assert heads["merge_precision"] == 1.0
+
+
+def test_merge_quality_wrong_merge(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Tracklet 10 sits on GT track 1's box throughout, tracklet 11 sits on GT
+    # track 2's box throughout, but the associator wrongly merges them.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    assert assoc["n_pairs"] == 1
+    assert assoc["n_pairs_correct"] == 0
+    assert assoc["n_pairs_unmatched"] == 0
+    assert assoc["merge_precision"] == 0.0
+    pair = assoc["merged_pairs"][0]
+    assert pair["gt_a"] == 1 and pair["gt_b"] == 2
+    assert pair["correct"] is False
+
+
+def test_merge_quality_no_merges(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run, headline_metrics
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Every entity has exactly one tracklet -> no pairs to judge at all.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    players = [
+        {"player_id": 1, "tracklet_ids": [10], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [11], "team": "away"},
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    assert assoc["n_entities_merged"] == 0
+    assert assoc["n_pairs"] == 0
+    assert assoc["merge_precision"] is None
+    assert assoc["merged_pairs"] == []
+
+    heads = headline_metrics(result)
+    assert heads["merge_precision"] is None
+
+
+def test_merge_quality_unmatched_side(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Tracklet 10 matches GT track 1 throughout; tracklet 11 sits off-pitch
+    # and never overlaps any GT box -> its side of the merge is unverifiable.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        _tracklet(11, [(f, 5000, 5000) for f in range(0, 10)]),
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    assert assoc["n_pairs"] == 1
+    assert assoc["n_pairs_unmatched"] == 1
+    assert assoc["n_pairs_correct"] == 0
+    assert assoc["merge_precision"] == 0.0
+    pair = assoc["merged_pairs"][0]
+    assert pair["gt_a"] == 1
+    assert pair["gt_b"] is None
+    assert pair["correct"] is False
+
+
+def test_merge_quality_majority_vote(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Tracklet 10 splits 2 frames on GT track 1 / 1 frame on GT track 2 ->
+    # majority vote assigns it to GT track 1, matching tracklet 11 -> correct.
+    tracklets = [
+        _tracklet(10, [(0, 100, 100), (1, 100, 100), (2, 500, 200)]),
+        _tracklet(11, [(f, 100, 100) for f in range(0, 10)]),
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    pair = result["association"]["merged_pairs"][0]
+    assert pair["gt_a"] == 1
+    assert pair["correct"] is True
+    assert result["association"]["merge_precision"] == 1.0
+
+
+def test_merge_quality_three_way_merge(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    # Three fragments of the same GT track, all merged into one entity.
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 3)]),
+        _tracklet(11, [(f, 100, 100) for f in range(3, 6)]),
+        _tracklet(12, [(f, 100, 100) for f in range(6, 10)]),
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11, 12], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    result = evaluate_run(run_dir, gt)
+    assoc = result["association"]
+    assert assoc["n_entities_merged"] == 1
+    assert assoc["n_pairs"] == 3
+    assert assoc["n_pairs_correct"] == 3
+    assert assoc["merge_precision"] == 1.0
