@@ -169,8 +169,9 @@ def merge_quality(
     passed in here -- `entities` is players.json's real records -- so they
     can't manufacture pairs; entities always have >1 real tracklet or none.
 
-    numpy-only (via `_iou_distance`); no motmetrics, so the reid-ablation
-    experiment can call this standalone against tracker output.
+    numpy-only (via `_iou_distance`); no motmetrics. Called from `evaluate_run`
+    above — the reid-ablation sweep consumes it indirectly through that, not
+    standalone.
     """
     gt_id_of_tracklet: dict[int, int | None] = {}
     for tid, frames in tracklets_by_id.items():

@@ -262,7 +262,22 @@ export interface EvalResult {
   n_gt_tracks: number;
   n_gt_tracks_excluded: number;
   levels: { tracklet: EvalLevelMetrics; entity: EvalLevelMetrics };
-  association: { idf1_gain: number; idsw_delta: number };
+  association: {
+    idf1_gain: number;
+    idsw_delta: number;
+    merge_precision: number | null;
+    n_pairs: number;
+    n_pairs_correct: number;
+    n_pairs_unmatched: number;
+    merged_pairs: {
+      a: number;
+      b: number;
+      player_id: number;
+      gt_a: number | null;
+      gt_b: number | null;
+      correct: boolean;
+    }[];
+  };
   instances: EvalInstance[];
   identity?: EvalIdentity | null;
 }

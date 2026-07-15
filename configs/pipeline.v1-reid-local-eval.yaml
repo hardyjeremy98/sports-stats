@@ -5,8 +5,8 @@
 name: v1-reid-local-eval
 description: >
   Real models, no API key: local fine-tuned YOLOv8x detection + pitch keypoints,
-  BoT-SORT tracking, kit-color teams, global association, heuristic possession.
-  AGPL weights - evaluation only.
+  BoT-SORT tracking, kit-color teams, learned body re-ID (OSNet embeddings)
+  global association, heuristic possession. AGPL weights - evaluation only.
 sport: soccer
 video:
   sample_stride: 2

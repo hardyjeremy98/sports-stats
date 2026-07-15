@@ -133,7 +133,11 @@ export function IdentityQATab({
     const assoc = artifacts.association;
     if (assoc) {
       const colorTooFar = assoc.pairs
-        .filter((p) => p.decision === "rejected" && p.reason === "color_too_far")
+        .filter(
+          (p) =>
+            p.decision === "rejected" &&
+            (p.reason === "color_too_far" || p.reason === "embed_too_far"),
+        )
         .sort(
           (x, y) =>
             (x.color_distance ?? x.embed_distance ?? Infinity) -

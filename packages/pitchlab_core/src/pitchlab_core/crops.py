@@ -138,8 +138,8 @@ def sample_quality_crops(
 
 def _iou(a: Box, b: Box) -> float:
     """Local IoU helper. Deliberately not imported from pitchlab_core.evaluation
-    — that one is motmetrics-shaped and lives behind the optional 'eval' extra,
-    while crop sampling must stay dependency-free."""
+    — motmetrics is imported lazily there so it wouldn't actually break this
+    import; the real reason is keeping crops.py free of eval-module coupling."""
     xi1, yi1 = max(a.x1, b.x1), max(a.y1, b.y1)
     xi2, yi2 = min(a.x2, b.x2), min(a.y2, b.y2)
     iw, ih = max(0.0, xi2 - xi1), max(0.0, yi2 - yi1)

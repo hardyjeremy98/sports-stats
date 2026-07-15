@@ -87,13 +87,17 @@ class GlobalAssociatorBase(Associator):
 
     def _associate_with_features(
         self,
-        ctx: StageContext,
+        ctx: StageContext | None,
         tracklets: list[Tracklet],
         teams: list[TeamAssignment],
         feats: dict[int, np.ndarray],
         fps: float,
         write_report: bool = True,
     ) -> list[PlayerEntity]:
+        """Core associate logic, factored out so `write_report=False` callers
+        (e.g. the reid-ablation sweep) can pass `ctx=None` and skip the report."""
+        if write_report and ctx is None:
+            raise ValueError("write_report=True requires a StageContext")
         p = self.params
         team_by_tid = {t.tracklet_id: t.team for t in teams}
 
