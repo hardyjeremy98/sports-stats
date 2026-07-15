@@ -313,17 +313,21 @@ export function LayerChips({
   layers,
   onChange,
   artifacts,
+  artifactsB,
   gt,
 }: {
   layers: LayerState;
   onChange: (l: LayerState) => void;
   artifacts: RunArtifacts;
+  artifactsB?: RunArtifacts;
   gt?: GtIndex | null;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {LAYER_DEFS.map((def) => {
-        const available = def.needs(artifacts, gt);
+        // Availability is the union: a chip is available if the layer's needs()
+        // predicate passes for EITHER run's artifacts.
+        const available = def.needs(artifacts, gt) || (artifactsB ? def.needs(artifactsB, gt) : false);
         const on = layers[def.id] && available;
         return (
           <button

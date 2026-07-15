@@ -143,7 +143,7 @@ export default function LabDiff() {
           </div>
         </div>
         <div className="mt-3">
-          <LayerChips layers={layers} onChange={setLayers} artifacts={artifactsA} gt={gt} />
+          <LayerChips layers={layers} onChange={setLayers} artifacts={artifactsA} artifactsB={artifactsB} gt={gt} />
         </div>
       </Card>
 
