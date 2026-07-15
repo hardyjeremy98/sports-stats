@@ -9,6 +9,7 @@ dependency group (motmetrics); callers treat ImportError as "not installed".
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 from pitchlab_server.models import Run, Video
@@ -37,3 +38,71 @@ def merged_metrics(run: Run, result: dict) -> dict:
     from pitchlab_core.evaluation import headline_metrics
 
     return {**(run.metrics or {}), **headline_metrics(result)}
+
+
+def diff_switch_instances(
+    eval_a: dict | None, eval_b: dict | None, tol_s: float = 1.0
+) -> dict | None:
+    """Diff two eval.json payloads' `instances` (ID-switch records) for the
+    Lab's diff view: which switches were fixed, introduced, or persisted
+    between run A and run B.
+
+    Instances are grouped by (level, gt_track_id); within each group, A- and
+    B-instances are greedily matched by nearest `t`, closest pairs first, each
+    instance matched at most once. Matches farther apart than `tol_s` don't
+    count. Returns None when either eval payload is missing or has no
+    `instances` key.
+    """
+    if eval_a is None or eval_b is None:
+        return None
+    if "instances" not in eval_a or "instances" not in eval_b:
+        return None
+
+    def _grouped(instances: list[dict]) -> dict[tuple, list[dict]]:
+        groups: dict[tuple, list[dict]] = defaultdict(list)
+        for inst in instances:
+            groups[(inst.get("level"), inst.get("gt_track_id"))].append(inst)
+        return groups
+
+    groups_a = _grouped(eval_a["instances"])
+    groups_b = _grouped(eval_b["instances"])
+
+    fixed: list[dict] = []
+    introduced: list[dict] = []
+    persisted: list[dict] = []
+
+    for key in dict.fromkeys([*groups_a, *groups_b]):
+        a_list = groups_a.get(key, [])
+        b_list = groups_b.get(key, [])
+
+        candidates = sorted(
+            (
+                (abs(a_inst["t"] - b_inst["t"]), i, j)
+                for i, a_inst in enumerate(a_list)
+                for j, b_inst in enumerate(b_list)
+                if abs(a_inst["t"] - b_inst["t"]) <= tol_s
+            ),
+            key=lambda c: c[0],
+        )
+        matched_a: set[int] = set()
+        matched_b: set[int] = set()
+        for _dt, i, j in candidates:
+            if i in matched_a or j in matched_b:
+                continue
+            matched_a.add(i)
+            matched_b.add(j)
+            persisted.append({"a": a_list[i], "b": b_list[j]})
+
+        fixed.extend(a_inst for i, a_inst in enumerate(a_list) if i not in matched_a)
+        introduced.extend(b_inst for j, b_inst in enumerate(b_list) if j not in matched_b)
+
+    return {
+        "fixed": fixed,
+        "introduced": introduced,
+        "persisted": persisted,
+        "counts": {
+            "fixed": len(fixed),
+            "introduced": len(introduced),
+            "persisted": len(persisted),
+        },
+    }

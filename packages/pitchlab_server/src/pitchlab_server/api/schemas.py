@@ -78,6 +78,9 @@ class RunDiffOut(BaseModel):
     stats_b: dict | None
     timeline_a: list | None
     timeline_b: list | None
+    eval_a: dict | None = None
+    eval_b: dict | None = None
+    switch_diff: dict | None = None  # fixed/introduced/persisted ID-switch instances
 
 
 class QAOut(BaseModel):

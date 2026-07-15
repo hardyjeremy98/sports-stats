@@ -20,6 +20,7 @@ from pitchlab_server.api.schemas import (
     VideoOut,
 )
 from pitchlab_server.db import get_db
+from pitchlab_server.evaluation import diff_switch_instances
 from pitchlab_server.models import Job, Run, Video
 from pitchlab_server.settings import get_settings
 
@@ -171,6 +172,9 @@ def diff_runs(run_a: str, run_b: str, db: Session = Depends(get_db)):
     cfg_a = yaml.safe_load(a.config_yaml)
     cfg_b = yaml.safe_load(b.config_yaml)
 
+    eval_a = _load(a, ArtifactName.EVAL)
+    eval_b = _load(b, ArtifactName.EVAL)
+
     return RunDiffOut(
         run_a=_detail(a, db),
         run_b=_detail(b, db),
@@ -180,6 +184,9 @@ def diff_runs(run_a: str, run_b: str, db: Session = Depends(get_db)):
         stats_b=_load(b, ArtifactName.STATS),
         timeline_a=_load(a, ArtifactName.TIMELINE),
         timeline_b=_load(b, ArtifactName.TIMELINE),
+        eval_a=eval_a,
+        eval_b=eval_b,
+        switch_diff=diff_switch_instances(eval_a, eval_b),
     )
 
 

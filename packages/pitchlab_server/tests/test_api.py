@@ -1,5 +1,6 @@
 """API + worker integration test on a temp data dir with the stub pipeline."""
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -86,6 +87,64 @@ def test_run_diff(client, video_id):
     assert diff["run_a"]["status"] == "completed"
     assert diff["config_changes"] == []  # identical configs
     assert "n_tracklets" in diff["metric_deltas"]
+
+
+def test_run_diff_eval_payloads_and_switch_diff(client, video_id):
+    ids = []
+    for cfg in ("stub-synthetic", "stub-synthetic"):
+        resp = client.post("/api/runs", json={"video_id": video_id, "config_name": cfg})
+        ids.append(resp.json()["id"])
+        execute_job(claim_next_job())
+
+    eval_a = {
+        "levels": {},
+        "association": {},
+        "instances": [
+            {
+                "level": "tracklet",
+                "kind": "id_switch",
+                "frame_idx": 100,
+                "t": 5.0,
+                "gt_track_id": 1,
+                "gt_label": "home_7",
+                "prev_id": 10,
+                "new_id": 11,
+            }
+        ],
+    }
+    run_dir_a = Path(os.environ["PITCHLAB_DATA_DIR"]) / "runs" / ids[0]
+    (run_dir_a / "eval.json").write_text(json.dumps(eval_a))
+
+    # Run B has no eval.json -> switch_diff must be None even though eval_a exists.
+    diff = client.get(f"/api/runs/{ids[0]}/diff/{ids[1]}").json()
+    assert diff["eval_a"] == eval_a
+    assert diff["eval_b"] is None
+    assert diff["switch_diff"] is None
+
+    # Once run B also has an eval.json, switch_diff is populated.
+    eval_b = {
+        "levels": {},
+        "association": {},
+        "instances": [
+            {
+                "level": "tracklet",
+                "kind": "id_switch",
+                "frame_idx": 102,
+                "t": 5.2,
+                "gt_track_id": 1,
+                "gt_label": "home_7",
+                "prev_id": 10,
+                "new_id": 11,
+            }
+        ],
+    }
+    run_dir_b = Path(os.environ["PITCHLAB_DATA_DIR"]) / "runs" / ids[1]
+    (run_dir_b / "eval.json").write_text(json.dumps(eval_b))
+
+    diff2 = client.get(f"/api/runs/{ids[0]}/diff/{ids[1]}").json()
+    assert diff2["eval_b"] == eval_b
+    assert diff2["switch_diff"]["counts"] == {"fixed": 0, "introduced": 0, "persisted": 1}
+    assert diff2["switch_diff"]["persisted"] == [{"a": eval_a["instances"][0], "b": eval_b["instances"][0]}]
 
 
 def test_path_traversal_blocked(client, video_id):
