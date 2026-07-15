@@ -1,4 +1,5 @@
 import type {
+  Benchmark,
   IdentityLabel,
   IdentityLabelKind,
   IdentityLabelPayload,
@@ -58,6 +59,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   diff: (a: string, b: string) => request<RunDiff>(`/api/runs/${a}/diff/${b}`),
+  benchmark: () => request<Benchmark>("/api/benchmark"),
   artifactUrl: (runId: string, name: string) => `/api/runs/${runId}/artifacts/${name}`,
   runFileUrl: (runId: string, relPath: string) => `/api/runs/${runId}/files/${relPath}`,
 

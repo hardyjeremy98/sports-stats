@@ -59,6 +59,17 @@ stated.
 - Automatic worker evaluation when a registered video has ground truth.
 - Run-diff fixed/introduced/persisted ID-switch comparison between two runs on the same video
   (`diff_switch_instances`, greedy nearest-time matching within a group of `(level, gt_track_id)`).
+- A third, semantic identity evaluation layer (ADR 004): does `PlayerIdentity.label` correspond
+  to the right person, judged against GT tracks. Computes label coverage and abstention rate
+  over matched entities, plus cluster purity and completeness — each labeled entity's full
+  GT-overlap mass is assigned to its single argmax-overlap GT track (not smeared across every
+  track it incidentally touched) before purity/completeness are aggregated. `null` when the
+  identity stage didn't run; non-null with coverage 0 and purity `null` means it ran but
+  abstained everywhere. Folds `identity_coverage` and `cluster_purity` into `runs.metrics`.
+- Run-grouping benchmark: `GET /api/benchmark` aggregates completed, GT-scored runs by
+  `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
+  mean/range across the eight benchmark metric keys (idf1/mota/idsw at tracklet and entity
+  level, association gain, identity coverage, cluster purity).
 
 Primary locations:
 
@@ -66,20 +77,22 @@ Primary locations:
 - `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
 - `packages/pitchlab_server/src/pitchlab_server/worker.py`
 - `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
+- `packages/pitchlab_server/src/pitchlab_server/api/benchmark.py`
 
 ### Not implemented
 
-- Semantic roster-identity scoring.
 - Identity-label comparison against GT jersey or roster records.
 - Team and role accuracy metrics.
-- Cluster purity, completeness, roster coverage, or abstention curves.
+- Abstention/coverage curves (trend over time or across a run set — the underlying coverage and
+  abstention-rate numbers exist per run, but nothing plots them across a batch).
 - Anchor coverage and per-modality quality diagnostics.
 - HOTA, AssA, DetA, or GS-HOTA.
 - Event-attribution ground-truth evaluation.
-- Batch aggregation of GT metrics across an experiment set.
 
-Changing `identity.impl` from `none` to `face` does not currently change `eval.json`. The evaluator
-uses entity `player_id`, not `PlayerIdentity.label`.
+Changing `identity.impl` from `none` to `face` now changes `eval.json`: the semantic identity
+layer scores `PlayerIdentity.label` against GT-track argmax assignment (coverage, cluster
+purity/completeness). The tracklet/entity MOT layers are unaffected — they still key off entity
+`player_id` groupings, not the label.
 
 ## Experiment tooling
 
@@ -95,10 +108,16 @@ uses entity `player_id`, not `PlayerIdentity.label`.
 - `pitchlab-train export-reid`: exports identity-QA "same"/"different" pair verdicts (unsure
   pairs excluded) as re-ID training pairs with copied crop images, cross-run crop-name-collision
   safe.
+- `GET /api/benchmark` (`pitchlab_server/api/benchmark.py`): read-only, no-schema-change
+  aggregation of every completed, GT-scored run into a config × video mean/range matrix — the
+  batch-GT-metrics aggregation that `eval-pipelines` doesn't do (see limitation below), surfaced
+  in the Lab at `/lab/benchmark`.
 
 ### Limitations
 
-- `eval-pipelines` aggregates artifact counts, not ground-truth identity metrics.
+- `eval-pipelines` aggregates artifact counts, not ground-truth identity metrics — `GET
+  /api/benchmark` covers batch GT-metric aggregation for runs already in the run table, but
+  there is still no CLI experiment that launches a sweep and scores it against GT directly.
 - There is no parameter-sweep or repeated-seed experiment.
 - Pipeline stages do not share persisted identity embeddings.
 - Model and weight provenance are not consistently represented as first-class run metadata.
@@ -157,6 +176,19 @@ uses entity `player_id`, not `PlayerIdentity.label`.
   all annotations that do not mutate the run's entities, with UI copy saying so.
 - Cross-run identity-label browser on the global QA page (`pages/LabQA.tsx`): a read-only table
   of every pair/merge/split/roster label across all runs, with a run-viewer link and delete.
+- Identity block in the run viewer's Eval tab: coverage, abstention rate, labeled/matched entity
+  counts, cluster count, and cluster purity/completeness (`—` when null), shown when the run's
+  eval carries the semantic identity layer; a one-line "identity stage not run" note when it's
+  `null`.
+- Identity coverage and cluster purity rows (A/B/delta, higher-is-better) in the run-diff's
+  identity metrics table, shown when either compared run has a non-null identity layer.
+- Benchmark matrix view (`pages/LabBenchmark.tsx`, `/lab/benchmark`): rows are config groups
+  (name, short config hash, run count), columns are GT videos plus a trailing per-group mean;
+  a metric-picker (IDF1 entity/tracklet, IDSW entity, MOTA entity, association gain, identity
+  coverage, cluster purity) color-scales every cell through the shared confidence ramp (inverted
+  for IDSW, where lower is better), shows the mean with a `±(range/2)` sub-line when a cell has
+  more than one run, and a missing metric renders as `—` with a hint to re-evaluate for identity
+  metrics; clicking a cell expands an inline row linking to that cell's runs.
 
 ### Limitations
 
@@ -176,12 +208,11 @@ report, run set, dataset split, and code/model revision.
 
 ## Immediate next milestones
 
-1. Add semantic roster or cluster identity evaluation.
-2. Make batch experiments aggregate GT metrics.
-3. Add a learned body re-ID associator baseline.
-4. Persist reusable anchor quality and identity evidence.
-5. Add identity-failure and anchor inspection to the Lab.
-6. Add identity QA that exports same/different and roster-assignment labels.
+1. Add a learned body re-ID associator baseline.
+2. Persist reusable anchor quality and identity evidence.
+3. Add identity-label comparison against GT jersey/roster records, and abstention/coverage
+   curves (currently only single-run snapshot numbers exist, not trends across frames or a
+   run set).
 
 ## Maintenance checklist
 

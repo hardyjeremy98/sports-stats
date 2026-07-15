@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
 import { trackletColor } from "../lib/colors";
-import { eventLabel, fmtClock, fmtConf, fmtDuration } from "../lib/format";
+import { eventLabel, fmtClock, fmtConf, fmtDuration, fmtPct } from "../lib/format";
 import {
   useEvaluateRun,
   useIdentityQAActions,
@@ -18,6 +18,7 @@ import {
 import type {
   AssociationEntitySummary,
   AssociationPair,
+  EvalIdentity,
   EvalInstance,
   EvalLevelMetrics,
   QARecord,
@@ -1182,6 +1183,8 @@ function EvalTab({
         {Math.abs(gain) <= 0.001 && " — the associator is not changing identity quality"}
       </div>
 
+      {ev.identity !== undefined && <IdentityMetricsBlock identity={ev.identity} />}
+
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
           ID switches — click to inspect
@@ -1251,6 +1254,60 @@ function EvalTab({
           the {""}predicted id following a GT player changed — the moments the tracker or associator
           got identity wrong.
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- semantic identity layer (ADR 004) ---------- */
+
+function IdentityMetricsBlock({ identity }: { identity: EvalIdentity | null }) {
+  return (
+    <div>
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+        Identity
+      </div>
+      {identity === null ? (
+        <div className="text-[12px] text-ink-500">Identity stage not run.</div>
+      ) : (
+        <table className="w-full text-[13px]">
+          <tbody>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Coverage</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {fmtPct(identity.coverage)}
+              </td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Abstention</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {fmtPct(identity.abstention_rate)}
+              </td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Labeled / matched entities</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.n_labeled} / {identity.n_entities_matched}
+              </td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Clusters</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">{identity.n_clusters}</td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Cluster purity</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.cluster_purity != null ? fmtPct(identity.cluster_purity) : "—"}
+              </td>
+            </tr>
+            <tr className="last:border-0">
+              <td className="py-1.5 text-ink-400">Cluster completeness</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.cluster_completeness != null ? fmtPct(identity.cluster_completeness) : "—"}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       )}
     </div>
   );

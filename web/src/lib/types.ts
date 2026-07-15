@@ -240,6 +240,19 @@ export interface EvalInstance {
   new_id: number | null;
 }
 
+// Third eval layer (ADR 004): does `identity.label` correspond to the right
+// person, judged against GT tracks. null = identity stage not run; non-null
+// with coverage 0 + cluster_purity null = it ran but abstained everywhere.
+export interface EvalIdentity {
+  n_entities_matched: number;
+  n_labeled: number;
+  coverage: number;
+  abstention_rate: number;
+  n_clusters: number;
+  cluster_purity: number | null;
+  cluster_completeness: number | null;
+}
+
 export interface EvalResult {
   source: string;
   sequence: string | null;
@@ -251,6 +264,34 @@ export interface EvalResult {
   levels: { tracklet: EvalLevelMetrics; entity: EvalLevelMetrics };
   association: { idf1_gain: number; idsw_delta: number };
   instances: EvalInstance[];
+  identity?: EvalIdentity | null;
+}
+
+// ---- Benchmark matrix (config x GT-video, aggregating repeat runs) ----
+
+export interface BenchmarkVideo {
+  video_id: number;
+  filename: string;
+  sequence: string | null;
+}
+
+export interface BenchmarkCell {
+  n_runs: number;
+  run_ids: string[]; // newest first
+  metrics_mean: Record<string, number>;
+  metrics_range: Record<string, [number, number]>;
+}
+
+export interface BenchmarkGroup {
+  config_name: string;
+  config_hash: string;
+  n_runs: number;
+  cells: Record<string, BenchmarkCell>; // keyed by video_id (string)
+}
+
+export interface Benchmark {
+  videos: BenchmarkVideo[];
+  groups: BenchmarkGroup[]; // sorted by config_name then config_hash
 }
 
 // ---- Cross-tracklet association decision trail (association.json) ----

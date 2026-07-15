@@ -18,6 +18,7 @@ const labTabs = [
   { to: "/lab/new", label: "New run", end: false },
   { to: "/lab/qa", label: "QA queue", end: false },
   { to: "/lab/datasets", label: "Datasets", end: false },
+  { to: "/lab/benchmark", label: "Benchmark", end: false },
 ];
 
 export function Shell() {

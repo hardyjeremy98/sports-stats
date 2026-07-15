@@ -48,6 +48,10 @@ export function useEvaluateRun(runId: string) {
   });
 }
 
+export function useBenchmark() {
+  return useQuery({ queryKey: ["benchmark"], queryFn: api.benchmark });
+}
+
 export function useRunDiff(a: string, b: string) {
   return useQuery({
     queryKey: ["diff", a, b],

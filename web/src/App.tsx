@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./components/Shell";
 import Home from "./pages/Home";
+import LabBenchmark from "./pages/LabBenchmark";
 import LabDashboard from "./pages/LabDashboard";
 import LabDatasets from "./pages/LabDatasets";
 import LabDiff from "./pages/LabDiff";
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/lab/diff/:a/:b" element={<LabDiff />} />
         <Route path="/lab/qa" element={<LabQA />} />
         <Route path="/lab/datasets" element={<LabDatasets />} />
+        <Route path="/lab/benchmark" element={<LabBenchmark />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

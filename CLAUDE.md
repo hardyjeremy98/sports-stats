@@ -83,9 +83,11 @@ columns are patched in `db.py::_micro_migrations` (additive ALTERs run by `init_
 Ground truth belongs to a **video, not a run** (`videos.gt_path` → a
 `pitchlab_core/gt.py::GroundTruth` JSON). When a run's video has GT, the worker auto-scores
 it after completion (`pitchlab_core/evaluation.py`, motmetrics): IDF1/MOTA at two levels —
-raw tracklets vs post-association entities — writes `eval.json` (incl. per-instance ID
-switches for the Lab's failure browser) and folds headline metrics into `runs.metrics`,
-which is what the dashboard columns and the diff view's metric deltas read.
+raw tracklets vs post-association entities — plus a third semantic-identity layer (ADR 004:
+cluster purity/completeness against GT via per-entity argmax assignment, plus label coverage
+and abstention) — writes `eval.json` (incl. per-instance ID switches for the Lab's failure
+browser) and folds headline metrics into `runs.metrics`, which is what the dashboard columns,
+the diff view's metric deltas, and `GET /api/benchmark`'s config × GT-video matrix read.
 `POST /api/runs/{id}/evaluate` re-scores on demand. Note: motmetrics 1.4.0 is
 incompatible with numpy 2 (`np.asfarray`), so `evaluation.py` computes its own IoU matrix —
 don't switch back to `mm.distances.iou_matrix`.

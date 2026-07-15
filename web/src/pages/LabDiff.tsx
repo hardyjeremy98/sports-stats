@@ -373,8 +373,31 @@ const IDENTITY_METRIC_ROWS: {
   },
 ];
 
+// Semantic identity layer (ADR 004) — only shown when at least one run's
+// eval carries a non-null `identity` block (i.e. the identity stage ran).
+const IDENTITY_LAYER_ROWS: {
+  key: string;
+  label: string;
+  get: (ev: EvalResult) => number | null;
+  higherIsBetter: boolean;
+}[] = [
+  {
+    key: "identity_coverage",
+    label: "Identity coverage",
+    get: (ev) => ev.identity?.coverage ?? null,
+    higherIsBetter: true,
+  },
+  {
+    key: "cluster_purity",
+    label: "Cluster purity",
+    get: (ev) => ev.identity?.cluster_purity ?? null,
+    higherIsBetter: true,
+  },
+];
+
 function IdentityMetricsTable({ evalA, evalB }: { evalA: EvalResult; evalB: EvalResult }) {
   const fmt = (v: number, ratio?: boolean) => (ratio ? v.toFixed(3) : String(Math.round(v)));
+  const hasIdentityLayer = evalA.identity != null || evalB.identity != null;
   return (
     <table className="mt-2 w-full text-[13px]">
       <thead>
@@ -409,6 +432,34 @@ function IdentityMetricsTable({ evalA, evalB }: { evalA: EvalResult; evalB: Eval
             </tr>
           );
         })}
+        {hasIdentityLayer &&
+          IDENTITY_LAYER_ROWS.map((row) => {
+            const a = row.get(evalA);
+            const b = row.get(evalB);
+            const delta = a != null && b != null ? b - a : null;
+            const good = delta != null && (row.higherIsBetter ? delta > 0 : delta < 0);
+            const bad = delta != null && (row.higherIsBetter ? delta < 0 : delta > 0);
+            return (
+              <tr key={row.key} className="border-b border-white/5 last:border-0">
+                <td className="py-1.5 text-ink-400">{row.label}</td>
+                <td className="py-1.5 text-right font-mono text-ink-100">
+                  {a != null ? fmt(a, true) : "—"}
+                </td>
+                <td className="py-1.5 text-right font-mono text-ink-100">
+                  {b != null ? fmt(b, true) : "—"}
+                </td>
+                <td
+                  className={`py-1.5 pl-3 text-right font-mono text-[12px] ${
+                    good ? "text-volt-400" : bad ? "text-team-away" : "text-ink-500"
+                  }`}
+                >
+                  {delta != null && Math.abs(delta) > 0.0005
+                    ? `${delta > 0 ? "+" : ""}${fmt(delta, true)}`
+                    : "—"}
+                </td>
+              </tr>
+            );
+          })}
       </tbody>
     </table>
   );
