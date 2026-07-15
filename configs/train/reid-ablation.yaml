@@ -1,0 +1,23 @@
+# Ablate association strategies (per-tracklet baseline, kit-color, OSNet
+# re-ID) against the 8 SoccerNet clips ingested via `pitchlab-train
+# ingest-soccernet` (data/videos/soccernet/SNMOT-*.mp4 + sibling .gt.json,
+# written by pitchlab_train.datasets.soccernet_tracking.ingest_soccernet).
+# The measurement harness ADR 004 requires before shipping global-reid.
+name: reid-ablation-osnet
+task: reid-ablation
+description: >
+  Per-tracklet vs global-color vs global-reid(OSNet) association, GT-scored on
+  SoccerNet clips, with a max_embed_distance threshold sweep for the reid
+  variant to calibrate the merge-precision gate.
+params:
+  base_config: configs/pipeline.v1-local-eval.yaml
+  clips_dir: data/videos/soccernet
+  max_clips: 8
+  device: cuda
+  variants:
+    - {name: per-tracklet, impl: per-tracklet, params: {}}
+    - {name: global-color, impl: global-color, params: {max_gap_s: 20.0}}
+    - {name: reid-osnet, impl: global-reid, params: {embedder: osnet, max_gap_s: 20.0}}
+  threshold_sweep: [0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
+  iou_threshold: 0.5
+output_dir: data/experiments
