@@ -206,11 +206,13 @@ export default function LabRunViewer() {
                 }}
                 onSelectTracklet={(tid, t) => {
                   setHlTracklet(tid === hlTracklet ? null : tid);
+                  setHlGtTrack(null);
                   setHlPair(null);
                   if (t != null) seek(t);
                 }}
                 onSelectPair={(pair) => {
                   setHlPair([pair.a, pair.b]);
+                  setHlTracklet(null);
                   setHlGtTrack(null);
                   const aTracklet = artifacts.tracklets?.find((t) => t.tracklet_id === pair.a);
                   const endFrame = aTracklet?.frames[aTracklet.frames.length - 1]?.frame_idx;
