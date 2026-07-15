@@ -337,7 +337,13 @@ export function LayerChips({
           <button
             key={def.id}
             disabled={!available}
-            title={available ? undefined : "artifact missing in this run"}
+            title={
+              available
+                ? undefined
+                : artifactsB
+                  ? "artifact not available in either run"
+                  : "artifact not available in this run"
+            }
             onClick={() => onChange({ ...layers, [def.id]: !layers[def.id] })}
             className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
               on

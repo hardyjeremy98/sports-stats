@@ -258,6 +258,8 @@ export function IdentityQATab({
     function onKeyDown(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.repeat) return;
+      if (create.isPending) return;
       const first = candidates[0];
       if (!first) return;
       if (e.key === "s") handleVerdict(first, "same");
@@ -266,12 +268,15 @@ export function IdentityQATab({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [candidates, handleVerdict]);
+  }, [candidates, handleVerdict, create.isPending]);
 
   function queueManual() {
-    const a = Number(manualA);
-    const b = Number(manualB);
-    if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return;
+    const trimmedA = manualA.trim();
+    const trimmedB = manualB.trim();
+    if (!trimmedA || !trimmedB) return;
+    const a = Number(trimmedA);
+    const b = Number(trimmedB);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a === b) return;
     const key = pairKey(a, b);
     setManualCandidates((prev) => (prev.some((c) => c.key === key) ? prev : [...prev, { key, tracklet_a: a, tracklet_b: b, source: "manual" }]));
     setManualA("");

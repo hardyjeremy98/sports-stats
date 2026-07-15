@@ -131,7 +131,7 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     return result
 
 
-def headline_metrics(result: dict) -> dict[str, float | int]:
+def headline_metrics(result: dict) -> dict[str, float | int | None]:
     """The few numbers worth a dashboard column / diff delta."""
     lv = result["levels"]
     heads: dict[str, float | int | None] = {

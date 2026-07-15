@@ -44,6 +44,8 @@ export function useEvaluateRun(runId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["run", runId] });
       qc.invalidateQueries({ queryKey: ["artifact", runId, "eval"] });
+      qc.invalidateQueries({ queryKey: ["runs"] });
+      qc.invalidateQueries({ queryKey: ["benchmark"] });
     },
   });
 }

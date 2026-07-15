@@ -66,6 +66,8 @@ stated.
   track it incidentally touched) before purity/completeness are aggregated. `null` when the
   identity stage didn't run; non-null with coverage 0 and purity `null` means it ran but
   abstained everywhere. Folds `identity_coverage` and `cluster_purity` into `runs.metrics`.
+  Coverage's denominator is all matched real entities, including referees — a run that labels
+  every player but abstains on the referee reports coverage < 1.0, not 1.0.
 - Run-grouping benchmark: `GET /api/benchmark` aggregates completed, GT-scored runs by
   `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
   mean/range across the eight benchmark metric keys (idf1/mota/idsw at tracklet and entity

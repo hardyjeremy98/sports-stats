@@ -33,7 +33,7 @@ def export_reid_labels(workdir: Path) -> Path:
             .where(IdentityLabel.kind == IdentityLabelKind.PAIR)
             .order_by(IdentityLabel.id)
         ).all()
-        run_dirs: dict[str, str] = {}
+        run_dirs: dict[str, str | None] = {}
 
         with open(out_path, "w") as f:
             for row in rows:
