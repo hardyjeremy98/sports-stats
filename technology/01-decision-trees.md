@@ -1,5 +1,10 @@
 # 1. Decision Trees — Every Architectural Fork
 
+> **Historical recommendation set.** Current player-identity policy is defined by
+> [`../docs/player-identity-vision.md`](../docs/player-identity-vision.md) and accepted
+> [`../docs/decisions/`](../docs/decisions/). In particular, ADR 001 supersedes the v1 recommendation
+> below that depends on jersey OCR.
+
 > The brief asked for the MVP process *with the decision trees that arise from different approaches*.
 > Each fork below states the options, the concrete trade-off, the **evidence-backed recommendation**,
 > and what would change the recommendation. Recommendations marked `[REASONED]` are engineering

@@ -1,5 +1,9 @@
 # Reasons to Pursue It
 
+> **Document status: early business commentary.** This is not the current engineering roadmap or
+> implementation inventory. Use [`player-identity-vision.md`](player-identity-vision.md) for current
+> identity direction and [`implementation-status.md`](implementation-status.md) for current progress.
+
 ## 1. The Market is Enormous
 
 Grassroots sports absolutely dwarf professional sports.

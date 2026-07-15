@@ -1,5 +1,10 @@
 # 11. MVP Build Prompt — One-Shot Scaffold
 
+> **Historical scaffold prompt.** This records the brief used to create the initial repository; it
+> is not the current specification. Use [`../docs/player-identity-vision.md`](../docs/player-identity-vision.md),
+> [`../docs/implementation-status.md`](../docs/implementation-status.md), and accepted
+> [`../docs/decisions/`](../docs/decisions/) for current work.
+
 > A single, self-contained prompt to hand to a coding agent (Claude Code or similar) to scaffold the
 > v1 system end-to-end: demo product UI, modular CV pipeline, ML training backend, and pipeline-lab
 > tooling. Derived from the decisions locked in [01-decision-trees.md](01-decision-trees.md) and the

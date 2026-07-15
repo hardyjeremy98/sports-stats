@@ -54,8 +54,8 @@ const roadmap = [
     outcome: "Repeatable regression science rather than single-run inspection.",
   },
   {
-    title: "3 · Replace color with body re-ID",
-    body: "Keep the existing team, overlap, gap and speed constraints, but replace mean Lab torso color with a learned tracklet embedding and quality-weighted crop aggregation.",
+    title: "3 · Replace within-team colour affinity",
+    body: "Keep the upstream team separation and existing team, overlap, gap and speed constraints, but replace mean Lab torso colour as the within-team player affinity with a learned body re-ID embedding and quality-weighted crop aggregation.",
     outcome: "The fastest likely gain using the architecture already present.",
   },
   {
@@ -240,7 +240,7 @@ function Roadmap() {
         headers={["Experiment", "Compare", "Primary metric", "Decision"]}
         rows={[
           ["Association null baseline", "per-tracklet vs global-color", "Entity IDF1, ID switches", "Does current association help at all?"],
-          ["Body embedding", "global-color vs body-reID", "Entity IDF1 gain by condition", "Does learned appearance beat kit color?"],
+          ["Body embedding", "Within-team colour vs body re-ID", "Entity IDF1 gain by condition", "Does learned appearance distinguish teammates better?"],
           ["Anchor weighting", "uniform vs quality-weighted", "Retrieval mAP + entity IDF1", "Does high-fidelity selection help?"],
           ["Face contribution", "body only vs body+face", "Roster-ID purity at fixed coverage", "Is face worth cost/licensing?"],
           ["Constraints", "appearance only vs constraint stack", "Silent-swap rate", "Which constraints carry the system?"],

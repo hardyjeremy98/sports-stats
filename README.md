@@ -6,9 +6,21 @@ Upload a single ground-level recording of a soccer match; get back a per-player 
 annotated video — fully automated, no special hardware, no manual tagging.
 
 > The market/feasibility research that motivated this build lives in
-> [`docs/market-research.md`](docs/market-research.md) and the engineering research in
-> [`technology/`](technology/README.md). The architecture below implements the decisions
-> locked in [`technology/01-decision-trees.md`](technology/01-decision-trees.md).
+> [`docs/market_research/`](docs/market_research/) and the engineering research in
+> [`technology/`](technology/README.md). That dated research shaped the initial architecture;
+> current policy and implementation sources are linked below.
+
+## Current direction and documentation
+
+The canonical player tracking and identity strategy is
+[`docs/player-identity-vision.md`](docs/player-identity-vision.md). It defines identity without
+mandatory jersey OCR, quality-gated multimodal evidence, whole-match backfilling, and the distinction
+between team classification, physical-player association, and roster identity.
+
+See [`docs/implementation-status.md`](docs/implementation-status.md) for what is implemented versus
+prototype, stubbed, or planned. [`docs/README.md`](docs/README.md) defines documentation precedence
+and maintenance rules. The `technology/` directory is a dated research dossier and may contain
+historical recommendations superseded by accepted records in [`docs/decisions/`](docs/decisions/).
 
 ## Architecture
 

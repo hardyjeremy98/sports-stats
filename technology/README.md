@@ -1,5 +1,12 @@
 # Technology Deep-Dive — Per-Player Analytics from a Single Phone Camera
 
+> **Document status: historical research dossier (compiled 2026-06-24).** This directory contains
+> evidence, candidate technologies, and recommendations made at research time. It is not a statement
+> of what is implemented or the current identity policy. When recommendations conflict, follow
+> [`../docs/README.md`](../docs/README.md), the accepted
+> [`../docs/decisions/`](../docs/decisions/), and the canonical
+> [`../docs/player-identity-vision.md`](../docs/player-identity-vision.md).
+
 > **What this is.** A follow-on **technology** dossier to the market research in
 > [`../docs/`](../docs/). The market work established *whether* to build; this establishes
 > *how* — the MVP technical process, the model architectures behind each unsolved component,
