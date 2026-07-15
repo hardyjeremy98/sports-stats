@@ -6,7 +6,10 @@ Consumed by associate-stage implementations (e.g. the `global-reid`
 associator) via `get_embedder(name, **params)`. None of these imports pull in
 torch — implementations lazy-import heavy CV deps inside `prepare()`."""
 
-from pitchlab_core.stages.associate.embedders import osnet  # noqa: F401
+from pitchlab_core.stages.associate.embedders import (
+    osnet,  # noqa: F401
+    solider,  # noqa: F401
+)
 from pitchlab_core.stages.associate.embedders.base import (
     EMBEDDERS,
     BodyEmbedder,
