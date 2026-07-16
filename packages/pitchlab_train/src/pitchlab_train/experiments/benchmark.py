@@ -1,39 +1,47 @@
-"""Core benchmark runner (SPO-17 part 1): the offline experiment every later
-stop/go gate runs through. Loads a dataset tier manifest (`configs/datasets/
+"""Core benchmark runner (SPO-17): the offline experiment every later stop/go
+gate runs through. Loads a dataset tier manifest (`configs/datasets/
 <tier>.json`), expands a candidate matrix (pipeline candidates with config
-overrides + parameter sweeps), runs each candidate over each selected
-sequence, scores every completed run with the full evaluation stack
-(`pitchlab_core.evaluation`), and emits provenance-stamped per-sequence rows.
+overrides + parameter sweeps, plus external-import candidates -- see
+`ImportCandidate`), runs/scores each candidate over each selected sequence
+with the full evaluation stack (`pitchlab_core.evaluation`), and emits
+provenance-stamped per-sequence rows (part 1, SPO-17). Those rows then pass
+through provenance aggregation gates (`_check_missing_provenance`,
+`_check_provenance_consistency`, `_check_evaluation_set_consistency`), a
+matched_data/as_published table split (`_build_tables`), and an optional
+tolerance-band comparison against a baseline candidate (`_compute_comparison`,
+part 2) before landing in `summary.tables` / `summary.comparison`.
+Offline-first: no `pitchlab_server` imports, no DB -- dataset-manifest path
+resolution below is deliberately reimplemented against pure paths rather than
+importing `pitchlab_server.settings`.
 
-Aggregation, provenance-consistency gates, tolerance comparisons, and import
-candidates are Task 9 -- this module only records rows the aggregator will
-later fold together (`summary.note` says so explicitly). Offline-first: no
-`pitchlab_server` imports, no DB -- dataset-manifest path resolution below is
-deliberately reimplemented against pure paths rather than importing
-`pitchlab_server.settings`.
-
-Refusals are loud and name what's wrong (path, candidate, role) rather than
-silently dropping a row: a missing manifest/video/gt, an empty role
-selection, an unknown override path, or a duplicate candidate name all raise
-before any pipeline runs. Once running, a single candidate's pipeline failure
-(e.g. a bad GT path fed to the oracle detector) does NOT abort the
-experiment -- it becomes a `status: "failed"` row, also listed in
-`summary.failed_rows`, so a failed run can never look like a scored one.
+Refusals are loud and name what's wrong (path, candidate, run_id, hash) rather
+than silently dropping a row or aggregating over broken provenance: a missing
+manifest/video/gt, an empty role selection, an unknown override path, a
+duplicate candidate name, a provenance-less import, a reference-only system
+entering a matched_data comparison, or inconsistent/missing provenance across
+a candidate's rows all raise. The one exception is a single pipeline
+candidate's *runtime* pipeline failure (e.g. a bad GT path fed to the oracle
+detector), which does NOT abort the experiment -- it becomes a `status:
+"failed"` row, also listed in `summary.failed_rows`, so a failed run can
+never look like a scored one and is excluded from aggregates.
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 from pathlib import Path
 from typing import Literal
-
-import statistics
 
 from pitchlab_core.config import PipelineConfig
 from pitchlab_core.evaluation import evaluate_run, headline_metrics
 from pitchlab_core.exchange import ExternalProvenance
 from pitchlab_core.gt import GroundTruth
-from pitchlab_core.provenance import check_evaluation_set, hash_dataset_manifest, hash_evaluation_set
+from pitchlab_core.provenance import (
+    check_evaluation_set,
+    hash_dataset_manifest,
+    hash_evaluation_set,
+)
 from pitchlab_core.runner import PipelineRunner
 from pitchlab_core.schemas.run import RunManifest, StageKind, StageStatus
 from pydantic import BaseModel, Field, field_validator
