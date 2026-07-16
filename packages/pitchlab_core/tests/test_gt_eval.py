@@ -803,6 +803,57 @@ def test_evaluate_run_min_track_length_explicit_override(tmp_path):
     assert result["purity"]["tracklet"]["post_filter"]["n_tracklets"] == 1
 
 
+def test_evaluate_run_discovers_min_track_length_from_stage_default(tmp_path):
+    """The realistic case: NO shipped config (configs/*.yaml) sets min_length
+    explicitly -- it's always left at the stage's pydantic default (5 for
+    both botsort and iou). If discovery silently fell back to 0 here, every
+    real run would report a wrong threshold with no signal that a 5-frame
+    filter actually ran -- exactly the silent-parameter-loss failure mode
+    this program exists to police. The manifest below has an `impl` but no
+    `min_length` key, mirroring every real manifest.config.stages.track."""
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(3)]),  # length 3, below default 5
+        _tracklet(11, [(f, 500, 200) for f in range(10)]),  # length 10, above default 5
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, [])
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    manifest["config"] = {"stages": {"track": {"impl": "iou", "params": {}}}}
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    result = evaluate_run(run_dir, gt)
+    purity = result["purity"]["tracklet"]
+    assert purity["min_track_length"] == 5  # iou.Params.min_length's pydantic default
+    assert purity["pre_filter"]["n_tracklets"] == 2
+    assert purity["post_filter"]["n_tracklets"] == 1  # length-3 tracklet dropped
+
+
+def test_evaluate_run_min_track_length_null_when_unresolvable(tmp_path):
+    """Unknown/unresolvable impl name -> min_track_length is JSON null, never
+    a fabricated 0, and post_filter must equal pre_filter exactly (no
+    filtering silently applied at an assumed threshold)."""
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [_tracklet(10, [(f, 100, 100) for f in range(3)])]
+    run_dir = _write_run_dir(tmp_path, tracklets, [])
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    manifest["config"] = {"stages": {"track": {"impl": "not-a-real-impl", "params": {}}}}
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    result = evaluate_run(run_dir, gt)
+    purity = result["purity"]["tracklet"]
+    assert purity["min_track_length"] is None
+    assert "not discoverable" in purity["note"]
+    assert purity["post_filter"] == purity["pre_filter"]
+
+
 def test_evaluate_run_purity_present_with_empty_tracklets(tmp_path):
     pytest.importorskip("motmetrics")
     from pitchlab_core.evaluation import evaluate_run
@@ -813,3 +864,7 @@ def test_evaluate_run_purity_present_with_empty_tracklets(tmp_path):
     result = evaluate_run(run_dir, gt)
     assert result["purity"]["tracklet"]["tracklets"] == []
     assert result["purity"]["entity"]["tracklets"] == []
+    # No manifest config at all (bare test fixture) -> not discoverable either;
+    # must not silently coerce to 0.
+    assert result["purity"]["tracklet"]["min_track_length"] is None
+    assert result["purity"]["tracklet"]["post_filter"] == result["purity"]["tracklet"]["pre_filter"]

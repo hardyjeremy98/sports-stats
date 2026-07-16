@@ -64,7 +64,9 @@ def evaluate_run(
 
     `min_track_length` gates the purity block's pre/post-filter split (see
     `tracklet_purity`); if omitted it is discovered from the manifest's
-    resolved track-stage config, falling back to 0.
+    resolved track-stage config, falling back to the registered track impl's
+    `Params.min_length` pydantic default, falling back to `None` (not
+    discoverable) if neither is available.
     """
     import motmetrics as mm
 
@@ -170,19 +172,68 @@ def evaluate_run(
     return result
 
 
-def _discover_min_track_length(manifest: dict) -> int:
+def _discover_min_track_length(manifest: dict) -> int | None:
     """Where minimum-track-length filtering actually happens: the track
     stage (`stages/track/{iou,botsort}.py`'s `min_length` param), BEFORE
     tracklets.json is written -- tracklets shorter than it never reach this
     evaluator at all, they simply don't exist in tracklets.json. So this can
-    only read the resolved threshold back out of the manifest's config
-    snapshot for reporting (see `tracklet_purity`'s `note` field); it cannot
-    recover what was already dropped. Falls back to 0 (no known filtering)
-    when the manifest has no resolved track-stage config, e.g. hand-written
-    test fixtures or configs that never ran the track stage."""
-    track_params = manifest.get("config", {}).get("stages", {}).get("track", {}).get("params", {})
+    only read the resolved threshold back out of the manifest for reporting
+    (see `tracklet_purity`'s `note` field); it cannot recover what was
+    already dropped.
+
+    Two fallbacks, in order:
+    1. `manifest.config.stages.track.params.min_length`, if the resolved
+       config snapshot set it explicitly.
+    2. No shipped config (`configs/*.yaml`) sets `min_length` explicitly --
+       it's always the stage's pydantic default (5 for both `botsort` and
+       `iou`) -- so falling back straight to 0 here would silently report a
+       wrong threshold with no signal that anything was lost, exactly the
+       failure mode this program exists to police. Instead resolve the
+       registered track impl's `Params.min_length` default via
+       `_resolve_track_min_length_default`.
+
+    Returns `None` (not `0`) if neither works, e.g. the manifest has no
+    track-stage config at all (hand-written test fixtures) or names an
+    unknown/unresolvable impl -- callers must treat `None` as "not
+    discoverable", never coerce it to 0.
+    """
+    track_cfg = manifest.get("config", {}).get("stages", {}).get("track", {})
+    track_params = track_cfg.get("params", {})
     value = track_params.get("min_length")
-    return int(value) if isinstance(value, (int, float)) else 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    impl = track_cfg.get("impl")
+    return _resolve_track_min_length_default(impl) if impl else None
+
+
+def _resolve_track_min_length_default(impl: str) -> int | None:
+    """Best-effort recovery of a track impl's `min_length` pydantic default
+    by instantiating it with no params via the stage registry (the same
+    (kind, impl_name) -> class resolution the pipeline itself uses, rather
+    than guessing a module path from the impl name).
+
+    Triggers `pitchlab_core.stages`' registration import, which pulls in
+    every stage module across every kind. Verified safe in a lean/cv-less
+    env: every stage module in this repo (detect/team/calibrate/associate/
+    identity/track, including the OSNet embedder whose vendored arch module
+    has a module-level `import torch`) imports its heavy CV deps (torch,
+    trackers, inference, insightface, ultralytics, transformers) lazily
+    inside `prepare()`/method bodies, never at import time -- there's even an
+    existing test (`test_embedders.py`) asserting torch isn't eagerly
+    imported. Still wrapped in try/except: an unregistered impl name, a
+    Params model with no `min_length` field, or a future stage module that
+    breaks that lazy-import convention must degrade to "not discoverable",
+    never crash evaluation.
+    """
+    try:
+        from pitchlab_core.registry import build
+        from pitchlab_core.schemas.run import StageKind
+
+        stage = build(StageKind.TRACK, impl, {})
+        value = getattr(getattr(stage, "params", None), "min_length", None)
+    except Exception:
+        return None
+    return int(value) if isinstance(value, (int, float)) else None
 
 
 def merge_quality(
@@ -301,7 +352,7 @@ def tracklet_purity(
     fps: float,
     stride: int,
     iou_threshold: float = 0.5,
-    min_track_length: int = 0,
+    min_track_length: int | None = 0,
 ) -> dict:
     """Per-tracklet GT composition and contamination -- the metric
     `merge_quality`'s majority-vote collapse silently discards (it only ever
@@ -327,7 +378,10 @@ def tracklet_purity(
     ones) are computed twice: `pre_filter` over every tracklet in
     `tracklets_by_id`, `post_filter` restricted to `length >= min_track_length`
     -- see the `note` field for why that pre/post split can only see
-    filtering applied here, not upstream.
+    filtering applied here, not upstream. `min_track_length=None` means the
+    threshold could not be determined at all (see `_discover_min_track_length`):
+    `post_filter` is then identical to `pre_filter` rather than fabricating a
+    filter at an assumed 0 -- abstention over a wrong, silent answer.
     """
     seconds_per_frame = (stride / fps) if fps else 0.0
     records: list[dict] = []
@@ -359,21 +413,33 @@ def tracklet_purity(
             }
         )
 
+    note = (
+        "min-length filtering happens upstream in the track stage "
+        "(stages/track/{iou,botsort}.py's min_length param) before "
+        "tracklets.json is written -- tracklets dropped there never "
+        "reach this evaluator, so pre_filter/post_filter below only "
+        "re-apply min_track_length to what's already in tracklets.json; "
+        "they cannot recover what was already discarded upstream."
+    )
+    if min_track_length is None:
+        post_records = records
+        note += (
+            " min_track_length was not discoverable for this run (absent from "
+            "the manifest's resolved track-stage config and the registered "
+            "track impl's default could not be resolved either); post_filter "
+            "is therefore identical to pre_filter -- treat pre_filter as the "
+            "only trustworthy view rather than assuming no filtering (0) was "
+            "applied upstream."
+        )
+    else:
+        post_records = [r for r in records if r["length"] >= min_track_length]
+
     return {
         "min_track_length": min_track_length,
-        "note": (
-            "min-length filtering happens upstream in the track stage "
-            "(stages/track/{iou,botsort}.py's min_length param) before "
-            "tracklets.json is written -- tracklets dropped there never "
-            "reach this evaluator, so pre_filter/post_filter below only "
-            "re-apply min_track_length to what's already in tracklets.json; "
-            "they cannot recover what was already discarded upstream."
-        ),
+        "note": note,
         "tracklets": records,
         "pre_filter": _aggregate_purity_records(records),
-        "post_filter": _aggregate_purity_records(
-            [r for r in records if r["length"] >= min_track_length]
-        ),
+        "post_filter": _aggregate_purity_records(post_records),
     }
 
 
