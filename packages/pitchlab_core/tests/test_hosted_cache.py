@@ -329,28 +329,85 @@ def test_ball_path_readwrite_second_run_zero_calls(tmp_path):
     assert len(balls_1) >= 1
 
 
-# --- provenance() carries cache_mode + content_hash --------------------------
+# --- provenance() carries the cache's content hash ---------------------------
+#
+# cache_dir/cache_mode are NOT re-asserted on ModelProvenance here: they
+# already appear in StageProvenance.params (the resolved-params snapshot),
+# so detections_cache_hash is the only cache fact that needs a home on the
+# model entry itself (see provenance.py's ModelProvenance docstring).
 
 
-def test_provenance_records_cache_mode_and_content_hash(tmp_path):
+def test_provenance_records_content_hash_in_dedicated_field(tmp_path):
     cache_dir = tmp_path / "cache"
     frames = _three_frames()
     model = _FakePlayerModel(boxes=[(50.0, 50.0, 20.0, 40.0, 0.9, 2)])
 
     stage = RoboflowDetector(cache_dir=str(cache_dir), cache_mode="readwrite")
     stage._player_model = model
-    empty_hash = stage.provenance()[0].dataset_split_manifest_sha256
+    cache = HostedDetectionCache(cache_dir)
+    empty_hash = stage.provenance()[0].detections_cache_hash
+    assert empty_hash == cache.content_hash()  # empty-cache hash, not None
 
     stage.detect(_ctx(frames))
-    warm_hash = stage.provenance()[0].dataset_split_manifest_sha256
+    warm_hash = stage.provenance()[0].detections_cache_hash
 
     assert empty_hash != warm_hash
-    assert "readwrite" in stage.provenance()[0].dataset_split_manifest
-    assert str(cache_dir) in stage.provenance()[0].dataset_split_manifest
+    assert warm_hash == cache.content_hash()
 
 
-def test_provenance_off_mode_leaves_cache_fields_null():
+def test_provenance_off_mode_leaves_cache_hash_null():
     stage = RoboflowDetector(cache_mode="off")
     m = stage.provenance()[0]
+    assert m.detections_cache_hash is None
+    # dataset_split_manifest fields are unrelated to caching and stay at
+    # their own defaults regardless of cache_mode.
     assert m.dataset_split_manifest is None
     assert m.dataset_split_manifest_sha256 is None
+
+
+# --- runner integration: manifest records the post-detect() cache hash ------
+
+
+def test_runner_records_post_detect_cache_hash_not_pre_run_empty_hash(tmp_path, monkeypatch):
+    """Regression test for the ordering bug: provenance() called only before
+    detect() would record the empty-cache hash for a cold readwrite run. The
+    runner must refresh provenance again after the stage executes, so the
+    manifest reflects the cache actually used by this run."""
+    import inference
+    from pitchlab_core.config import PipelineConfig, StageConfig, VideoConfig
+    from pitchlab_core.demo import render_demo_video
+    from pitchlab_core.runner import PipelineRunner
+    from pitchlab_core.schemas.run import StageKind, StageStatus
+
+    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
+    fake_model = _FakePlayerModel(boxes=[(30.0, 30.0, 10.0, 20.0, 0.9, 2)])
+    # prepare() does `from inference import get_model` locally at call time,
+    # so patching the real `inference` module attribute is what's actually
+    # invoked -- no need to reach into pitchlab_core.stages.detect.roboflow.
+    monkeypatch.setattr(inference, "get_model", lambda model_id, api_key: fake_model)
+
+    video = render_demo_video(tmp_path / "clip.mp4", duration_s=0.4, fps=10, width=64, height=64)
+    cache_dir = tmp_path / "cache"
+    config = PipelineConfig(
+        name="roboflow-cache-runner-test",
+        video=VideoConfig(sample_stride=1, max_frames=3),
+        stages={
+            StageKind.DETECT: StageConfig(
+                impl="roboflow",
+                params={"cache_dir": str(cache_dir), "cache_mode": "readwrite"},
+            ),
+            StageKind.TRACK: StageConfig(impl="iou", params={}),
+        },
+    )
+    runner = PipelineRunner(
+        run_id="test", video_path=video, config=config, run_dir=tmp_path / "run", device="cpu"
+    )
+    manifest = runner.run()
+    assert manifest.status == StageStatus.COMPLETED, manifest.error
+
+    recorded_hash = manifest.provenance.stages["detect"].models[0].detections_cache_hash
+    warm_cache = HostedDetectionCache(cache_dir)
+    assert recorded_hash is not None
+    assert recorded_hash == warm_cache.content_hash()
+    empty_cache_hash = HostedDetectionCache(tmp_path / "never-written").content_hash()
+    assert recorded_hash != empty_cache_hash

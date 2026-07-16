@@ -55,10 +55,15 @@ class ModelProvenance(BaseModel):
     training_seed: int | None = None
     dataset_split_manifest: str | None = None  # path
     dataset_split_manifest_sha256: str | None = None
-    # ^ Also reused by the hosted-detection response cache (SPO-10 part 2,
-    # RoboflowDetector.provenance()) for its (cache dir, cache content hash)
-    # pair -- same "what exact frozen artifact backs this model" shape, no
-    # need for a parallel field.
+    # Hosted-detection response cache content hash (SPO-10 part 2): the
+    # `HostedDetectionCache.content_hash()` backing this hosted model's
+    # detections, when the stage has caching enabled. Deliberately a
+    # dedicated field, not a repurposing of dataset_split_manifest -- that
+    # field means training-data split lineage, a different fact, and a
+    # future benchmark runner reading it needs that meaning to stay
+    # unambiguous. `null` = no cache in play (cache_mode="off" or the stage
+    # doesn't cache at all).
+    detections_cache_hash: str | None = None
     license: LicenseAxes = Field(default_factory=LicenseAxes)
 
 

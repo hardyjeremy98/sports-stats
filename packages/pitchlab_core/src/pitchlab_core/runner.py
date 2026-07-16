@@ -225,6 +225,12 @@ class PipelineRunner:
             # manifest gets rewritten below regardless, so this is free.
             self.manifest.provenance.stages[kind.value].models = stage.provenance()
             out = fn(stage)
+            # Some stages only finish populating derived provenance (e.g. a
+            # hosted-detection cache's content hash, written to as the stage
+            # runs) once they've actually executed; refresh again now that
+            # the stage has completed successfully. Mirrors the post-prepare
+            # refresh above.
+            self.manifest.provenance.stages[kind.value].models = stage.provenance()
         except Exception:
             result.status = StageStatus.FAILED
             result.finished_at = datetime.now(UTC)

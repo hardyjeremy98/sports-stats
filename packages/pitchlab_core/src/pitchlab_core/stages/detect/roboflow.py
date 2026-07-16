@@ -95,14 +95,16 @@ class RoboflowDetector(Detector):
 
     def provenance(self) -> list[ModelProvenance]:
         license = LicenseAxes(code="proprietary hosted API (Roboflow)")
-        manifest_note, manifest_hash = self._cache_provenance_fields()
+        # cache_dir/cache_mode already appear in the stage's params snapshot
+        # (StageProvenance.params, via the runner's _resolved_params); only
+        # the cache's content fingerprint needs a home on the model entry.
+        cache_hash = self._cache.content_hash() if self._cache is not None else None
         models = [
             ModelProvenance(
                 revision=self.params.player_model_id,
                 lineage="hosted (unpinned)",
                 license=license,
-                dataset_split_manifest=manifest_note,
-                dataset_split_manifest_sha256=manifest_hash,
+                detections_cache_hash=cache_hash,
             )
         ]
         if self.params.use_ball_model and self.params.ball_model_id:
@@ -111,24 +113,10 @@ class RoboflowDetector(Detector):
                     revision=self.params.ball_model_id,
                     lineage="hosted (unpinned)",
                     license=license,
-                    dataset_split_manifest=manifest_note,
-                    dataset_split_manifest_sha256=manifest_hash,
+                    detections_cache_hash=cache_hash,
                 )
             )
         return models
-
-    def _cache_provenance_fields(self) -> tuple[str | None, str | None]:
-        """The hosted-detection cache's content hash + mode, recorded via
-        ModelProvenance's (path, sha256-of-path-contents) pair -- the same
-        shape `dataset_split_manifest`/`_sha256` already use for "what exact
-        frozen artifact backs this stage" (Task 1 schema, not a parallel
-        mechanism). Null when caching is off, matching those fields'
-        existing null-when-inapplicable convention.
-        """
-        if self._cache is None:
-            return None, None
-        note = f"hosted-detection cache ({self.params.cache_mode}): {self.params.cache_dir}"
-        return note, self._cache.content_hash()
 
     def detect(self, ctx: StageContext) -> DetectOutput:
         if self._cache is None and self.params.cache_mode != "off":

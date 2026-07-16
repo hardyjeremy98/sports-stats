@@ -55,6 +55,7 @@ as optional — see below), never an absent key. This means:
 | `training_seed` | `int \| null` | Training-time random seed, when applicable. |
 | `dataset_split_manifest` | `str \| null` | Path to the `configs/datasets/<tier>.json` the model's training/eval split came from, when applicable. |
 | `dataset_split_manifest_sha256` | `str \| null` | `hash_dataset_manifest` of the above. |
+| `detections_cache_hash` | `str \| null` | `HostedDetectionCache.content_hash()` (SPO-10 part 2) — the fingerprint of the frozen hosted-API responses backing this model's detections, when the stage has response caching enabled (`RoboflowDetector` with `cache_mode` != `"off"`). `null` when caching is off or the stage doesn't cache at all. The cache's own location and mode (`cache_dir`, `cache_mode`) live in the stage's `params` snapshot, not here — this field is only the content fingerprint. Refreshed by the runner both after `prepare()` and after the stage finishes executing (see [Refresh timing](#refresh-timing) below), so a cold cache warmed during a `readwrite` run is reflected, not the pre-run empty-cache hash. |
 | `license` | `LicenseAxes` | See below. |
 
 ### `LicenseAxes`
@@ -68,6 +69,22 @@ data. Each field is a free-text status string, default `"unknown"`.
 | `code` | The runtime/inference code's license, e.g. `"AGPL-3.0 (ultralytics, local-eval only, non-shippable)"`, `"proprietary hosted API (Roboflow)"`, `"MIT (insightface)"`. |
 | `weights` | The distributed weights/checkpoint's license, e.g. `"research-only (buffalo_l pack; commercial deployment needs a licensed pack)"`. |
 | `training_data` | The training dataset's license/usage terms, when known. Almost always `"unknown"` today — no stage currently records this axis with confidence. |
+
+### Refresh timing
+
+`stage.provenance()` is called by `PipelineRunner._exec` at three points, each overwriting
+`StageProvenance.models` in the in-memory manifest (which is then re-saved):
+
+1. Immediately when the stage is built, before `prepare()` runs.
+2. Immediately after `prepare()` returns, so fields only `prepare()` can resolve (e.g. a
+   downloaded weights path) are captured.
+3. Immediately after the stage's main method (`detect()`, `track()`, ...) returns
+   successfully, so fields that only finish populating as the stage *runs* — e.g.
+   `detections_cache_hash`, which grows as a `readwrite`-mode cache is filled frame by
+   frame during `detect()` — reflect the stage's actual output, not its pre-run state.
+
+A stage instance's `provenance()` is expected to be safe to call repeatedly and reflect
+current state each time (no memoization that would go stale across these three calls).
 
 ## Canonical hashing rule
 
@@ -148,6 +165,7 @@ path yet.
             "training_seed": null,
             "dataset_split_manifest": null,
             "dataset_split_manifest_sha256": null,
+            "detections_cache_hash": null,
             "license": {
               "code": "AGPL-3.0 (ultralytics, local-eval only, non-shippable)",
               "weights": "unknown",
@@ -187,6 +205,11 @@ Notes on this example:
 
 ## What is out of scope here
 
-- **Hosted-response caching** (Task 2 of SPO-10) is not implemented by this module.
+- **Hosted-response caching** (Task 2 of SPO-10) is implemented in
+  `pitchlab_core.stages.detect.hosted_cache` (`HostedDetectionCache`) and wired into
+  `RoboflowDetector`, not in this module — `provenance.py` only defines the
+  `ModelProvenance.detections_cache_hash` field it reports into (see above). Caching for
+  local detectors, eviction/GC policy, and the benchmark runner's use of the cache hash
+  remain out of scope.
 - **Aggregate-refusal behavior** in a benchmark runner (SPO-17) is not implemented by this
   module — only the `check_evaluation_set` primitive it will call.

@@ -197,6 +197,7 @@ export interface ModelProvenance {
   training_seed: number | null;
   dataset_split_manifest: string | null;
   dataset_split_manifest_sha256: string | null;
+  detections_cache_hash: string | null;
   license: LicenseAxes;
 }
 
