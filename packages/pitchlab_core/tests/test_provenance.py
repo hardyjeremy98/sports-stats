@@ -223,6 +223,58 @@ def test_face_identity_provenance_reports_pack_without_a_local_path():
     assert "research-only" in m.license.weights
 
 
+# --- Stage hook: siglip team classifier (param-level, no network) ----------
+
+
+def test_siglip_provenance_default_model_reports_verified_apache_license():
+    from pitchlab_core.stages.team.siglip import SiglipTeamClassifier
+
+    stage = SiglipTeamClassifier()  # default model_name
+    models = stage.provenance()
+
+    assert len(models) == 1
+    m = models[0]
+    assert m.architecture == "siglip"
+    assert m.revision == "google/siglip-base-patch16-224"
+    assert m.weights_path is None
+    assert m.weights_sha256 is None
+    assert m.lineage == "pretrained (HuggingFace hub)"
+    assert m.license.code == "Apache-2.0 (transformers library)"
+    assert "Apache-2.0" in m.license.weights
+
+
+def test_siglip_provenance_nondefault_model_weights_license_unknown():
+    from pitchlab_core.stages.team.siglip import SiglipTeamClassifier
+
+    # A caller-configured, unverified checkpoint: the code license (the
+    # transformers runtime) is still knowable, but this specific checkpoint's
+    # license was never checked, so it must not inherit the default's claim.
+    stage = SiglipTeamClassifier(model_name="someone/other-siglip-finetune")
+    m = stage.provenance()[0]
+
+    assert m.revision == "someone/other-siglip-finetune"
+    assert m.license.code == "Apache-2.0 (transformers library)"
+    assert m.license.weights == "unknown"
+
+
+# --- Stage hook: roboflow-keypoints calibrator (param-level, no network) ---
+
+
+def test_roboflow_keypoints_provenance_uses_model_id_as_revision():
+    from pitchlab_core.stages.calibrate.roboflow_keypoints import RoboflowKeypointCalibrator
+
+    stage = RoboflowKeypointCalibrator(model_id="football-field-detection-f07vi/14")
+    models = stage.provenance()
+
+    assert len(models) == 1
+    m = models[0]
+    assert m.revision == "football-field-detection-f07vi/14"
+    assert m.weights_path is None
+    assert m.weights_sha256 is None
+    assert m.lineage == "hosted (unpinned)"
+    assert m.license.code == "proprietary hosted API (Roboflow)"
+
+
 # --- Pipeline-level: manifest carries a full provenance block --------------
 
 

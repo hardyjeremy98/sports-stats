@@ -8,10 +8,24 @@ import numpy as np
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import StageContext, TeamClassifier
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import DetectionClass, Team, TeamAssignment, Tracklet
 from pitchlab_core.schemas.run import StageKind
 from pitchlab_core.stages.team._crops import sample_tracklet_crops
+
+# The shipped default checkpoint's license, verified against its HuggingFace
+# Hub model card (apache-2.0 tag) -- only asserted when that exact model id is
+# configured; any other `model_name` a caller points this stage at is an
+# unverified checkpoint and stays "unknown" on the weights axis.
+_DEFAULT_MODEL_NAME = "google/siglip-base-patch16-224"
+_DEFAULT_MODEL_WEIGHTS_LICENSE = (
+    f"Apache-2.0 ({_DEFAULT_MODEL_NAME} model card, HuggingFace Hub)"
+)
+# The `transformers` runtime that loads the checkpoint is Apache-2.0 regardless
+# of which checkpoint is configured (verified via its installed package
+# metadata's License classifier).
+_CODE_LICENSE = "Apache-2.0 (transformers library)"
 
 
 class Params(BaseModel):
@@ -39,6 +53,20 @@ class SiglipTeamClassifier(TeamClassifier):
             ) from exc
         self._model = SiglipVisionModel.from_pretrained(self.params.model_name).to(ctx.device)
         self._processor = AutoProcessor.from_pretrained(self.params.model_name)
+
+    def provenance(self) -> list[ModelProvenance]:
+        model_name = self.params.model_name
+        weights_license = (
+            _DEFAULT_MODEL_WEIGHTS_LICENSE if model_name == _DEFAULT_MODEL_NAME else "unknown"
+        )
+        return [
+            ModelProvenance(
+                architecture="siglip",
+                revision=model_name,
+                lineage="pretrained (HuggingFace hub)",
+                license=LicenseAxes(code=_CODE_LICENSE, weights=weights_license),
+            )
+        ]
 
     def classify(self, ctx: StageContext, tracklets: list[Tracklet]) -> list[TeamAssignment]:
         import torch

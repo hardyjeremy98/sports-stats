@@ -17,6 +17,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import Calibrator, StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import FrameCalibration
 from pitchlab_core.schemas.geometry import Point
@@ -48,6 +49,15 @@ class RoboflowKeypointCalibrator(Calibrator):
         from inference import get_model
 
         self._model = get_model(model_id=self.params.model_id, api_key=api_key)
+
+    def provenance(self) -> list[ModelProvenance]:
+        return [
+            ModelProvenance(
+                revision=self.params.model_id,
+                lineage="hosted (unpinned)",
+                license=LicenseAxes(code="proprietary hosted API (Roboflow)"),
+            )
+        ]
 
     def calibrate(self, ctx: StageContext) -> list[FrameCalibration]:
         import supervision as sv
