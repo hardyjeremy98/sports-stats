@@ -314,6 +314,8 @@ def test_import_mot_tracklets_fixture(tmp_path):
     assert model["architecture"] == "TDLP"
     assert model["weights_sha256"] == "deadbeef"
     assert model["lineage"] == "external (https://example.com/tdlp)"
+    # revision = f"{variant}/{commit}" per the sidecar's "bbox-only" / "abc123".
+    assert model["revision"] == "bbox-only/abc123"
     assert model["license"] == {"code": "MIT", "weights": "unknown", "training_data": "unknown"}
     assert manifest["provenance"]["evaluation_set_hash"] == "unknown"
 
@@ -322,6 +324,45 @@ def test_import_mot_tracklets_fixture(tmp_path):
 
     # Raw tracklet layer only -- no entity/identity artifacts.
     assert not (out_run_dir / "players.json").exists()
+
+
+def test_import_mot_tracklets_refuses_nonempty_out_dir(tmp_path):
+    """A stale players.json (or any leftover file) in out_run_dir must be
+    refused loudly, never silently overwritten or deleted -- otherwise
+    evaluate_run would score the identity layer against unrelated data,
+    breaking the raw-tracklet-layer-only invariant."""
+    from pitchlab_core.exchange import import_mot_tracklets
+
+    mot_path = _write_mot_file(tmp_path / "mot.txt", ["1,1,0,0,10,10,0.9"])
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")
+    out_run_dir = tmp_path / "out"
+    out_run_dir.mkdir()
+    (out_run_dir / "players.json").write_text("[]")  # stale artifact
+
+    with pytest.raises(RuntimeError) as exc_info:
+        import_mot_tracklets(
+            mot_path, sidecar_path, out_run_dir, fps=25.0, frame_count=1
+        )
+    assert str(out_run_dir) in str(exc_info.value)
+    # The importer must not have deleted what it doesn't own.
+    assert (out_run_dir / "players.json").exists()
+
+
+def test_import_mot_tracklets_preexisting_empty_out_dir_ok(tmp_path):
+    """A pre-created but empty out_run_dir (as opposed to a missing one) is
+    not stale and must still be accepted."""
+    from pitchlab_core.exchange import import_mot_tracklets
+
+    mot_path = _write_mot_file(tmp_path / "mot.txt", ["1,1,0,0,10,10,0.9"])
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")
+    out_run_dir = tmp_path / "out"
+    out_run_dir.mkdir()
+
+    result = import_mot_tracklets(
+        mot_path, sidecar_path, out_run_dir, fps=25.0, frame_count=1
+    )
+    assert result == out_run_dir
+    assert (out_run_dir / "tracklets.json").exists()
 
 
 def test_import_mot_tracklets_missing_sidecar(tmp_path):
@@ -383,7 +424,7 @@ def test_import_mot_tracklets_malformed_row(tmp_path):
         )
     msg = str(exc_info.value)
     assert str(mot_path) in msg
-    assert "2" in msg  # row/line number of the malformed row
+    assert "row 2" in msg  # line number of the malformed row, unambiguously
 
 
 def test_import_mot_tracklets_duplicate_track_frame_row(tmp_path):
@@ -401,7 +442,9 @@ def test_import_mot_tracklets_duplicate_track_frame_row(tmp_path):
         )
     msg = str(exc_info.value)
     assert str(mot_path) in msg
-    assert "1" in msg  # names the duplicated track_id/frame
+    # Names the duplicated track_id and frame_idx unambiguously (frame=1 -> frame_idx=0).
+    assert "track_id=1" in msg
+    assert "frame_idx=0" in msg
 
 
 def test_import_mot_tracklets_frozen_hash_mismatch(tmp_path):

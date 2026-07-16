@@ -266,10 +266,13 @@ def import_mot_tracklets(
     `manifest.json` carrying a real `RunProvenance` for the external system,
     and the raw sidecar copied verbatim to `external_provenance.json`.
 
-    Refuses loudly (naming the offending path/field/row) on: a missing
-    sidecar or MOT file, a sidecar missing required fields (`system`,
-    `license`, `reference_only`), a malformed or duplicate MOT row, or -- when
-    `frozen_detections_dir` is given and the sidecar states
+    Refuses loudly (naming the offending path/field/row) on: a non-empty
+    `out_run_dir` (never silently overwrites or deletes stale artifacts --
+    e.g. a leftover `players.json` from an earlier run would otherwise make
+    `evaluate_run` score the identity layer against unrelated data), a
+    missing sidecar or MOT file, a sidecar missing required fields
+    (`system`, `license`, `reference_only`), a malformed or duplicate MOT
+    row, or -- when `frozen_detections_dir` is given and the sidecar states
     `frozen_detections_sha256` -- a mismatch against that export's
     `det_txt_sha256` (reuses `check_evaluation_set`, naming both hashes).
 
@@ -278,6 +281,13 @@ def import_mot_tracklets(
     mot_path = Path(mot_path)
     sidecar_path = Path(sidecar_path)
     out_run_dir = Path(out_run_dir)
+
+    if out_run_dir.exists() and any(out_run_dir.iterdir()):
+        raise RuntimeError(
+            f"Refusing to import into non-empty directory {out_run_dir}: a stale "
+            "artifact there (e.g. a players.json from an earlier run) would corrupt "
+            "the raw-tracklet-layer-only invariant. Use an empty or new directory."
+        )
 
     sidecar = _load_external_provenance(sidecar_path)
     tracklets = _parse_mot_tracklets(mot_path)
