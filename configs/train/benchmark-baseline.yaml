@@ -1,0 +1,38 @@
+# Benchmark harness config (SPO-17): the offline experiment every later
+# stop/go gate runs through (docs/prds/tracklet-modernization.md). Runs the
+# oracle (GT-box detector) + IoU tracker baseline over the soccernet tier's
+# tuning sequences, scores every run with the full evaluation stack, and
+# emits provenance-stamped per-sequence rows.
+#
+# This is a TUNING harness config: do not point `dataset_manifest`/`roles`
+# at held_out sequences for iterative calibration work -- held_out is
+# reserved for final, one-shot reporting numbers (configs/datasets/README.md).
+name: benchmark-baseline
+task: benchmark
+description: >
+  Oracle-detector tracker-ceiling baseline over soccernet tuning sequences,
+  with a max_age_frames sweep on the IoU tracker to see how track-loss
+  tolerance trades off against ID switches once detection quality is held
+  perfect. (The BoT-SORT tracker's equivalent knob is
+  stages.track.params.lost_track_buffer_s -- swap the candidate's `config`
+  to a botsort-based pipeline yaml to sweep that instead.)
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: oracle-iou-baseline
+      kind: pipeline
+      config: configs/pipeline.oracle-eval.yaml
+      overrides: {}
+      comparison_class: matched_data
+  sweeps:
+    - candidate: oracle-iou-baseline
+      param: stages.track.params.max_age_frames
+      values: [10, 20]
+  device: cuda
+  iou_threshold: 0.5
+  # Pre-registered per gate issue (e.g. "no metric may regress by more than
+  # this without sign-off"); Task 9 consumes these for tolerance comparisons,
+  # this config only declares them.
+  tolerances: {}
+output_dir: data/experiments
