@@ -431,7 +431,17 @@ def test_benchmark_end_to_end(tmp_path):
     assert (run_dir / "eval.json").exists()
 
     assert result["summary"]["n_failed"] == 0
-    assert result["summary"]["note"] == "aggregates land in Task 9"
+    # Aggregation, gates, and tolerance comparisons land in Task 9 --
+    # summary.tables is always present (even with a single matched_data
+    # candidate) and summary.comparison is None when Params.compare is unset.
+    assert set(result["summary"]["tables"]) == {"matched_data", "as_published"}
+    assert set(result["summary"]["tables"]["matched_data"]) == {
+        "stub-base",
+        "stub-base@max_age_frames=30",
+    }
+    assert result["summary"]["tables"]["matched_data"]["stub-base"]["n_sequences"] == 2
+    assert result["summary"]["tables"]["as_published"] == {}
+    assert result["summary"]["comparison"] is None
 
 
 def test_benchmark_max_sequences_caps_after_role_filter_in_manifest_order(tmp_path):
