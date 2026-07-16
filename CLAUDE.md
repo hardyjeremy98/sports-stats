@@ -153,3 +153,5 @@ without runnable code.
 `data/` is gitignored: `data/videos/` (uploaded + ingested, with `.gt.json` ground truth),
 `data/runs/<id>/`, `data/clips/`, `data/weights/` (local YOLO weights from roboflow/sports),
 `data/soccernet/tracking/{train,test}/` (MOT sequences), `data/pitchlab.db`.
+`configs/datasets/<tier>.json` (checked in, not gitignored) declares each dataset tier's tuning
+vs. held-out sequence roles over that gitignored data — see `configs/datasets/README.md`.

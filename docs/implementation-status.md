@@ -1,12 +1,17 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-15  
+**Last verified:** 2026-07-16  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
 intent belongs in [`player-identity-vision.md`](player-identity-vision.md); detailed historical
 research belongs in [`../technology/`](../technology/).
+
+A tracklet-quality measurement and hardening program (tracker-level ID switches, GT-contamination
+metrics, oracle-detection ceiling experiments) is underway; plan and phase gates are in
+[`docs/prds/tracklet-modernization.md`](prds/tracklet-modernization.md) and tracked as the SPO
+project in Linear.
 
 ## Status vocabulary
 
@@ -21,7 +26,8 @@ research belongs in [`../technology/`](../technology/).
 | Capability | Status | Current implementation | Primary location |
 |---|---|---|---|
 | Player and ball detection | Implemented | Roboflow inference, local YOLO, synthetic detector | `pitchlab_core/stages/detect/` |
-| Short-term tracking | Implemented | BoT-SORT and dependency-free IoU tracker | `pitchlab_core/stages/track/` |
+| Oracle (ground-truth) detection | Implemented | Emits a video's GT boxes as detections instead of running a real detector, to isolate tracker/association behavior from detection quality (the "tracker ceiling" experiment); GT resolved from an explicit `gt_path` param or the sibling `<video>.gt.json` convention, loud error if neither exists; optional seed-deterministic dropout/jitter knobs (off by default); metadata-only, no frame decode | `pitchlab_core/stages/detect/oracle.py` (`impl: oracle`), `configs/pipeline.oracle-eval.yaml` |
+| Short-term tracking | Implemented | BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (shipped configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `pitchlab_core/stages/track/botsort.py` |
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `pitchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `pitchlab_core/stages/calibrate/` |
@@ -43,6 +49,11 @@ research belongs in [`../technology/`](../technology/).
 
 Paths in this table are relative to `packages/pitchlab_core/src/pitchlab_core/` unless otherwise
 stated.
+
+`TrackletFrame` (`schemas/tracks.py`) carries a `source` provenance field —
+`"observed"`/`"predicted"`/`"interpolated"`, defaulting to `"observed"` so artifacts written before
+this field existed still parse — currently always `"observed"` from the shipped tracker
+implementations; no stage yet writes `predicted`/`interpolated` frames.
 
 ## Evaluation
 
@@ -72,14 +83,40 @@ stated.
   `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
   mean/range across the eight benchmark metric keys (idf1/mota/idsw at tracklet and entity
   level, association gain, identity coverage, cluster purity).
+- A fourth, orthogonal layer (`eval.json`'s `purity` block, tracklet-modernization SPO-6): direct
+  per-tracklet GT-contamination measurement, at both tracklet and post-association entity level —
+  where `merge_quality`'s majority-vote already discards exactly this signal. Per tracklet: GT
+  composition, purity (majority-GT-id fraction of matched frames), and mixed-identity duration in
+  stride-aware seconds; aggregated (pre- and post- min-track-length filter) into mean purity,
+  fraction impure, total mixed seconds, tracklets-per-GT-player, and track-length distributions.
+  `min_track_length` is discovered in order: the manifest's resolved track-stage config, then the
+  registered track impl's own `Params.min_length` pydantic default, then `null` with a `note`
+  explaining filtering happens upstream (in the track stage) and can't be recovered here.
+  `headline_metrics` gains `tracklet_purity` and `mixed_track_seconds`.
+- A fifth, independent backend (`eval.json`'s `hota` block, tracklet-modernization SPO-7): HOTA,
+  DetA, AssA, and LocA at both tracklet and entity level, via a vendored slice of TrackEval
+  (`pitchlab_core/hota.py` + `pitchlab_core/_vendor/trackeval/`, upstream
+  `JonathonLuiten/TrackEval` @ commit `12c8791`, MIT license, only the HOTA metric-math path kept,
+  numpy-2 patched (`np.float` removed alias)). Scores the same per-frame GT/prediction structures
+  the motmetrics IDF1/MOTA accumulators use; the two backends are never reconciled against each
+  other. `headline_metrics` gains `hota_tracklet` and `hota_entity`.
+- SoccerNet tuning/held-out split manifest (`configs/datasets/soccernet.json`,
+  `configs/datasets/README.md`): 12 registered sequences — SNMOT-116..123 as `tuning` (already used
+  in July-2026 re-ID/threshold work, permanently ineligible for held-out promotion), SNMOT-124..127
+  as `held_out` (ingested 2026-07-16 specifically for this manifest, never referenced by a tuning
+  config or experiment). Byte-stable (`sort_keys=True`, stable sequence ordering) so the file can
+  be hashed as the identity of "which sequences an evaluation used."
 
 Primary locations:
 
 - `packages/pitchlab_core/src/pitchlab_core/gt.py`
 - `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
+- `packages/pitchlab_core/src/pitchlab_core/hota.py`
+- `packages/pitchlab_core/src/pitchlab_core/_vendor/trackeval/`
 - `packages/pitchlab_server/src/pitchlab_server/worker.py`
 - `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
 - `packages/pitchlab_server/src/pitchlab_server/api/benchmark.py`
+- `configs/datasets/soccernet.json`
 
 ### Not implemented
 
@@ -88,7 +125,7 @@ Primary locations:
 - Abstention/coverage curves (trend over time or across a run set — the underlying coverage and
   abstention-rate numbers exist per run, but nothing plots them across a batch).
 - Anchor coverage and per-modality quality diagnostics.
-- HOTA, AssA, DetA, or GS-HOTA.
+- GS-HOTA (plain HOTA/DetA/AssA/LocA is implemented, see above).
 - Event-attribution ground-truth evaluation.
 
 Changing `identity.impl` from `none` to `face` now changes `eval.json`: the semantic identity
@@ -204,6 +241,32 @@ Measured local findings recorded by the repository guidance:
 - Kit-colour association is ineffective for player-level identity.
 - Remaining ID switches are substantially a tracker-level problem that simple post-association
   cannot repair.
+- **Offline association currently adds GT contamination relative to raw tracklets, on one
+  measured sequence.** Run `06a067a478f2` (video SNMOT-116, `configs/datasets/soccernet.json`
+  `tuning`-role sequence, config `v1-local-eval`: local YOLO detection (`yolo-local`,
+  `football-player-detection.pt`) + BoT-SORT tracking + `global-color` association): tracklet
+  IDF1 0.4305, HOTA (tracklet) 0.3617, mean tracklet purity 0.9056 (`frac_impure` 0.1831,
+  pre/post min-length-filter identical); entity-level (post-association) mean purity 0.6592
+  (`frac_impure` 0.68). I.e. association merges raise tracklet-level IDF1 only marginally
+  (entity IDF1 0.4234, a −0.0071 "gain") while roughly doubling the fraction of impure identity
+  groups. Numbers reproduced by calling `evaluation.evaluate_run` directly against this run's
+  stored artifacts and GT — the run's persisted `eval.json` predates the purity/HOTA evaluator
+  and does not yet contain these blocks; re-run `POST /api/runs/{id}/evaluate` to refresh it.
+  Code revision: `tracklet-modernization` branch @ `1f759cb` (2026-07-16).
+- **Oracle-detection smoke test: near-zero tracker/association error when detection is perfect,
+  but the headline IDF1/HOTA from this run are not a ceiling figure.** Run `oracle-smoke-spo8`
+  (video SNMOT-116, first 100 of 750 frames only, config `pipeline.oracle-eval.yaml`: oracle
+  detector (`impl: oracle`, GT boxes, no dropout/jitter) + dependency-free `iou` tracker at its
+  defaults (`iou_threshold=0.2`, `max_age_frames=20`, `min_length=5`)): all 19 tracklets pure
+  (mean purity 1.0, `frac_impure` 0.0) and zero ID switches within the processed window. Tracklet
+  IDF1 0.30 / HOTA (tracklet) 0.19 from the same run are **coverage-diluted, not a ceiling
+  measurement**: the GT/metric window spans the full 750-frame sequence while only the first 100
+  frames were processed, so recall (and therefore IDF1/HOTA) is suppressed by frames the run
+  never attempted, not by tracking error. The genuine oracle-ceiling number is the Phase 0 exit
+  gate's full-sequence oracle run (Linear SPO-21), not this smoke test. No `eval.json` is
+  persisted for this run; the IDF1/HOTA/purity figures above were computed by calling
+  `evaluation.evaluate_run` directly against this run's stored artifacts and GT. Code revision:
+  `tracklet-modernization` branch @ `1f759cb` (2026-07-16).
 
 Do not generalize these findings beyond the evaluated data. Link future claims to an experiment
 report, run set, dataset split, and code/model revision.
