@@ -24,6 +24,18 @@ from pitchlab_core.schemas import (
 from pitchlab_core.schemas.geometry import Box
 from pitchlab_core.schemas.run import StageKind
 
+# Key under which the source-detection index (position in the per-frame `dets`
+# list passed to sv.Detections) rides through tracker.update() in
+# sv.Detections.data. supervision's Detections.__getitem__ re-indexes `data`
+# entries in lockstep with xyxy/confidence/tracker_id (see
+# supervision/detection/utils/internal.py::get_data_item), and the installed
+# `trackers` BoTSORTTracker.update() builds its return value as
+# `detections[idx]` of the *input* Detections (trackers/core/botsort/
+# tracker.py:342) — so this survives update() aligned to the output rows,
+# with no dependency on box geometry or class_id. See _construct_tracker's
+# neighbor docstring / SPO-14 report for the full investigation.
+_SOURCE_IDX_KEY = "source_idx"
+
 
 class Params(BaseModel):
     track_activation_threshold: float = 0.25
@@ -106,16 +118,29 @@ class BotSortTracker(Tracker):
                     dtype=np.float32,
                 ).reshape(-1, 4),
                 confidence=np.array([d.confidence for d in dets], dtype=np.float32),
+                # class_id is unused by BoTSORT association/gating (verified
+                # against trackers/core/botsort/tracker.py) and unused here —
+                # class is carried via `data[_SOURCE_IDX_KEY]` instead so it
+                # can never influence which boxes match which track.
                 class_id=np.zeros(len(dets), dtype=int),
+                data={_SOURCE_IDX_KEY: np.arange(len(dets), dtype=int)},
             )
             tracked = tracker.update(sv_dets, frame=next_image(fd.frame_idx))
             if tracked.tracker_id is None:
                 continue
-            for (x1, y1, x2, y2), conf, tid, d_cls in zip(
+            # Empty-result short-circuits in trackers' update() (e.g. no
+            # tracks and no detections this frame) return a fresh
+            # sv.Detections.empty() rather than an index into our input, so
+            # the key may be absent — but then tracker_id/xyxy are empty too
+            # and the zip below simply doesn't iterate.
+            source_indices = np.asarray(
+                tracked.data.get(_SOURCE_IDX_KEY, []), dtype=int
+            )
+            for (x1, y1, x2, y2), conf, tid, src_idx in zip(
                 tracked.xyxy,
                 tracked.confidence,
                 tracked.tracker_id,
-                _match_classes(tracked.xyxy, dets),
+                source_indices,
             ):
                 tid = int(tid)
                 frames_by_track[tid].append(
@@ -125,7 +150,7 @@ class BotSortTracker(Tracker):
                         confidence=float(conf),
                     )
                 )
-                classes_by_track[tid][d_cls] += 1
+                classes_by_track[tid][dets[int(src_idx)].cls] += 1
 
         return [
             Tracklet(
@@ -164,17 +189,3 @@ def _construct_tracker(tracker_cls, kwargs: dict):
             "this wrapper's construction call together; do not silently drop "
             "parameters."
         ) from exc
-
-
-def _match_classes(tracked_xyxy, dets) -> list[DetectionClass]:
-    """Recover the original class per tracked box (tracker output may reorder
-    or slightly move boxes) by nearest-center match."""
-    out = []
-    centers = [((d.box.x1 + d.box.x2) / 2, (d.box.y1 + d.box.y2) / 2, d.cls) for d in dets]
-    for x1, y1, x2, y2 in tracked_xyxy:
-        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-        if centers:
-            out.append(min(centers, key=lambda c: (c[0] - cx) ** 2 + (c[1] - cy) ** 2)[2])
-        else:
-            out.append(DetectionClass.PLAYER)
-    return out
