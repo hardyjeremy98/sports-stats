@@ -111,9 +111,17 @@ def test_evaluate_run_association_gain(tmp_path):
     heads = headline_metrics(result)
     assert set(heads) == {
         "idf1_tracklet", "idf1_entity", "mota_entity",
-        "idsw_tracklet", "idsw_entity", "assoc_idf1_gain", "merge_precision",
+        "idsw_tracklet", "idsw_entity", "hota_tracklet", "hota_entity",
+        "assoc_idf1_gain", "merge_precision",
         "tracklet_purity", "mixed_track_seconds",
     }
+    # Perfect tracking at both levels (association repairs the one
+    # fragmentation, see the switches assertions above) -> HOTA should be at
+    # or near 1.0 for both levels; not asserting the exact value here since
+    # that's the HOTA adapter's own job (see test_hota.py) -- just that the
+    # wiring produced a plausible, present number.
+    assert 0.0 <= heads["hota_tracklet"] <= 1.0
+    assert 0.0 <= heads["hota_entity"] <= 1.0
     assert heads["idsw_tracklet"] == 1 and heads["idsw_entity"] == 0
     # The one merged entity (10+11) both vote GT track 1 -> a correct merge.
     assert heads["merge_precision"] == 1.0

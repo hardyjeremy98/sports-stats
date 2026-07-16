@@ -18,7 +18,16 @@ precisely the failure this program cares about -- a tracklet that silently
 switches between two players. See `tracklet_purity`, computed at both the
 tracklet and entity level under `result["purity"]`.
 
-Requires the `eval` extra (motmetrics). Imported lazily so the lean server
+A fifth, independent backend (SPO-7 / tracklet-modernization) scores the
+same per-frame GT/prediction structures with HOTA/DetA/AssA/LocA via vendored
+TrackEval metric math (`pitchlab_core.hota.compute_hota`,
+`pitchlab_core._vendor.trackeval`), computed at both levels under
+`result["hota"]`. This is a second, authoritative-for-its-own-metrics
+backend alongside the motmetrics IDF1/MOTA suite above -- the two are never
+reconciled or cross-corrected.
+
+Requires the `eval` extra (motmetrics; scipy comes in transitively and is
+what the HOTA backend actually needs). Imported lazily so the lean server
 install works without it.
 """
 
@@ -69,6 +78,8 @@ def evaluate_run(
     discoverable) if neither is available.
     """
     import motmetrics as mm
+
+    from pitchlab_core.hota import compute_hota
 
     run_dir = Path(run_dir)
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -123,7 +134,14 @@ def evaluate_run(
     # Score only frames the pipeline actually sampled; GT is dense per-frame.
     eval_frames = [f for f in range(0, frame_count, stride) if f in gt_by_frame]
 
+    # Same eval_frames-restricted GT/prediction structures feed both
+    # backends (motmetrics below, TrackEval's HOTA in the loop) so IDF1/MOTA
+    # and HOTA/DetA/AssA/LocA score identical input -- each is authoritative
+    # for its own metrics, this file never reconciles one against the other.
+    gt_scored = {f: gt_by_frame.get(f, []) for f in eval_frames}
+
     levels: dict[str, Any] = {}
+    hota_levels: dict[str, Any] = {}
     instances: list[dict] = []
     for level, preds in (("tracklet", pred_tracklet), ("entity", pred_entity)):
         acc = mm.MOTAccumulator(auto_id=False)
@@ -142,6 +160,9 @@ def evaluate_run(
         levels[level] = {k: _num(row[k]) for k in _METRICS}
         instances.extend(_switch_instances(acc, level, fps, gt_label))
 
+        pred_scored = {f: preds.get(f, []) for f in eval_frames}
+        hota_levels[level] = compute_hota(gt_scored, pred_scored, iou_threshold)
+
     result = {
         "source": gt.source,
         "sequence": gt.sequence,
@@ -151,6 +172,7 @@ def evaluate_run(
         "n_gt_tracks": len(scored_tracks),
         "n_gt_tracks_excluded": len(gt.tracks) - len(scored_tracks),
         "levels": levels,
+        "hota": hota_levels,
         "association": {
             "idf1_gain": round(levels["entity"]["idf1"] - levels["tracklet"]["idf1"], 4),
             "idsw_delta": levels["entity"]["num_switches"] - levels["tracklet"]["num_switches"],
@@ -512,6 +534,8 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         "mota_entity": round(lv["entity"]["mota"], 3),
         "idsw_tracklet": int(lv["tracklet"]["num_switches"]),
         "idsw_entity": int(lv["entity"]["num_switches"]),
+        "hota_tracklet": result["hota"]["tracklet"]["hota"],
+        "hota_entity": result["hota"]["entity"]["hota"],
         "assoc_idf1_gain": result["association"]["idf1_gain"],
         "merge_precision": (
             round(result["association"]["merge_precision"], 3)
