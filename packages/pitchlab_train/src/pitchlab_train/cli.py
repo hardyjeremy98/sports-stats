@@ -49,6 +49,17 @@ def main() -> int:
         help="Split-manifest role to record for newly ingested sequences",
     )
 
+    ed_p = sub.add_parser(
+        "export-detections",
+        help="Export a run's detections as a frozen MOT det.txt + provenance sidecar",
+    )
+    ed_p.add_argument("--run-dir", required=True, help="Run directory to export from")
+    ed_p.add_argument("--out", required=True, help="Output directory for det.txt + sidecar")
+    ed_p.add_argument(
+        "--include-ball", action="store_true",
+        help="Include ball detections (excluded by default -- external MOT trackers track persons)",
+    )
+
     st_p = sub.add_parser(
         "ingest-soccertrack",
         help="Register SoccerTrack sequences as Lab videos with ground truth",
@@ -82,6 +93,22 @@ def main() -> int:
         from pitchlab_train.datasets.reid_labels import export_reid_labels
 
         export_reid_labels(Path(args.out))
+        return 0
+
+    if args.command == "export-detections":
+        from pitchlab_core.exchange import DEFAULT_INCLUDE_CLASSES, export_frozen_detections
+        from pitchlab_core.provenance import sha256_file
+
+        include_classes = DEFAULT_INCLUDE_CLASSES
+        if args.include_ball:
+            include_classes = (*DEFAULT_INCLUDE_CLASSES, "ball")
+
+        out_dir = export_frozen_detections(
+            args.run_dir, args.out, include_classes=include_classes
+        )
+        det_txt_hash = sha256_file(out_dir / "det.txt")
+        print(f"exported to {out_dir}")
+        print(f"det.txt sha256: {det_txt_hash}")
         return 0
 
     if args.command == "ingest-soccernet":
