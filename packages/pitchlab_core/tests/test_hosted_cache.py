@@ -7,6 +7,7 @@ plain dict directly, no `inference` SDK object needed)."""
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -373,7 +374,8 @@ def test_runner_records_post_detect_cache_hash_not_pre_run_empty_hash(tmp_path, 
     detect() would record the empty-cache hash for a cold readwrite run. The
     runner must refresh provenance again after the stage executes, so the
     manifest reflects the cache actually used by this run."""
-    import inference
+    import types
+
     from pitchlab_core.config import PipelineConfig, StageConfig, VideoConfig
     from pitchlab_core.demo import render_demo_video
     from pitchlab_core.runner import PipelineRunner
@@ -381,10 +383,14 @@ def test_runner_records_post_detect_cache_hash_not_pre_run_empty_hash(tmp_path, 
 
     monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
     fake_model = _FakePlayerModel(boxes=[(30.0, 30.0, 10.0, 20.0, 0.9, 2)])
-    # prepare() does `from inference import get_model` locally at call time,
-    # so patching the real `inference` module attribute is what's actually
-    # invoked -- no need to reach into pitchlab_core.stages.detect.roboflow.
-    monkeypatch.setattr(inference, "get_model", lambda model_id, api_key: fake_model)
+    # prepare() does `from inference import get_model` locally at call time.
+    # The real `inference` package pulls in torch/timm/etc at import time and
+    # is not otherwise used by this suite -- swap in a lightweight fake
+    # module under sys.modules["inference"] so the local import resolves to
+    # our fake `get_model` without ever importing the real package.
+    fake_inference_module = types.ModuleType("inference")
+    fake_inference_module.get_model = lambda model_id, api_key: fake_model
+    monkeypatch.setitem(sys.modules, "inference", fake_inference_module)
 
     video = render_demo_video(tmp_path / "clip.mp4", duration_s=0.4, fps=10, width=64, height=64)
     cache_dir = tmp_path / "cache"
