@@ -1,7 +1,7 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-16  
+**Last verified:** 2026-07-17  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
@@ -207,6 +207,53 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   numpy-2 patched (`np.float` removed alias)). Scores the same per-frame GT/prediction structures
   the motmetrics IDF1/MOTA accumulators use; the two backends are never reconciled against each
   other. `headline_metrics` gains `hota_tracklet` and `hota_entity`.
+- A sixth, LEVEL-INDEPENDENT layer (`eval.json`'s `detection` block, SPO-9): scores the
+  detector itself rather than the tracker, computed once per run (not per tracklet/entity
+  level) via a standalone pure-numpy module (`pitchlab_core/detection_eval.py`, no
+  motmetrics/scipy/trackeval), following the HOTA-adapter structural precedent — its own
+  module, lazily imported, folded into `eval.json` under one top-level key. Deterministic
+  confidence-descending greedy matching per frame (VOC-style single-pass assignment, not a
+  global Hungarian solve) at a configurable IoU threshold; documented tie-breaks (equal-IoU
+  GT candidates resolve to the lower `gt_track_id`; equal-confidence detections resolve by
+  stable input order). Reports: operating-point precision/recall and average precision (AP,
+  VOC2010+ all-point precision-envelope interpolation) over the emitted confidence range;
+  a per-player-height-bin breakdown at fixed pixel edges (TP/FN bucketed by GT box height,
+  FP by the detection's own height, since an FP has no GT to inherit a height from);
+  consecutive miss-burst-length distributions per GT track (own-frame-presence-relative, not
+  raw video-frame-relative), with a `burst_seconds_p95` derived from `stride`/`fps`;
+  duplicate-detection rate (a second detection overlapping a GT box another detection in the
+  same frame already claimed); and GT-residual temporal box jitter — center and height terms
+  computed from `det_center - gt_center` between temporally adjacent matched frames of the
+  same GT track, isolating detector box instability from real player motion. Every declared
+  output key is always present; mathematically undefined values (e.g. precision with zero
+  detections) are `None`, never NaN, so the result stays JSON-clean.
+  - **Honest caveats:** jitter is measured only through GT association — it is a residual
+    signal (detector noise around the GT box), not an absolute detector-jitter measurement,
+    and both the miss-burst chains and the jitter adjacency chains are relative to each GT
+    track's own evaluated-frame presence list, so frames where the GT track has no box at all
+    are silently absent from that track's chain rather than breaking or extending it — this
+    compresses (never inflates) the frame span the burst/jitter statistics actually cover.
+  - Wired into `evaluate_run` via `_load_detections`, which reads `<run_dir>/detections.jsonl`
+    (person classes only — player/goalkeeper/referee, mirroring `_SCORED_ROLES`; ball is
+    excluded symmetrically), restricted to the same `eval_frames` the tracklet/entity/HOTA/
+    purity layers already score against. `result["detection"]` is `null` when
+    `detections.jsonl` doesn't exist at all (imported external-tracker runs —
+    `exchange.py::import_mot_tracklets` writes no detections file), never a crash or a
+    fabricated score; a malformed row raises `ValueError` naming the file and line number.
+    `headline_metrics` gains `detection_ap` / `detection_recall` /
+    `detection_miss_burst_p95` only when the block is present; `GET /api/benchmark`'s
+    `BENCHMARK_METRIC_KEYS` gains `detection_ap` / `detection_recall`; `web/src/lib/types.ts`
+    gains `DetectionEval` (+ `DetectionHeightBin`/`DetectionMissBursts`/
+    `DetectionBurstSummary`) and `EvalResult.detection`.
+  - Tested: analytic, hand-computed-arithmetic unit tests per metric
+    (`test_detection_eval.py`, no motmetrics/scipy import needed at all — mirrors
+    `test_hota.py`'s style) plus `evaluate_run` wiring/integration tests
+    (`test_gt_eval.py`): the block present and correctly filtered/aggregated on a
+    near-perfect synthetic run, `null` when `detections.jsonl` is absent, and a loud
+    `ValueError` naming file+line on a malformed row.
+  - **No benchmark numbers exist for this layer yet — Phase 0 instrumentation**, same as the
+    other provenance/exchange work in this document: capability and test coverage only, no
+    measured detection-quality figures on real footage.
 - SoccerNet tuning/held-out split manifest (`configs/datasets/soccernet.json`,
   `configs/datasets/README.md`): 12 registered sequences — SNMOT-116..123 as `tuning` (already used
   in July-2026 re-ID/threshold work, permanently ineligible for held-out promotion), SNMOT-124..127
@@ -220,6 +267,7 @@ Primary locations:
 - `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
 - `packages/pitchlab_core/src/pitchlab_core/hota.py`
 - `packages/pitchlab_core/src/pitchlab_core/_vendor/trackeval/`
+- `packages/pitchlab_core/src/pitchlab_core/detection_eval.py`
 - `packages/pitchlab_server/src/pitchlab_server/worker.py`
 - `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
 - `packages/pitchlab_server/src/pitchlab_server/api/benchmark.py`
