@@ -211,6 +211,18 @@ Notes on this example:
   server's GT auto-scoring hook (`pitchlab_server.evaluation.evaluate_run_against_gt`) the
   first time a GT-backed run is scored.
 
+## Related: external tracklet exchange (SPO-18)
+
+`pitchlab_core.exchange` defines two sibling sidecar schemas for exchanging data with
+external MOT trackers rather than the pipeline's own `RunProvenance`: `frozen-detections/v1`
+(a `det.txt` export's `detections_provenance.json`) and `ExternalProvenance` (the sidecar an
+imported external tracker's output must carry, folded into the imported run's
+`StageProvenance.params` and copied verbatim to `external_provenance.json`). Both reuse this
+document's `LicenseAxes` and `check_evaluation_set` primitives rather than redefining them.
+Full field-level detail lives in `exchange.py`'s module and class docstrings and in
+[`implementation-status.md`](implementation-status.md); this is a pointer, not a duplicate
+spec.
+
 ## What is out of scope here
 
 - **Hosted-response caching** (Task 2 of SPO-10) is implemented in

@@ -104,6 +104,50 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   after `prepare()` and after the stage finishes executing, so a cold cache warmed during a
   `readwrite` run reflects its actual output rather than the pre-run empty-cache hash.
   `packages/pitchlab_core/src/pitchlab_core/stages/detect/hosted_cache.py`.
+- **External tracklet exchange** (SPO-18): a frozen-detections export and a MOT-tracklet
+  importer let an external MOT research tracker consume this repo's detections and have its
+  output scored by the existing evaluator, without becoming a registered pipeline stage.
+  Pure conversion (no CLI logic, no DB, no network) in
+  `packages/pitchlab_core/src/pitchlab_core/exchange.py`; CLI wrappers `pitchlab-train
+  export-detections` / `pitchlab-train import-tracklets`
+  (`packages/pitchlab_train/src/pitchlab_train/cli.py`).
+  - `export_frozen_detections(run_dir, out_dir)` reads `<run_dir>/detections.jsonl` +
+    `manifest.json` and writes a standard MOT `det.txt` (1-based frames, `id=-1`, xywh boxes
+    fixed-formatted `%.2f`/conf `%.6f` so repeated exports of the same run are byte-identical)
+    plus a `detections_provenance.json` sidecar (`schema: "frozen-detections/v1"`,
+    `sort_keys=True`): `det_txt_sha256`, video meta (`frame_count`/`sample_stride`/`fps`), the
+    class filter applied, and the source run's detect-stage provenance carried over verbatim
+    from the manifest (the literal string `"unknown"` if the manifest has none). Ball
+    detections are excluded by default (`DEFAULT_INCLUDE_CLASSES = player, goalkeeper,
+    referee`); `--include-ball` adds them back.
+  - `import_mot_tracklets(mot_path, sidecar_path, out_run_dir, ...)` parses
+    `frame,track_id,x,y,w,h,conf[,...]` MOT rows (1-based frame, conf defaulting to `1.0` if
+    the column is absent; all imported tracklets are labeled `DetectionClass.PLAYER` since MOT
+    carries no per-row class) into `tracklets.json` in the native `Tracklet` schema — the raw
+    tracklet layer only, deliberately no `players.json` — plus a `manifest.json` whose
+    `track` stage `StageProvenance.impl` is `"external:<system>"` (params = the full sidecar
+    dump, one `ModelProvenance` built from the sidecar's system/variant/commit/weights/
+    license), and a verbatim copy of the sidecar as `external_provenance.json`. A required
+    `ExternalProvenance` sidecar (`system`, `license: LicenseAxes`, and `reference_only: bool`
+    are mandatory, no defaults) must accompany the import; missing/malformed/incomplete
+    sidecars, malformed or duplicate MOT rows, and a non-empty `out_run_dir` (never silently
+    overwritten) are all refused loudly naming the offending path/field/row. When a
+    `frozen_detections_dir` is supplied and the sidecar states `frozen_detections_sha256`, the
+    import cross-checks it against that export's `det_txt_sha256` via the existing
+    `check_evaluation_set` refusal primitive. Since no `players.json` is written, the
+    semantic-identity evaluation layer is correctly skipped (stays `null`) when an imported
+    run is scored — only the raw-tracklet MOT metrics apply.
+  - `reference_only` is recorded on the sidecar (and copied into `external_provenance.json`)
+    but nothing currently reads it to exclude a run from anything — enforcement is the
+    benchmark runner (SPO-17, not implemented; same caveat as `check_evaluation_set` above).
+  - Tested (`packages/pitchlab_core/tests/test_exchange.py`): export row/ball-filter/sidecar/
+    determinism/missing-input cases; import fixture parsing, all refusal paths above
+    (parametrized over each required sidecar field), and a hash-mismatch case; an
+    export-then-import round trip asserting boxes and track ids survive exactly at `det.txt`'s
+    2-decimal-place precision; and an end-to-end case (`test_evaluate_run_scores_imported_
+    tracklets`) confirming `evaluation.evaluate_run` scores an imported run's raw tracklets
+    against GT and skips the identity layer. No benchmark numbers — Phase 0 instrumentation,
+    same as the other provenance work above.
 
 ## Evaluation
 

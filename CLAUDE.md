@@ -24,6 +24,12 @@ uv run pitchlab-train ingest-soccernet --split test --limit 8
 uv run pitchlab-train ingest-sportsmot --split val --limit 8
 uv run pitchlab-train ingest-soccertrack --limit 8
 
+# External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
+# then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
+uv run pitchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
+uv run pitchlab-train import-tracklets --mot external.txt --sidecar sidecar.json \
+  --out data/runs/<id>-external --fps 25 --frame-count 750
+
 uv run pitchlab-train run <experiment.yaml>   # config-driven experiments (pitchlab_train/experiments/)
 ```
 
