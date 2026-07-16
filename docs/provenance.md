@@ -124,11 +124,12 @@ equal. This mirrors the existing embedder-provenance gate in
 `pitchlab_train.experiments.reid_ablation._sweep_one` ("Embedder provenance mismatch"): name
 both values, no silent fallback to "close enough."
 
-This function is the primitive the benchmark runner (SPO-17, **not implemented in this
-task**) will call before aggregating two runs' metrics together — if their
-`evaluation_set_hash`es differ, the runs were scored against different ground truth and must
-not be silently averaged. Landing the primitive here does not itself gate any aggregation
-path yet.
+This function is the primitive the benchmark runner (SPO-17,
+`pitchlab_train.experiments.benchmark`) calls before aggregating two runs' metrics
+together — if their `evaluation_set_hash`es differ, the runs were scored against different
+ground truth and must not be silently averaged. Wired in as
+`_check_evaluation_set_consistency`: it runs once per pair of completed rows scoring the same
+sequence, before any of `summary.tables`/`summary.comparison` is computed.
 
 ## Worked example
 
@@ -223,6 +224,15 @@ Full field-level detail lives in `exchange.py`'s module and class docstrings and
 [`implementation-status.md`](implementation-status.md); this is a pointer, not a duplicate
 spec.
 
+## Related: the benchmark runner (SPO-17)
+
+`pitchlab_train.experiments.benchmark` (`BenchmarkExperiment`) is the main consumer of this
+module: it calls `hash_dataset_manifest` on the selected `configs/datasets/<tier>.json`,
+`hash_evaluation_set` per sequence's GT, and `check_evaluation_set` (via
+`_check_evaluation_set_consistency`) to refuse aggregating rows scored against different
+ground truth. Full behavior — candidate matrix, gates, tables, tolerances — is documented in
+[`implementation-status.md`](implementation-status.md), not here.
+
 ## What is out of scope here
 
 - **Hosted-response caching** (Task 2 of SPO-10) is implemented in
@@ -231,5 +241,6 @@ spec.
   `ModelProvenance.detections_cache_hash` field it reports into (see above). Caching for
   local detectors, eviction/GC policy, and the benchmark runner's use of the cache hash
   remain out of scope.
-- **Aggregate-refusal behavior** in a benchmark runner (SPO-17) is not implemented by this
-  module — only the `check_evaluation_set` primitive it will call.
+- **Candidate matrix, aggregation tables, and tolerance-comparison logic** for the benchmark
+  runner (SPO-17) live in `pitchlab_train.experiments.benchmark`, not this module — this file
+  only defines the `check_evaluation_set`/hashing primitives that runner calls (see above).

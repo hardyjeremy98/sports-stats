@@ -145,11 +145,14 @@ def collect_package_versions(names: list[str]) -> dict[str, str]:
 
 
 def check_evaluation_set(expected_hash: str, actual_hash: str, context: str) -> None:
-    """Refusal primitive for the benchmark runner (SPO-17, out of scope
-    here): raise when two evaluation-set hashes disagree, naming both hashes
-    and the context so the mismatch is diagnosable at a glance (mirrors
+    """Refusal primitive for the benchmark runner: raise when two
+    evaluation-set hashes disagree, naming both hashes and the context so
+    the mismatch is diagnosable at a glance (mirrors
     pitchlab_train.experiments.reid_ablation._sweep_one's embedder-provenance
-    gate). No-op when the hashes are equal."""
+    gate). No-op when the hashes are equal. Wired into
+    `pitchlab_train.experiments.benchmark._check_evaluation_set_consistency`
+    (SPO-17), which calls this once per pair of completed rows scoring the
+    same sequence."""
     if expected_hash != actual_hash:
         raise RuntimeError(
             f"Evaluation-set mismatch in {context}: expected hash "

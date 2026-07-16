@@ -86,6 +86,14 @@ class ImportCandidate(BaseModel):
     are both refused before any scoring happens (the PRD rule: reference-only
     systems can never silently enter a shipping comparison).
 
+    Caveat: scoring is the one exception to "never produces or owns that run
+    dir" -- `BenchmarkExperiment.run` writes/overwrites `eval.json` inside
+    this externally-owned import dir on every benchmark run that includes
+    it, same as it does for native pipeline run dirs. That file always
+    reflects only the LAST benchmark scoring pass (whatever GT and
+    `Params.iou_threshold` that pass used), not a durable per-import record
+    -- manifest.json and external_provenance.json remain untouched.
+
     `comparison_class` has no default (unlike PipelineCandidate's
     "matched_data") -- an import's table membership must be stated
     explicitly, never assumed."""
