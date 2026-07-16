@@ -1,11 +1,6 @@
 # Vendored from JonathonLuiten/TrackEval @ 12c8791
 # (trackeval/metrics/_base_metric.py), MIT License (see LICENSE in this
 # directory). Patches from upstream:
-#   PATCHED: relative imports flattened -- upstream lives at
-#   trackeval/metrics/_base_metric.py and does `from .. import _timing`
-#   (parent-package sibling); this vendored copy has no `metrics`
-#   subpackage, so it becomes a same-package import (`from . import
-#   _timing`).
 #   TRIMMED: `pitchlab_core.hota.compute_hota` only ever calls
 #   `HOTA().eval_sequence(data)` -- `eval_sequence` is therefore the only
 #   method this base class still requires subclasses to implement.
@@ -23,8 +18,14 @@
 #   dependency on `..utils.TrackEvalException`, which existed solely to be
 #   raised from the now-removed `detailed_results` -- so this vendored copy
 #   carries no `utils.py` at all.
+#   TRIMMED: the upstream `@_timing.time` decorator on `eval_sequence` (and
+#   the `from .. import _timing` import it required) is dropped, and
+#   `_timing.py` is not vendored -- upstream's `time()` gates ~35 lines of
+#   perf_counter measurement, argspec introspection, and print-based
+#   reporting behind a hardcoded `DO_TIMING = False` that nothing in this
+#   vendored slice ever sets to True, so it was an unreachable no-op
+#   passthrough here. Removing it is behaviourally a no-op.
 from abc import ABC, abstractmethod
-from . import _timing
 
 
 class _BaseMetric(ABC):
@@ -43,7 +44,6 @@ class _BaseMetric(ABC):
     #####################################################################
     # Abstract functions for subclasses to implement
 
-    @_timing.time
     @abstractmethod
     def eval_sequence(self, data):
         ...

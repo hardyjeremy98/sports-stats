@@ -3,8 +3,7 @@
 # Patches from upstream:
 #   PATCHED: relative imports flattened (see _base_metric.py's header for
 #   why) -- `from ._base_metric import _BaseMetric` unchanged (still a
-#   same-directory sibling), `from .. import _timing` -> `from . import
-#   _timing`.
+#   same-directory sibling).
 #   PATCHED: `dtype=np.float` (5 occurrences in eval_sequence) -> `dtype=float`
 #   -- `np.float` was a deprecated alias for the builtin `float` (deprecated
 #   in numpy 1.20, REMOVED in numpy 1.24 -- confirmed empirically: numpy
@@ -22,10 +21,18 @@
 #   `combine_classes_det_averaged`, `plot_single_tracker_results` (and the
 #   now-unused `import os`). `eval_sequence` and the `_compute_final_fields`
 #   helper it calls are otherwise unmodified from upstream.
+#   TRIMMED: the upstream `@_timing.time` decorator on `eval_sequence` is
+#   dropped, and `_timing.py` is not vendored at all -- upstream's `time()`
+#   gates ~35 lines of perf_counter measurement, argspec introspection, and
+#   print-based reporting behind a hardcoded `DO_TIMING = False` that
+#   nothing in this vendored slice (or upstream itself, outside its own CLI)
+#   ever sets to True, so the whole decorator was an unreachable no-op
+#   passthrough here. Removing it is behaviourally a no-op: `eval_sequence`
+#   runs exactly as before, just called directly instead of through an
+#   always-inert wrapper.
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from ._base_metric import _BaseMetric
-from . import _timing
 
 
 class HOTA(_BaseMetric):
@@ -43,7 +50,6 @@ class HOTA(_BaseMetric):
         self.fields = self.float_array_fields + self.integer_array_fields + self.float_fields
         self.summary_fields = self.float_array_fields + self.float_fields
 
-    @_timing.time
     def eval_sequence(self, data):
         """Calculates the HOTA metrics for one sequence"""
 
