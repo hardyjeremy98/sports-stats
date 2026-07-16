@@ -30,6 +30,8 @@ BENCHMARK_METRIC_KEYS = (
     "assoc_idf1_gain",
     "identity_coverage",
     "cluster_purity",
+    "detection_ap",
+    "detection_recall",
 )
 
 

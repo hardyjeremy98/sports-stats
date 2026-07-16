@@ -26,6 +26,16 @@ TrackEval metric math (`pitchlab_core.hota.compute_hota`,
 backend alongside the motmetrics IDF1/MOTA suite above -- the two are never
 reconciled or cross-corrected.
 
+A sixth, LEVEL-INDEPENDENT layer (SPO-9) scores the detector itself, not the
+tracker: precision/recall/AP per player-height bin, consecutive miss-burst
+lengths, duplicate-detection rate, and temporal box jitter, computed once
+(not per tracklet/entity level) from `<run_dir>/detections.jsonl` against the
+same scored GT, via `pitchlab_core.detection_eval.evaluate_detections` --
+see `_load_detections` and `result["detection"]` below. `detections.jsonl`
+is absent for imported external runs (`exchange.py::import_mot_tracklets`
+writes none), in which case `result["detection"] is None` -- never a crash
+or a fabricated score.
+
 Requires the `eval` extra (motmetrics; scipy comes in transitively and is
 what the HOTA backend actually needs). Imported lazily so the lean server
 install works without it.
@@ -191,7 +201,64 @@ def evaluate_run(
             entities_by_id, gt_by_frame, fps, stride, iou_threshold, min_track_length
         ),
     }
+
+    det_by_frame = _load_detections(run_dir, eval_frames)
+    if det_by_frame is None:
+        result["detection"] = None
+    else:
+        from pitchlab_core.detection_eval import evaluate_detections
+
+        result["detection"] = evaluate_detections(
+            det_by_frame, gt_scored, iou_threshold=iou_threshold, stride=stride, fps=fps
+        )
     return result
+
+
+def _load_detections(
+    run_dir: Path, eval_frames: list[int]
+) -> dict[int, list[tuple[float, list[float]]]] | None:
+    """Read `<run_dir>/detections.jsonl` into `det_by_frame` (frame_idx ->
+    list[(confidence, xywh)]) for the detection-quality layer (SPO-9).
+
+    Keeps only person classes -- player, goalkeeper, referee -- mirroring
+    `_SCORED_ROLES` (ball is a separate pipeline stream/GT role, excluded on
+    both sides symmetrically); restricted to `eval_frames` so it lines up
+    frame-for-frame with the GT structure `evaluate_run` already scores
+    against.
+
+    Returns `None` if the file doesn't exist at all -- imported external
+    runs (`exchange.py::import_mot_tracklets`) write no detections.jsonl,
+    and `evaluate_run` must report `result["detection"] = None` rather than
+    crash or fabricate a score. A malformed row raises `ValueError` naming
+    the file and line, mirroring `exchange.py`'s convention for the same
+    file format.
+    """
+    path = run_dir / "detections.jsonl"
+    if not path.exists():
+        return None
+
+    from pitchlab_core.schemas.detections import FrameDetections
+
+    eval_frame_set = set(eval_frames)
+    det_by_frame: dict[int, list[tuple[float, list[float]]]] = {}
+    with open(path) as f:
+        for lineno, raw_line in enumerate(f, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                frame = FrameDetections.model_validate_json(line)
+            except Exception as exc:
+                raise ValueError(f"Invalid FrameDetections row in {path}:{lineno}: {exc}") from exc
+            if frame.frame_idx not in eval_frame_set:
+                continue
+            for det in frame.detections:
+                if det.cls not in ("player", "goalkeeper", "referee"):
+                    continue
+                det_by_frame.setdefault(frame.frame_idx, []).append(
+                    (det.confidence, _xywh(det.box.model_dump()))
+                )
+    return det_by_frame
 
 
 def _discover_min_track_length(manifest: dict) -> int | None:
@@ -551,6 +618,11 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
     tracklet_purity_post = result["purity"]["tracklet"]["post_filter"]
     heads["tracklet_purity"] = tracklet_purity_post["mean_purity"]
     heads["mixed_track_seconds"] = tracklet_purity_post["total_mixed_seconds"]
+    detection = result.get("detection")
+    if detection is not None:
+        heads["detection_ap"] = detection["ap"]
+        heads["detection_recall"] = detection["recall"]
+        heads["detection_miss_burst_p95"] = detection["miss_bursts"]["overall"]["p95"]
     return heads
 
 

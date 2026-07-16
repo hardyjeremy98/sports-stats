@@ -303,6 +303,65 @@ export interface EvalIdentity {
   cluster_completeness: number | null;
 }
 
+// Detection-quality layer (SPO-9): level-independent (computed once, never
+// per tracklet/entity/identity level). null when detections.jsonl is absent
+// (imported external runs -- see exchange.py::import_mot_tracklets).
+export interface DetectionHeightBin {
+  bin: string;
+  edges: [number | null, number | null];
+  n_gt: number;
+  n_det: number;
+  precision: number | null;
+  recall: number | null;
+  ap: number | null;
+}
+
+export interface DetectionBurstSummary {
+  min: number | null;
+  median: number | null;
+  p95: number | null;
+  max: number | null;
+  mean: number | null;
+}
+
+export interface DetectionMissBursts {
+  stride: number;
+  fps: number;
+  per_track: Record<
+    string,
+    {
+      n_bursts: number;
+      max_burst: number | null;
+      burst_lengths_summary: DetectionBurstSummary | null;
+    }
+  >;
+  overall: DetectionBurstSummary & { burst_seconds_p95: number | null };
+  n_tracks_with_bursts: number;
+}
+
+export interface DetectionEval {
+  iou_threshold: number;
+  height_bin_edges: number[];
+  stride: number;
+  fps: number;
+  n_frames_evaluated: number;
+  n_detections: number;
+  n_gt_boxes: number;
+  precision: number | null;
+  recall: number | null;
+  ap: number | null;
+  by_height_bin: DetectionHeightBin[];
+  miss_bursts: DetectionMissBursts;
+  duplicates: { n_duplicates: number; duplicate_rate: number | null };
+  jitter: {
+    center_jitter_mean: number | null;
+    center_jitter_p95: number | null;
+    height_jitter_mean: number | null;
+    height_jitter_p95: number | null;
+    n_pairs: number;
+  };
+}
+
 export interface EvalResult {
   source: string;
   sequence: string | null;
@@ -330,6 +389,7 @@ export interface EvalResult {
   };
   instances: EvalInstance[];
   identity?: EvalIdentity | null;
+  detection?: DetectionEval | null;
 }
 
 // ---- Benchmark matrix (config x GT-video, aggregating repeat runs) ----

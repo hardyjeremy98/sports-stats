@@ -48,7 +48,12 @@ def test_load_soccernet_sequence(tmp_path):
     assert (f0.box.x1, f0.box.y1, f0.box.x2, f0.box.y2) == (100, 100, 140, 220)
 
 
-def _write_run_dir(root: Path, tracklets: list[dict], players: list[dict]) -> Path:
+def _write_run_dir(
+    root: Path,
+    tracklets: list[dict],
+    players: list[dict],
+    detections: list[dict] | None = None,
+) -> Path:
     run_dir = root / "run"
     run_dir.mkdir()
     manifest = {
@@ -57,7 +62,24 @@ def _write_run_dir(root: Path, tracklets: list[dict], players: list[dict]) -> Pa
     (run_dir / "manifest.json").write_text(json.dumps(manifest))
     (run_dir / "tracklets.json").write_text(json.dumps(tracklets))
     (run_dir / "players.json").write_text(json.dumps(players))
+    if detections is not None:
+        with open(run_dir / "detections.jsonl", "w") as f:
+            for row in detections:
+                f.write(json.dumps(row) + "\n")
     return run_dir
+
+
+def _det_row(frame_idx: int, boxes: list[tuple[float, float, float, float, float, str]]) -> dict:
+    """One detections.jsonl row (FrameDetections shape): boxes is a list of
+    (x1, y1, x2, y2, confidence, cls)."""
+    return {
+        "frame_idx": frame_idx,
+        "t": frame_idx / 25.0,
+        "detections": [
+            {"box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}, "confidence": conf, "cls": cls}
+            for (x1, y1, x2, y2, conf, cls) in boxes
+        ],
+    }
 
 
 def _tracklet(tid: int, frames: list[tuple[int, float, float]]) -> dict:
@@ -878,3 +900,87 @@ def test_evaluate_run_purity_present_with_empty_tracklets(tmp_path):
     # must not silently coerce to 0.
     assert result["purity"]["tracklet"]["min_track_length"] is None
     assert result["purity"]["tracklet"]["post_filter"] == result["purity"]["tracklet"]["pre_filter"]
+
+
+# --- Detection-quality layer (SPO-9) ----------------------------------------
+#
+# `evaluate_detections` itself is unit-tested with hand-derived arithmetic in
+# test_detection_eval.py (no motmetrics/scipy needed there at all). These
+# integration tests only prove the wiring: detections.jsonl is read, filtered
+# to person classes, restricted to eval_frames, and folded into
+# result["detection"] + headline_metrics -- and that its absence (imported
+# runs) or malformation degrades exactly per the exchange.py-style contract.
+
+
+def test_evaluate_run_detection_layer_present_and_wired(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run, headline_metrics
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(10)]),
+        _tracklet(11, [(f, 500, 200) for f in range(10)]),
+    ]
+    # Near-perfect detections.jsonl: echoes the GT boxes for GT tracks 1
+    # (player) and 2 (goalkeeper) exactly, every frame. GT track 3 (referee,
+    # a scored role) and track 4 (ball, unscored) never get a detection --
+    # the referee miss exercises real recall < 1.0, the ball's absence
+    # exercises the person-class filter symmetry with _SCORED_ROLES.
+    rows = [
+        _det_row(
+            f,
+            [
+                (100, 100, 140, 220, 0.95, "player"),
+                (500, 200, 540, 320, 0.95, "goalkeeper"),
+            ],
+        )
+        for f in range(10)
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, [], detections=rows)
+
+    result = evaluate_run(run_dir, gt)
+    detection = result["detection"]
+    assert detection is not None
+    assert detection["n_frames_evaluated"] == 10
+    assert detection["n_detections"] == 20
+    assert detection["n_gt_boxes"] == 30  # 3 scored GT tracks x 10 frames
+    assert detection["precision"] == 1.0
+    # 2 of the 3 scored GT tracks (player, goalkeeper) are detected every
+    # frame; the referee (track 3) never is -> 20/30.
+    assert detection["recall"] == pytest.approx(2 / 3, abs=1e-4)
+
+    heads = headline_metrics(result)
+    assert heads["detection_ap"] == detection["ap"]
+    assert heads["detection_recall"] == detection["recall"]
+    assert heads["detection_miss_burst_p95"] == detection["miss_bursts"]["overall"]["p95"]
+
+
+def test_evaluate_run_detection_absent_without_detections_jsonl(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run, headline_metrics
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [_tracklet(10, [(f, 100, 100) for f in range(10)])]
+    run_dir = _write_run_dir(tmp_path, tracklets, [])  # no detections kwarg -> no file at all
+
+    result = evaluate_run(run_dir, gt)
+    assert result["detection"] is None
+
+    heads = headline_metrics(result)
+    assert "detection_ap" not in heads
+    assert "detection_recall" not in heads
+    assert "detection_miss_burst_p95" not in heads
+
+
+def test_evaluate_run_detection_malformed_row_raises_loudly(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [_tracklet(10, [(f, 100, 100) for f in range(10)])]
+    run_dir = _write_run_dir(tmp_path, tracklets, [])
+    # Missing the required "detections" field -> fails FrameDetections validation.
+    (run_dir / "detections.jsonl").write_text('{"frame_idx": 0, "t": 0.0}\n')
+
+    with pytest.raises(ValueError, match=r"detections\.jsonl:1"):
+        evaluate_run(run_dir, gt)
