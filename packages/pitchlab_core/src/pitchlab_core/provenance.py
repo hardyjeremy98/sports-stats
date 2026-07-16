@@ -55,6 +55,10 @@ class ModelProvenance(BaseModel):
     training_seed: int | None = None
     dataset_split_manifest: str | None = None  # path
     dataset_split_manifest_sha256: str | None = None
+    # ^ Also reused by the hosted-detection response cache (SPO-10 part 2,
+    # RoboflowDetector.provenance()) for its (cache dir, cache content hash)
+    # pair -- same "what exact frozen artifact backs this model" shape, no
+    # need for a parallel field.
     license: LicenseAxes = Field(default_factory=LicenseAxes)
 
 

@@ -13,6 +13,10 @@ stages:
     impl: roboflow
     params:
       confidence: 0.3
+      # Hosted-detection response cache (SPO-10 part 2): frozen, replayable
+      # detections instead of live-only hosted-API calls.
+      cache_dir: data/cache/hosted-detections
+      cache_mode: readwrite
   track:
     impl: iou
     params:

@@ -19,6 +19,10 @@ stages:
       ball_model_id: football-ball-detection-rejhg/2
       use_ball_model: false   # enable for wide shots where the ball is tiny
       confidence: 0.3
+      # Hosted-detection response cache (SPO-10 part 2): frozen, replayable
+      # detections instead of live-only hosted-API calls.
+      cache_dir: data/cache/hosted-detections
+      cache_mode: readwrite
   track:
     impl: botsort
     params:
