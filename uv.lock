@@ -3359,7 +3359,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'cv'", specifier = ">=1.4" },
     { name = "supervision", marker = "extra == 'cv'", specifier = ">=0.24" },
     { name = "torch", marker = "extra == 'cv'", specifier = ">=2.3" },
-    { name = "trackers", marker = "extra == 'cv'", specifier = ">=2.0" },
+    { name = "trackers", marker = "extra == 'cv'", specifier = "==2.4.0" },
     { name = "transformers", marker = "extra == 'cv'", specifier = ">=4.44" },
     { name = "umap-learn", marker = "extra == 'cv'", specifier = ">=0.5" },
 ]

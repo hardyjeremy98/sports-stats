@@ -7,6 +7,7 @@ speaks supervision.Detections natively.
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections import Counter, defaultdict
 
 import numpy as np
@@ -64,17 +65,16 @@ class BotSortTracker(Tracker):
 
         p = self.params
         effective_fps = ctx.video.fps / max(1, ctx.config.video.sample_stride)
-        try:
-            tracker = self._tracker_cls(
-                lost_track_buffer=max(1, int(p.lost_track_buffer_s * effective_fps)),
-                frame_rate=effective_fps,
-                minimum_consecutive_frames=p.minimum_consecutive_frames,
-                track_activation_threshold=p.track_activation_threshold,
-                enable_cmc=p.enable_cmc,
-            )
-        except TypeError:
-            # Constructor signatures differ across trackers releases.
-            tracker = self._tracker_cls()
+        tracker = _construct_tracker(
+            self._tracker_cls,
+            {
+                "lost_track_buffer": max(1, int(p.lost_track_buffer_s * effective_fps)),
+                "frame_rate": effective_fps,
+                "minimum_consecutive_frames": p.minimum_consecutive_frames,
+                "track_activation_threshold": p.track_activation_threshold,
+                "enable_cmc": p.enable_cmc,
+            },
+        )
 
         frames_by_track: dict[int, list[TrackletFrame]] = defaultdict(list)
         classes_by_track: dict[int, Counter] = defaultdict(Counter)
@@ -136,6 +136,34 @@ class BotSortTracker(Tracker):
             for tid, frames in sorted(frames_by_track.items())
             if len(frames) >= p.min_length
         ]
+
+
+def _construct_tracker(tracker_cls, kwargs: dict):
+    """Construct `tracker_cls(**kwargs)`, failing loudly on signature drift.
+
+    The `trackers` package's constructor signature has changed across releases;
+    silently falling back to a zero-argument constructor lets configured
+    parameters (lost_track_buffer, enable_cmc, ...) vanish from a run without any
+    signal in the results. Instead, surface the mismatch as a RuntimeError that
+    names the tracker class, the parameters that were passed, and the installed
+    package version, and require the pin (pyproject.toml) and this wrapper to be
+    upgraded together.
+    """
+    try:
+        return tracker_cls(**kwargs)
+    except TypeError as exc:
+        try:
+            version = importlib.metadata.version("trackers")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown (package not found)"
+        raise RuntimeError(
+            f"Failed to construct {tracker_cls.__name__} with parameters "
+            f"{sorted(kwargs)}: {exc}. Installed `trackers` version: {version}. "
+            "The `trackers` package's constructor signature has likely drifted "
+            "from the version pinned in pyproject.toml — upgrade the pin and "
+            "this wrapper's construction call together; do not silently drop "
+            "parameters."
+        ) from exc
 
 
 def _match_classes(tracked_xyxy, dets) -> list[DetectionClass]:

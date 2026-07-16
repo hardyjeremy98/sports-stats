@@ -15,7 +15,9 @@ dependencies = [
 cv = [
     "supervision>=0.24",
     "inference>=0.29",          # Roboflow hosted models (players/ball/pitch)
-    "trackers>=2.0",            # Apache-2.0 BoT-SORT et al. (roboflow/trackers)
+    # Pinned per PRD baseline-hardening: constructor drift must be a
+    # deliberate upgrade, not an ambient hazard (SPO-13).
+    "trackers==2.4.0",          # Apache-2.0 BoT-SORT et al. (roboflow/trackers)
     "transformers>=4.44",       # SigLIP for team classification
     "torch>=2.3",
     "umap-learn>=0.5",
