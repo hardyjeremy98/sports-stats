@@ -40,6 +40,10 @@ class OsnetEmbedder(BodyEmbedder):
         self.batch_size = batch_size
         self._model = None
         self._device = "cpu"
+        # Resolved local path, only known after prepare() (either the
+        # user-supplied path or the HF hub download's cache path) — provenance
+        # can hash it once it's set, but not before.
+        self._resolved_weights_path: Path | None = None
 
     def prepare(self, device: str) -> None:
         try:
@@ -64,6 +68,7 @@ class OsnetEmbedder(BodyEmbedder):
             weights_path = Path(
                 hf_hub_download(repo_id=_WEIGHTS_REPO, filename=_WEIGHTS_FILENAME)
             )
+        self._resolved_weights_path = weights_path
 
         model = osnet_ain_x1_0(num_classes=1000, pretrained=False)
         # weights_only=False accepted: the checkpoint source is pinned (constant HF

@@ -18,9 +18,17 @@ from pitchlab_server.models import Run, Video
 def evaluate_run_against_gt(run: Run, video: Video) -> dict | None:
     """Returns the full eval result dict, or None when the video has no usable
     ground truth or the run produced no tracklets. Raises ImportError when
-    motmetrics is missing."""
+    motmetrics is missing.
+
+    Before scoring, records the evaluation-set's identity (SPO-10) into the
+    run's manifest.json provenance block: every GT-scored run must carry a
+    hash of the exact ground truth it was measured against, so a benchmark
+    runner comparing runs months apart can tell whether they used the same
+    evaluation set."""
     from pitchlab_core.evaluation import evaluate_run
     from pitchlab_core.gt import GroundTruth
+    from pitchlab_core.provenance import hash_evaluation_set
+    from pitchlab_core.schemas.run import RunManifest
 
     if not video.gt_path or not Path(video.gt_path).exists():
         return None
@@ -28,7 +36,17 @@ def evaluate_run_against_gt(run: Run, video: Video) -> dict | None:
     if not (run_dir / "tracklets.json").exists():
         return None
 
-    gt = GroundTruth.model_validate_json(Path(video.gt_path).read_text())
+    gt_path = Path(video.gt_path)
+    gt_text = gt_path.read_text()
+    gt = GroundTruth.model_validate_json(gt_text)
+
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = RunManifest.model_validate_json(manifest_path.read_text())
+        manifest.provenance.evaluation_set_hash = hash_evaluation_set(gt_text)
+        manifest.provenance.evaluation_set_source = str(gt_path)
+        manifest_path.write_text(manifest.model_dump_json(indent=2))
+
     result = evaluate_run(run_dir, gt)
     (run_dir / "eval.json").write_text(json.dumps(result))
     return result

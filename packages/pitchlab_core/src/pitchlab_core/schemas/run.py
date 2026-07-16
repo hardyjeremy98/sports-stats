@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from pitchlab_core.provenance import RunProvenance
 
 
 class StageKind(StrEnum):
@@ -105,3 +107,9 @@ class RunManifest(BaseModel):
     metrics: dict[str, float | int | str] = {}
     status: StageStatus = StageStatus.PENDING
     error: str | None = None
+    # Immutable provenance block (SPO-10): weights hashes, package versions,
+    # license/commercial-use status, git revision, eval-set identity — what a
+    # benchmark runner needs months later to refuse comparing mismatched runs.
+    # Required-with-a-default so manifests written before this field existed
+    # still parse (they simply get the all-"unknown" default).
+    provenance: RunProvenance = Field(default_factory=RunProvenance)

@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import Detector, DetectOutput, StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import Detection, DetectionClass, FrameDetections
 from pitchlab_core.schemas.geometry import Box
@@ -63,6 +64,20 @@ class YoloLocalDetector(Detector):
         self._model = YOLO(self.params.weights)
         if self.params.ball_weights and Path(self.params.ball_weights).exists():
             self._ball_model = YOLO(self.params.ball_weights)
+
+    def provenance(self) -> list[ModelProvenance]:
+        weights = self.params.weights
+        weights_sha256 = sha256_file(weights) if Path(weights).exists() else None
+        return [
+            ModelProvenance(
+                architecture="yolo",
+                weights_path=weights,
+                weights_sha256=weights_sha256,
+                license=LicenseAxes(
+                    code="AGPL-3.0 (ultralytics, local-eval only, non-shippable)",
+                ),
+            )
+        ]
 
     def detect(self, ctx: StageContext) -> DetectOutput:
         p = self.params

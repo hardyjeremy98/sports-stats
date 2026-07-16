@@ -14,16 +14,27 @@ no fallback relaxation when the crop gates starve a tracklet."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 
 from pitchlab_core.crops import sample_quality_crops
 from pitchlab_core.interfaces import StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import ArtifactName, AssociationPair, AssociationRejectReason
 from pitchlab_core.schemas.run import StageKind
 from pitchlab_core.stages.associate._base import BaseParams, GlobalAssociatorBase
 from pitchlab_core.stages.associate.embedders import get_embedder
+
+# Facts known about the shipped osnet embedder (see embedders/osnet.py's
+# docstring) — recorded honestly only when that's the embedder actually in
+# use; any other/future embedder falls back to "unknown" per-field.
+_OSNET_LICENSE = LicenseAxes(
+    code="MIT (vendored deep-person-reid arch)",
+    weights="MIT (kaiyangzhou/osnet, MSMT17-pretrained checkpoint)",
+)
+_OSNET_LINEAGE = "pretrained (MSMT17), no fine-tuning"
 
 
 class Params(BaseParams):
@@ -51,6 +62,28 @@ class GlobalReidAssociator(GlobalAssociatorBase):
 
     def prepare(self, ctx: StageContext) -> None:
         self._embedder.prepare(ctx.device)
+
+    def provenance(self) -> list[ModelProvenance]:
+        embedder = self._embedder
+        name = getattr(embedder, "name", "unknown")
+        # Only known after prepare() resolves it (user path or HF download);
+        # before that, fall back to an explicit user-supplied local path.
+        weights_path = getattr(embedder, "_resolved_weights_path", None) or getattr(
+            embedder, "weights", None
+        )
+        weights_sha256 = (
+            sha256_file(weights_path) if weights_path and Path(weights_path).exists() else None
+        )
+        is_osnet = name == "osnet"
+        return [
+            ModelProvenance(
+                architecture=name,
+                weights_path=str(weights_path) if weights_path else None,
+                weights_sha256=weights_sha256,
+                lineage=_OSNET_LINEAGE if is_osnet else "unknown",
+                license=_OSNET_LICENSE if is_osnet else LicenseAxes(),
+            )
+        ]
 
     def _features(self, ctx, tracklets) -> dict[int, np.ndarray]:
         p = self.params

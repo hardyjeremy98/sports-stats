@@ -5,10 +5,19 @@ import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from pitchlab_core import registry
 from pitchlab_core.artifacts import ArtifactStore
 from pitchlab_core.config import PipelineConfig
 from pitchlab_core.interfaces import ProgressFn, Stage, StageContext
+from pitchlab_core.provenance import (
+    DEFAULT_PACKAGE_NAMES,
+    RunProvenance,
+    StageProvenance,
+    collect_package_versions,
+    git_revision,
+)
 from pitchlab_core.schemas import ArtifactName
 from pitchlab_core.schemas.run import (
     RunManifest,
@@ -69,6 +78,10 @@ class PipelineRunner:
             config=config.model_dump(mode="json"),
             config_name=config.name,
             status=StageStatus.RUNNING,
+            provenance=RunProvenance(
+                git_revision=git_revision(Path(__file__).resolve().parent),
+                package_versions=collect_package_versions(DEFAULT_PACKAGE_NAMES),
+            ),
         )
 
     def run(self) -> RunManifest:
@@ -197,11 +210,20 @@ class PipelineRunner:
             started_at=datetime.now(UTC),
         )
         self.manifest.stages.append(result)
+        self.manifest.provenance.stages[kind.value] = StageProvenance(
+            impl=stage.impl_name,
+            params=_resolved_params(stage),
+            models=stage.provenance(),
+        )
         self._save_manifest()
         self._progress(kind, 0.0, f"{kind}: starting ({stage.impl_name})")
         start = time.monotonic()
         try:
             stage.prepare(self.ctx)
+            # Some stages only resolve model info (e.g. a downloaded weights
+            # path) inside prepare(); refresh now that it has run. The
+            # manifest gets rewritten below regardless, so this is free.
+            self.manifest.provenance.stages[kind.value].models = stage.provenance()
             out = fn(stage)
         except Exception:
             result.status = StageStatus.FAILED
@@ -228,3 +250,12 @@ class PipelineRunner:
         (self.store.run_dir / "manifest.json").write_text(
             self.manifest.model_dump_json(indent=2)
         )
+
+
+def _resolved_params(stage: Stage) -> dict:
+    """The stage's fully-resolved params (defaults filled in), for the
+    provenance snapshot. Every stage impl follows the `self.params = Params(
+    **params)` pydantic convention; stages with no params attribute (or a
+    non-pydantic one) simply show an empty dict rather than raising."""
+    params = getattr(stage, "params", None)
+    return params.model_dump(mode="json") if isinstance(params, BaseModel) else {}

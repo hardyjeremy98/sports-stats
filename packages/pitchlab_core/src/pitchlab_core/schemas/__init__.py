@@ -1,3 +1,9 @@
+from pitchlab_core.provenance import (
+    LicenseAxes,
+    ModelProvenance,
+    RunProvenance,
+    StageProvenance,
+)
 from pitchlab_core.schemas.association import (
     AssociationEntitySummary,
     AssociationPair,
@@ -56,9 +62,11 @@ __all__ = [
     "IdentityEvidence",
     "IdentityKind",
     "LabeledExample",
+    "LicenseAxes",
     "MinimapBall",
     "MinimapFrame",
     "MinimapPlayer",
+    "ModelProvenance",
     "PlayerEntity",
     "PlayerIdentity",
     "Point",
@@ -67,7 +75,9 @@ __all__ = [
     "QAReason",
     "QAStatus",
     "RunManifest",
+    "RunProvenance",
     "StageKind",
+    "StageProvenance",
     "StageResult",
     "StageStatus",
     "StatLine",

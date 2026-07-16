@@ -23,6 +23,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import IdentityResolver, StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import (
     Box,
@@ -66,6 +67,23 @@ class FaceIdentityResolver(IdentityResolver):
         self._app.prepare(ctx_id=0 if ctx.device == "cuda" else -1, det_size=(320, 320))
         if self.params.upscaler == "realesrgan":
             self._upscaler = _load_realesrgan(ctx.device)
+
+    def provenance(self) -> list[ModelProvenance]:
+        # insightface manages its own model cache internally (no path this
+        # stage resolves), so weights_path/weights_sha256 stay honestly null.
+        return [
+            ModelProvenance(
+                architecture="insightface-buffalo_l",
+                revision="buffalo_l",
+                license=LicenseAxes(
+                    code="MIT (insightface)",
+                    weights=(
+                        "research-only (buffalo_l pack; commercial deployment "
+                        "needs a licensed pack)"
+                    ),
+                ),
+            )
+        ]
 
     def resolve(
         self, ctx: StageContext, players: list[PlayerEntity], tracklets: list[Tracklet]

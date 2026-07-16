@@ -176,6 +176,44 @@ export interface StageResult {
   metrics: Record<string, number | string>;
 }
 
+// ---- Provenance (SPO-10): what produced a run, for months-later comparison ----
+// Every declared field is always present -- unknown values are the literal
+// string "unknown" (or null where the schema allows it), never an absent key.
+
+export interface LicenseAxes {
+  code: string;
+  weights: string;
+  training_data: string;
+}
+
+export interface ModelProvenance {
+  architecture: string;
+  revision: string;
+  weights_path: string | null;
+  weights_sha256: string | null;
+  lineage: string;
+  training_commit: string | null;
+  training_config: string | null;
+  training_seed: number | null;
+  dataset_split_manifest: string | null;
+  dataset_split_manifest_sha256: string | null;
+  license: LicenseAxes;
+}
+
+export interface StageProvenance {
+  impl: string;
+  params: Record<string, unknown>;
+  models: ModelProvenance[];
+}
+
+export interface RunProvenance {
+  git_revision: string;
+  package_versions: Record<string, string>;
+  stages: Record<string, StageProvenance>; // keyed by StageKind value
+  evaluation_set_hash: string;
+  evaluation_set_source: string | null;
+}
+
 export interface RunManifest {
   run_id: string;
   created_at: string;
@@ -195,6 +233,7 @@ export interface RunManifest {
   metrics: Record<string, number | string>;
   status: string;
   error: string | null;
+  provenance: RunProvenance;
 }
 
 // ---- Ground truth + evaluation (labelled benchmark clips) ----

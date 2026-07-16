@@ -1,5 +1,10 @@
-"""Unit tests for the pure eval-diff helper used by the run-diff endpoint."""
+"""Unit tests for the pure eval-diff helper used by the run-diff endpoint,
+and the evaluation-set provenance hook in `evaluate_run_against_gt`."""
 
+import json
+from pathlib import Path
+
+import pytest
 from pitchlab_server.evaluation import diff_switch_instances
 
 
@@ -120,3 +125,98 @@ def test_counts_consistent_with_list_lengths():
     assert result["counts"]["fixed"] == len(result["fixed"])
     assert result["counts"]["introduced"] == len(result["introduced"])
     assert result["counts"]["persisted"] == len(result["persisted"])
+
+
+# --- evaluate_run_against_gt: evaluation-set provenance hook (SPO-10) ------
+
+
+def _write_run_dir(root: Path, video_meta: dict) -> Path:
+    run_dir = root / "run"
+    run_dir.mkdir()
+    manifest = {
+        "run_id": "test-run",
+        "created_at": "2026-07-16T00:00:00+00:00",
+        "video": video_meta,
+        "config": {},
+        "config_name": "test",
+        "status": "completed",
+        # Deliberately no "provenance" key at all -- mirrors a manifest
+        # written before this field existed, exercising the pydantic default.
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+    (run_dir / "tracklets.json").write_text(json.dumps([]))
+    (run_dir / "players.json").write_text(json.dumps([]))
+    return run_dir
+
+
+def test_evaluate_run_against_gt_writes_evaluation_set_hash_into_manifest(tmp_path):
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
+    from pitchlab_core.provenance import hash_evaluation_set
+    from pitchlab_server.evaluation import evaluate_run_against_gt
+    from pitchlab_server.models import Run, Video
+
+    gt = GroundTruth(
+        source="unit-test",
+        sequence="SEQ-1",
+        fps=25.0,
+        width=100,
+        height=100,
+        seq_length=10,
+        tracks=[
+            GroundTruthTrack(
+                track_id=1,
+                role="player",
+                team="left",
+                frames=[
+                    GroundTruthFrame(
+                        frame_idx=f, box={"x1": 10, "y1": 10, "x2": 50, "y2": 130}
+                    )
+                    for f in range(10)
+                ],
+            )
+        ],
+    )
+    gt_text = gt.model_dump_json()
+    gt_path = tmp_path / "seq.gt.json"
+    gt_path.write_text(gt_text)
+
+    run_dir = _write_run_dir(
+        tmp_path,
+        {
+            "path": "seq.mp4", "fps": 25.0, "frame_count": 10,
+            "width": 100, "height": 100, "duration_s": 0.4, "sample_stride": 1,
+        },
+    )
+    run = Run(id="test-run", video_id=1, config_name="test", config_yaml="", run_dir=str(run_dir))
+    video = Video(id=1, filename="seq.mp4", path="seq.mp4", gt_path=str(gt_path))
+
+    result = evaluate_run_against_gt(run, video)
+    assert result is not None  # scoring still happened (eval.json written)
+    assert (run_dir / "eval.json").exists()
+
+    on_disk = json.loads((run_dir / "manifest.json").read_text())
+    prov = on_disk["provenance"]
+    assert prov["evaluation_set_hash"] == hash_evaluation_set(gt_text)
+    assert prov["evaluation_set_hash"] != "unknown"
+    assert prov["evaluation_set_source"] == str(gt_path)
+
+
+def test_evaluate_run_against_gt_no_gt_path_leaves_result_none(tmp_path):
+    from pitchlab_server.evaluation import evaluate_run_against_gt
+    from pitchlab_server.models import Run, Video
+
+    run_dir = _write_run_dir(
+        tmp_path,
+        {
+            "path": "seq.mp4", "fps": 25.0, "frame_count": 10,
+            "width": 100, "height": 100, "duration_s": 0.4, "sample_stride": 1,
+        },
+    )
+    run = Run(id="test-run", video_id=1, config_name="test", config_yaml="", run_dir=str(run_dir))
+    video = Video(id=1, filename="seq.mp4", path="seq.mp4", gt_path=None)
+
+    before = (run_dir / "manifest.json").read_text()
+    assert evaluate_run_against_gt(run, video) is None
+    # No GT -> the hook must not touch the manifest at all.
+    assert (run_dir / "manifest.json").read_text() == before

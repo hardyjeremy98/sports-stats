@@ -12,6 +12,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import Calibrator, StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import FrameCalibration
 from pitchlab_core.schemas.geometry import Point
@@ -44,6 +45,20 @@ class YoloPitchLocalCalibrator(Calibrator):
         if not Path(self.params.weights).exists():
             raise RuntimeError(f"Weights not found at {self.params.weights}.")
         self._model = YOLO(self.params.weights)
+
+    def provenance(self) -> list[ModelProvenance]:
+        weights = self.params.weights
+        weights_sha256 = sha256_file(weights) if Path(weights).exists() else None
+        return [
+            ModelProvenance(
+                architecture="yolo",
+                weights_path=weights,
+                weights_sha256=weights_sha256,
+                license=LicenseAxes(
+                    code="AGPL-3.0 (ultralytics, local-eval only, non-shippable)",
+                ),
+            )
+        ]
 
     def calibrate(self, ctx: StageContext) -> list[FrameCalibration]:
         p = self.params

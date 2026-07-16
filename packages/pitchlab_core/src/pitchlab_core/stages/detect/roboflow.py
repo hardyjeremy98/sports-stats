@@ -14,6 +14,7 @@ import os
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import Detector, DetectOutput, StageContext
+from pitchlab_core.provenance import LicenseAxes, ModelProvenance
 from pitchlab_core.registry import register
 from pitchlab_core.schemas import Detection, DetectionClass, FrameDetections
 from pitchlab_core.schemas.geometry import Box
@@ -64,6 +65,25 @@ class RoboflowDetector(Detector):
             self._ball_model = get_model(
                 model_id=self.params.ball_model_id, api_key=api_key
             )
+
+    def provenance(self) -> list[ModelProvenance]:
+        license = LicenseAxes(code="proprietary hosted API (Roboflow)")
+        models = [
+            ModelProvenance(
+                revision=self.params.player_model_id,
+                lineage="hosted (unpinned)",
+                license=license,
+            )
+        ]
+        if self.params.use_ball_model and self.params.ball_model_id:
+            models.append(
+                ModelProvenance(
+                    revision=self.params.ball_model_id,
+                    lineage="hosted (unpinned)",
+                    license=license,
+                )
+            )
+        return models
 
     def detect(self, ctx: StageContext) -> DetectOutput:
         import supervision as sv

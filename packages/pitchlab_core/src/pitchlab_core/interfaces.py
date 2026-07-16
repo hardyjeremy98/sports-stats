@@ -9,6 +9,7 @@ from typing import ClassVar
 from pitchlab_core.artifacts import ArtifactStore
 from pitchlab_core.config import PipelineConfig
 from pitchlab_core.pitch import SOCCER_PITCH, PitchSpec
+from pitchlab_core.provenance import ModelProvenance
 from pitchlab_core.schemas import (
     BallObservation,
     Event,
@@ -63,6 +64,13 @@ class Stage(ABC):
     def prepare(self, ctx: StageContext) -> None:
         """Load models/weights. Called once before the stage runs; raising here
         fails the run early with a clear error (e.g. missing ROBOFLOW_API_KEY)."""
+
+    def provenance(self) -> list[ModelProvenance]:
+        """Models this stage instance carries, for the run manifest's
+        provenance block (SPO-10). Empty for model-free/heuristic stages.
+        Called both before and after `prepare()` — override honestly: a
+        field that can't be determined yet is "unknown"/null, not guessed."""
+        return []
 
 
 @dataclass
