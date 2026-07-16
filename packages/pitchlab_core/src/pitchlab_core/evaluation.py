@@ -11,6 +11,13 @@ purity/completeness of `PlayerIdentity.label` against GT tracks, plus
 coverage/abstention so abstaining on everyone can't score well. See
 `_evaluate_identity`.
 
+A fourth, orthogonal metric (SPO-6 / tracklet-modernization) measures
+per-tracklet GT contamination directly: `merge_quality` above collapses each
+tracklet to one majority GT id and discards everything else, which is
+precisely the failure this program cares about -- a tracklet that silently
+switches between two players. See `tracklet_purity`, computed at both the
+tracklet and entity level under `result["purity"]`.
+
 Requires the `eval` extra (motmetrics). Imported lazily so the lean server
 install works without it.
 """
@@ -45,10 +52,20 @@ _METRICS = [
 ]
 
 
-def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.5) -> dict:
+def evaluate_run(
+    run_dir: str | Path,
+    gt: GroundTruth,
+    iou_threshold: float = 0.5,
+    min_track_length: int | None = None,
+) -> dict:
     """Compute MOT metrics + per-instance error list for one run directory.
 
-    Returns a JSON-ready dict (the eval.json artifact)."""
+    Returns a JSON-ready dict (the eval.json artifact).
+
+    `min_track_length` gates the purity block's pre/post-filter split (see
+    `tracklet_purity`); if omitted it is discovered from the manifest's
+    resolved track-stage config, falling back to 0.
+    """
     import motmetrics as mm
 
     run_dir = Path(run_dir)
@@ -56,6 +73,8 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     stride = int(manifest["video"].get("sample_stride", 1) or 1)
     frame_count = int(manifest["video"]["frame_count"])
     fps = float(manifest["video"]["fps"] or gt.fps)
+    if min_track_length is None:
+        min_track_length = _discover_min_track_length(manifest)
 
     tracklets = json.loads((run_dir / "tracklets.json").read_text())
     entity_of: dict[int, int] = {}
@@ -68,8 +87,11 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     # Predictions per frame, per level: frame_idx -> list[(id, xywh)].
     pred_tracklet: dict[int, list[tuple[int, list[float]]]] = {}
     pred_entity: dict[int, list[tuple[int, list[float]]]] = {}
-    # Same boxes, indexed per tracklet instead of per frame, for merge_quality.
+    # Same boxes, indexed per tracklet instead of per frame, for merge_quality
+    # and tracklet_purity. entities_by_id is the same shape one level up: all
+    # frames of every tracklet an entity absorbed, concatenated.
     tracklets_by_id: dict[int, list[tuple[int, list[float]]]] = {}
+    entities_by_id: dict[int, list[tuple[int, list[float]]]] = {}
     for tr in tracklets:
         tid = tr["tracklet_id"]
         # Tracklets the associator never saw (e.g. referees) stay their own
@@ -82,6 +104,7 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
             pred_entity.setdefault(f["frame_idx"], []).append((eid, xywh))
             frames_xywh.append((f["frame_idx"], xywh))
         tracklets_by_id[tid] = frames_xywh
+        entities_by_id.setdefault(eid, []).extend(frames_xywh)
 
     # GT per frame, restricted to scored roles.
     scored_tracks = [t for t in gt.tracks if t.role in _SCORED_ROLES]
@@ -136,7 +159,30 @@ def evaluate_run(run_dir: str | Path, gt: GroundTruth, iou_threshold: float = 0.
     mq = merge_quality(tracklets_by_id, players_data, gt_by_frame, iou_threshold)
     result["association"].update({k: v for k, v in mq.items() if k != "merged_pairs"})
     result["association"]["merged_pairs"] = mq["merged_pairs"]
+    result["purity"] = {
+        "tracklet": tracklet_purity(
+            tracklets_by_id, gt_by_frame, fps, stride, iou_threshold, min_track_length
+        ),
+        "entity": tracklet_purity(
+            entities_by_id, gt_by_frame, fps, stride, iou_threshold, min_track_length
+        ),
+    }
     return result
+
+
+def _discover_min_track_length(manifest: dict) -> int:
+    """Where minimum-track-length filtering actually happens: the track
+    stage (`stages/track/{iou,botsort}.py`'s `min_length` param), BEFORE
+    tracklets.json is written -- tracklets shorter than it never reach this
+    evaluator at all, they simply don't exist in tracklets.json. So this can
+    only read the resolved threshold back out of the manifest's config
+    snapshot for reporting (see `tracklet_purity`'s `note` field); it cannot
+    recover what was already dropped. Falls back to 0 (no known filtering)
+    when the manifest has no resolved track-stage config, e.g. hand-written
+    test fixtures or configs that never ran the track stage."""
+    track_params = manifest.get("config", {}).get("stages", {}).get("track", {}).get("params", {})
+    value = track_params.get("min_length")
+    return int(value) if isinstance(value, (int, float)) else 0
 
 
 def merge_quality(
@@ -175,24 +221,7 @@ def merge_quality(
     """
     gt_id_of_tracklet: dict[int, int | None] = {}
     for tid, frames in tracklets_by_id.items():
-        votes: dict[int, int] = {}
-        for frame_idx, box in frames:
-            gts = gt_by_frame.get(frame_idx, [])
-            if not gts:
-                continue
-            dist = _iou_distance([g[1] for g in gts], [box], max_dist=1 - iou_threshold)
-            # One vote per frame, for the single best (lowest-distance) GT box
-            # among those clearing the threshold — voting for EVERY qualifying
-            # box would let a brushing neighbour outvote the true track in
-            # crowded scenes, the exact failure this metric polices.
-            best_gi: int | None = None
-            for gi in range(len(gts)):
-                d = dist[gi, 0]
-                if d == d and (best_gi is None or d < dist[best_gi, 0]):  # not NaN
-                    best_gi = gi
-            if best_gi is not None:
-                gid = gts[best_gi][0]
-                votes[gid] = votes.get(gid, 0) + 1
+        votes = _gt_composition_of_tracklet(frames, gt_by_frame, iou_threshold)
         gt_id_of_tracklet[tid] = min(votes, key=lambda gid: (-votes[gid], gid)) if votes else None
 
     n_entities_merged = 0
@@ -239,6 +268,175 @@ def merge_quality(
     }
 
 
+def _gt_composition_of_tracklet(
+    frames: list[tuple[int, list[float]]],
+    gt_by_frame: dict[int, list[tuple[int, list[float]]]],
+    iou_threshold: float,
+) -> dict[int, int]:
+    """Per-frame single-best-IoU vote against qualifying (>= iou_threshold)
+    GT boxes: one vote per frame, for the single best match, not one per
+    qualifying box -- a brushing neighbour must not be able to split the
+    tally in crowded scenes. Shared by `merge_quality` (majority-vote gt_id)
+    and `tracklet_purity` (full composition, not just the argmax)."""
+    votes: dict[int, int] = {}
+    for frame_idx, box in frames:
+        gts = gt_by_frame.get(frame_idx, [])
+        if not gts:
+            continue
+        dist = _iou_distance([g[1] for g in gts], [box], max_dist=1 - iou_threshold)
+        best_gi: int | None = None
+        for gi in range(len(gts)):
+            d = dist[gi, 0]
+            if d == d and (best_gi is None or d < dist[best_gi, 0]):  # not NaN
+                best_gi = gi
+        if best_gi is not None:
+            gid = gts[best_gi][0]
+            votes[gid] = votes.get(gid, 0) + 1
+    return votes
+
+
+def tracklet_purity(
+    tracklets_by_id: dict[int, list[tuple[int, list[float]]]],
+    gt_by_frame: dict[int, list[tuple[int, list[float]]]],
+    fps: float,
+    stride: int,
+    iou_threshold: float = 0.5,
+    min_track_length: int = 0,
+) -> dict:
+    """Per-tracklet GT composition and contamination -- the metric
+    `merge_quality`'s majority-vote collapse silently discards (it only ever
+    surfaces one gt_id per tracklet). This is the program's primary-objective
+    metric: a tracklet that silently switches between two GT identities is
+    worse than a fragmented one, and today's IDF1/MOTA can't see it.
+
+    Matching mirrors `merge_quality` / `_gt_composition_of_tracklet`: per
+    frame, single best-IoU match against GT boxes clearing `iou_threshold`,
+    independent per tracklet (no cross-tracklet frame assignment) -- the same
+    simple, already-in-use matching philosophy, not a fresh Hungarian/global
+    assignment.
+
+    Per tracklet: `length` (all frames it has, matched or not),
+    `matched_frames`, `gt_composition` (gt_track_id -> matched frame count),
+    `majority_gt_track_id` (argmax composition, ties -> lowest gt id; None if
+    never matched), `purity` (majority frames / matched frames, None if never
+    matched), `mixed_frames`/`mixed_seconds` (matched frames NOT on the
+    majority id; seconds accounts for `stride` -- each sampled frame stands in
+    for `stride/fps` real seconds).
+
+    Aggregates (frame-weighted, so one long tracklet outweighs many short
+    ones) are computed twice: `pre_filter` over every tracklet in
+    `tracklets_by_id`, `post_filter` restricted to `length >= min_track_length`
+    -- see the `note` field for why that pre/post split can only see
+    filtering applied here, not upstream.
+    """
+    seconds_per_frame = (stride / fps) if fps else 0.0
+    records: list[dict] = []
+    for tid in sorted(tracklets_by_id):
+        frames = tracklets_by_id[tid]
+        length = len(frames)
+        composition = _gt_composition_of_tracklet(frames, gt_by_frame, iou_threshold)
+        matched_frames = sum(composition.values())
+        if composition:
+            majority_gt = min(composition, key=lambda gid: (-composition[gid], gid))
+            majority_frames = composition[majority_gt]
+            purity: float | None = majority_frames / matched_frames
+            mixed_frames = matched_frames - majority_frames
+        else:
+            majority_gt = None
+            purity = None
+            mixed_frames = 0
+        records.append(
+            {
+                "tracklet_id": tid,
+                "length": length,
+                "matched_frames": matched_frames,
+                "unmatched_frames": length - matched_frames,
+                "gt_composition": dict(sorted(composition.items())),
+                "majority_gt_track_id": majority_gt,
+                "purity": round(purity, 4) if purity is not None else None,
+                "mixed_frames": mixed_frames,
+                "mixed_seconds": round(mixed_frames * seconds_per_frame, 4),
+            }
+        )
+
+    return {
+        "min_track_length": min_track_length,
+        "note": (
+            "min-length filtering happens upstream in the track stage "
+            "(stages/track/{iou,botsort}.py's min_length param) before "
+            "tracklets.json is written -- tracklets dropped there never "
+            "reach this evaluator, so pre_filter/post_filter below only "
+            "re-apply min_track_length to what's already in tracklets.json; "
+            "they cannot recover what was already discarded upstream."
+        ),
+        "tracklets": records,
+        "pre_filter": _aggregate_purity_records(records),
+        "post_filter": _aggregate_purity_records(
+            [r for r in records if r["length"] >= min_track_length]
+        ),
+    }
+
+
+def _aggregate_purity_records(records: list[dict]) -> dict:
+    """Frame-weighted purity summary + tracklets-per-GT-player and
+    track-length distributions over one set of `tracklet_purity` records."""
+    matched = [r for r in records if r["purity"] is not None]
+    total_matched_frames = sum(r["matched_frames"] for r in matched)
+    mean_purity = (
+        sum(r["purity"] * r["matched_frames"] for r in matched) / total_matched_frames
+        if total_matched_frames
+        else None
+    )
+    frac_impure = (sum(1 for r in matched if r["purity"] < 1.0) / len(matched)) if matched else None
+    total_mixed_seconds = round(sum(r["mixed_seconds"] for r in records), 4)
+
+    tracklets_per_gt: dict[int, int] = {}
+    for r in matched:
+        gid = r["majority_gt_track_id"]
+        tracklets_per_gt[gid] = tracklets_per_gt.get(gid, 0) + 1
+    tpg_counts = sorted(tracklets_per_gt.values())
+    tpg_full = _distribution_summary(tpg_counts) if tpg_counts else None
+    tpg_summary = (
+        {"mean": tpg_full["mean"], "median": tpg_full["median"], "max": tpg_full["max"]}
+        if tpg_full is not None
+        else None
+    )
+
+    lengths = [r["length"] for r in records]
+    track_length = _distribution_summary(lengths) if lengths else None
+
+    return {
+        "n_tracklets": len(records),
+        "n_tracklets_matched": len(matched),
+        "mean_purity": round(mean_purity, 4) if mean_purity is not None else None,
+        "frac_impure": round(frac_impure, 4) if frac_impure is not None else None,
+        "total_mixed_seconds": total_mixed_seconds,
+        "tracklets_per_gt_player": {
+            "counts": dict(sorted(tracklets_per_gt.items())),
+            "summary": tpg_summary,
+        },
+        "track_length": track_length,
+    }
+
+
+def _distribution_summary(values: list[int]) -> dict:
+    """min/p25/median/p75/max/mean via numpy's standard linear-interpolation
+    percentile (same convention `np.percentile` uses) -- not a custom
+    nearest-rank scheme, so hand-computed test values match a well-known
+    formula."""
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    return {
+        "min": min(values),
+        "p25": round(float(np.percentile(arr, 25)), 4),
+        "median": round(float(np.percentile(arr, 50)), 4),
+        "p75": round(float(np.percentile(arr, 75)), 4),
+        "max": max(values),
+        "mean": round(float(arr.mean()), 4),
+    }
+
+
 def headline_metrics(result: dict) -> dict[str, float | int | None]:
     """The few numbers worth a dashboard column / diff delta."""
     lv = result["levels"]
@@ -260,6 +458,9 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         heads["identity_coverage"] = round(identity["coverage"], 3)
         purity = identity["cluster_purity"]
         heads["cluster_purity"] = round(purity, 3) if purity is not None else None
+    tracklet_purity_post = result["purity"]["tracklet"]["post_filter"]
+    heads["tracklet_purity"] = tracklet_purity_post["mean_purity"]
+    heads["mixed_track_seconds"] = tracklet_purity_post["total_mixed_seconds"]
     return heads
 
 
