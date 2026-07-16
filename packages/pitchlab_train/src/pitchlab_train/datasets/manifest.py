@@ -107,11 +107,19 @@ def update_tier_manifest(
 
     combined_notes = existing_notes + [n for n in (notes or []) if n not in existing_notes]
 
+    # "created" means first-creation date, not last-write date: preserve the
+    # existing manifest's value verbatim on every subsequent write (a no-op
+    # re-ingest on a later day must not change it, or hash_dataset_manifest
+    # would produce different bytes for identical content and
+    # check_evaluation_set would refuse a legitimate comparison). Only a
+    # fresh file gets today's date.
+    created = existing.get("created") or date.today().isoformat()
+
     manifest = {
         "dataset": dataset,
         "tier": tier,
         "source_split": source_split,
-        "created": date.today().isoformat(),
+        "created": created,
         "sequences": _ordered_sequences(merged),
         "notes": combined_notes,
     }

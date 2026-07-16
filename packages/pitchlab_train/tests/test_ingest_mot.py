@@ -391,6 +391,48 @@ def test_manifest_output_is_byte_identical_across_identical_runs(env, tmp_path):
     assert content1 == content2
 
 
+def test_manifest_created_preserved_across_days_not_restamped(env, tmp_path):
+    """`created` means first-creation date, not last-write date: a no-op
+    (or content-changing) re-ingest on a later day must not restamp it, or
+    hash_dataset_manifest would produce different bytes for identical
+    content and check_evaluation_set would refuse a legitimate comparison."""
+    video_a, gt_a = _touch_pair(tmp_path, "SEQ-A")
+    entries = [{"name": "SEQ-A", "video": str(video_a), "gt": str(gt_a), "role": "tuning"}]
+
+    manifest_path = update_tier_manifest(
+        tier="sportsmot", dataset="sportsmot", source_split="val", entries=entries
+    )
+    original_bytes = manifest_path.read_bytes()
+
+    # Simulate the manifest having been created on an earlier day: rewrite
+    # its "created" field on disk to a fixed past date.
+    on_disk = json.loads(manifest_path.read_text())
+    on_disk["created"] = "2020-01-01"
+    manifest_path.write_text(json.dumps(on_disk, sort_keys=True, indent=2) + "\n")
+    backdated_bytes = manifest_path.read_bytes()
+
+    # Re-running with identical content must reproduce the byte-identical
+    # (backdated) file -- "created" must not be restamped to today.
+    replayed_path = update_tier_manifest(
+        tier="sportsmot", dataset="sportsmot", source_split="val", entries=entries
+    )
+    assert replayed_path.read_bytes() == backdated_bytes
+
+    # Re-running with new content must update the sequences but still leave
+    # "created" at the backdated value.
+    video_b, gt_b = _touch_pair(tmp_path, "SEQ-B")
+    updated_path = update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[{"name": "SEQ-B", "video": str(video_b), "gt": str(gt_b), "role": "tuning"}],
+    )
+    updated = json.loads(updated_path.read_text())
+    assert updated["created"] == "2020-01-01"
+    assert {s["name"] for s in updated["sequences"]} == {"SEQ-A", "SEQ-B"}
+    assert original_bytes != backdated_bytes  # sanity: the backdate actually changed bytes
+
+
 # --- end-to-end scoreability (SPO-11 acceptance criterion) -------------------
 
 

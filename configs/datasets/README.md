@@ -28,7 +28,9 @@ Fields:
 - `tier` — short tier key; matches the manifest filename stem (`soccernet`, `sportsmot`,
   `soccertrack`).
 - `source_split` — the upstream dataset split the sequences were drawn from (e.g. `test`).
-- `created` — ISO date the manifest was last written/refreshed.
+- `created` — ISO date the manifest was first created. Preserved verbatim on every
+  subsequent write (a re-ingest that changes nothing must not change this field, or the
+  manifest's hash would drift for identical content).
 - `sequences` — one entry per registered sequence:
   - `name` — sequence identifier (matches the raw dataset directory name).
   - `video` — repo-relative path to the ingested, browser-playable `.mp4`

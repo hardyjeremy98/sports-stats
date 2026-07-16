@@ -58,7 +58,9 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
 ## Provenance and reproducibility
 
 - **Run provenance recorder** (SPO-10 part 1): every `manifest.json` written by
-  `PipelineRunner` carries an immutable `provenance` block — git revision (`-dirty`
+  `PipelineRunner` carries a `provenance` block that is append-only after run completion
+  (only `evaluation_set_hash`/`evaluation_set_source` are filled in later, in place, by the
+  GT auto-scoring hook — everything else is fixed when the run finishes) — git revision (`-dirty`
   suffixed on an unclean tree, `"unknown"` if git is unavailable), installed versions of
   `DEFAULT_PACKAGE_NAMES`, one `StageProvenance` (resolved params + a `ModelProvenance`
   list) per stage that actually ran, and `evaluation_set_hash`/`evaluation_set_source`.

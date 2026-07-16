@@ -107,9 +107,11 @@ class RunManifest(BaseModel):
     metrics: dict[str, float | int | str] = {}
     status: StageStatus = StageStatus.PENDING
     error: str | None = None
-    # Immutable provenance block (SPO-10): weights hashes, package versions,
-    # license/commercial-use status, git revision, eval-set identity — what a
-    # benchmark runner needs months later to refuse comparing mismatched runs.
+    # Append-only-after-run-completion provenance block (SPO-10): weights hashes, package
+    # versions, license/commercial-use status, git revision, eval-set identity — what a
+    # benchmark runner needs months later to refuse comparing mismatched runs. Only
+    # evaluation-set identity (evaluation_set_hash/evaluation_set_source) is filled in later,
+    # in place, by the server's GT auto-scoring hook -- everything else is fixed at write time.
     # Required-with-a-default so manifests written before this field existed
     # still parse (they simply get the all-"unknown" default).
     provenance: RunProvenance = Field(default_factory=RunProvenance)

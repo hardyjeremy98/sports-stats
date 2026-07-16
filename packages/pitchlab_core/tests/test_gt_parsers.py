@@ -286,6 +286,31 @@ def test_load_soccertrack_sequence_nan_cell_and_short_row(tmp_path):
     assert [f.frame_idx for f in ball.frames] == [0]
 
 
+def test_load_soccertrack_sequence_duplicate_group_raises(tmp_path):
+    """Two header groups naming the same (team_id, player_id) would silently
+    merge their frames into one track -- must fail loudly, naming the path
+    and the duplicate id pair, rather than merging."""
+    csv_path = tmp_path / "dup_group.csv"
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        # Two groups, both (team=0, player=0).
+        w.writerow(["", "0", "0", "0", "0", "0", "0", "0", "0"])
+        w.writerow(["", "0", "0", "0", "0", "0", "0", "0", "0"])
+        w.writerow(
+            [
+                "",
+                "bb_left", "bb_top", "bb_width", "bb_height",
+                "bb_left", "bb_top", "bb_width", "bb_height",
+            ]
+        )
+        w.writerow(["0", "10", "10", "20", "30", "50", "50", "20", "30"])
+    with pytest.raises(ValueError) as exc_info:
+        load_soccertrack_sequence(csv_path, fps=25.0, width=1920, height=1080)
+    msg = str(exc_info.value)
+    assert str(csv_path) in msg
+    assert "(0, 0)" in msg
+
+
 def test_load_soccertrack_sequence_player_id_out_of_range(tmp_path):
     """PlayerID 1000 for team_id=1 would collide with team_id=0, player_id=1000
     (or with team_id=1, player_id=0's own id space) under the deterministic

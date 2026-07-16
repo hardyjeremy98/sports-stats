@@ -277,7 +277,7 @@ def test_replay_cold_cache_raises_naming_key_frame_and_dir(tmp_path, monkeypatch
 
     msg = str(exc_info.value)
     assert expected_key in msg
-    assert "0" in msg  # frame_idx of the first (missed) frame
+    assert "frame_idx=0" in msg  # frame_idx of the first (missed) frame
     assert str(cache_dir) in msg
 
 

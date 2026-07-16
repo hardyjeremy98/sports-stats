@@ -144,74 +144,61 @@ class RoboflowDetector(Detector):
         )
         return DetectOutput(frames=frames_out, ball=ball)
 
-    def _detect_player(self, image, frame_idx: int) -> list[Detection]:
+    def _cached_infer(self, model, model_id: str, image, frame_idx: int, what: str):
+        """Cache get / replay-miss-raise / model-call / cache-put, shared by
+        the player path and the ball-tile slicer callback (`what` is
+        "player" or "ball tile", used only to identify the caller in the
+        replay-miss error message). Returns an `sv.Detections` either way,
+        so both callers can rely on `.xyxy`/`.confidence`/`.class_id`."""
+        import numpy as np
         import supervision as sv
 
         key = None
         if self._cache is not None:
-            key = cache_key(self.params.player_model_id, self.params.confidence, image)
+            key = cache_key(model_id, self.params.confidence, image)
             cached = self._cache.get(key)
             if cached is not None:
-                return _to_detections(cached.xyxy, cached.scores, cached.class_id)
+                return sv.Detections(
+                    xyxy=np.array(cached.xyxy, dtype=np.float64).reshape(-1, 4),
+                    confidence=np.array(cached.scores, dtype=np.float64),
+                    class_id=np.array(cached.class_id, dtype=np.int64),
+                )
             if self.params.cache_mode == "replay":
                 raise RuntimeError(
-                    f"Hosted-detection cache miss for key '{key}' (frame_idx={frame_idx}) "
-                    f"in replay mode; cache dir: {self._cache.dir}. Refusing to fall back "
-                    "to the network -- warm the cache with cache_mode=readwrite first."
+                    f"Hosted-detection cache miss for key '{key}' (frame_idx={frame_idx}, "
+                    f"what={what}) in replay mode; cache dir: {self._cache.dir}. Refusing "
+                    "to fall back to the network -- warm the cache with cache_mode=readwrite "
+                    "first."
                 )
 
-        result = self._player_model.infer(image, confidence=self.params.confidence)[0]
+        result = model.infer(image, confidence=self.params.confidence)[0]
         dets = sv.Detections.from_inference(result)
         if self._cache is not None:
             self._cache.put(
                 key,
                 {
-                    "model_id": self.params.player_model_id,
+                    "model_id": model_id,
                     "confidence": self.params.confidence,
                     "xyxy": [[float(v) for v in box] for box in dets.xyxy.tolist()],
                     "scores": [float(c) for c in dets.confidence.tolist()],
                     "class_id": [int(c) for c in dets.class_id.tolist()],
                 },
             )
+        return dets
+
+    def _detect_player(self, image, frame_idx: int) -> list[Detection]:
+        dets = self._cached_infer(
+            self._player_model, self.params.player_model_id, image, frame_idx, "player"
+        )
         return _to_detections(dets.xyxy, dets.confidence, dets.class_id)
 
     def _detect_ball_tiled(self, image, frame_idx: int) -> list[Detection]:
-        import numpy as np
         import supervision as sv
 
         def callback(tile):
-            key = None
-            if self._cache is not None:
-                key = cache_key(self.params.ball_model_id, self.params.confidence, tile)
-                cached = self._cache.get(key)
-                if cached is not None:
-                    return sv.Detections(
-                        xyxy=np.array(cached.xyxy, dtype=np.float64).reshape(-1, 4),
-                        confidence=np.array(cached.scores, dtype=np.float64),
-                        class_id=np.array(cached.class_id, dtype=np.int64),
-                    )
-                if self.params.cache_mode == "replay":
-                    raise RuntimeError(
-                        f"Hosted-detection cache miss for key '{key}' (frame_idx={frame_idx}, "
-                        "ball tile) in replay mode; cache dir: "
-                        f"{self._cache.dir}. Refusing to fall back to the network -- warm "
-                        "the cache with cache_mode=readwrite first."
-                    )
-
-            result = self._ball_model.infer(tile, confidence=self.params.confidence)[0]
-            dets = sv.Detections.from_inference(result)
-            if self._cache is not None:
-                self._cache.put(
-                    key,
-                    {
-                        "model_id": self.params.ball_model_id,
-                        "confidence": self.params.confidence,
-                        "xyxy": [[float(v) for v in box] for box in dets.xyxy.tolist()],
-                        "scores": [float(c) for c in dets.confidence.tolist()],
-                        "class_id": [int(c) for c in dets.class_id.tolist()],
-                    },
-                )
-            return dets
+            return self._cached_infer(
+                self._ball_model, self.params.ball_model_id, tile, frame_idx, "ball tile"
+            )
 
         slicer = sv.InferenceSlicer(callback=callback, slice_wh=(640, 640))
         dets = slicer(image).with_nms(threshold=0.1)

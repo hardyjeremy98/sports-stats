@@ -180,7 +180,10 @@ def load_soccertrack_sequence(
     `team_id * 1000 + player_id` for players, and a fixed 9999 for the ball.
     Empty cells (player not visible that frame) emit no GroundTruthFrame;
     float parsing is NaN-safe (a cell group with any NaN value is treated as
-    empty, same as a blank cell).
+    empty, same as a blank cell). A (team_id, player_id) group with no valid
+    (non-empty, non-NaN) frames anywhere in the file is dropped entirely --
+    it is simply absent from the returned tracks, not emitted as a
+    GroundTruthTrack with an empty frames list.
     """
     csv_path = Path(csv_path)
     if not csv_path.is_file():
@@ -240,6 +243,15 @@ def load_soccertrack_sequence(
                 f"track_ids: {csv_path}"
             )
         groups.append((team_id, player_id))
+
+    duplicates = {g for g in groups if groups.count(g) > 1}
+    if duplicates:
+        raise ValueError(
+            f"SoccerTrack CSV header has duplicate (team_id, player_id) group(s) "
+            f"{sorted(duplicates)} -- each (team, player) must appear in exactly one "
+            f"4-column group, or their frames would be silently merged into one track: "
+            f"{csv_path}"
+        )
 
     frames_by_track: dict[int, list[GroundTruthFrame]] = {}
     track_meta: dict[int, tuple[str, str | None]] = {}

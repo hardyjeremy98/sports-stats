@@ -1,7 +1,10 @@
 # Run provenance (SPO-10)
 
-Every `manifest.json` written by `PipelineRunner` carries an immutable `provenance` block:
-what produced the run, so results stay comparable months later. This document is written
+Every `manifest.json` written by `PipelineRunner` carries a `provenance` block: what produced
+the run, so results stay comparable months later. The block is append-only after run
+completion -- only `evaluation_set_hash`/`evaluation_set_source` are filled in later, in
+place, by the GT auto-scoring hook (see [Refresh timing](#refresh-timing)); everything else
+is fixed when the run finishes. This document is written
 for implementers of the benchmark runner (SPO-17) and any future import adapter that needs
 to read or reason about this block — it is the consumer-facing contract, not an
 implementation walkthrough. Code: `packages/pitchlab_core/src/pitchlab_core/provenance.py`.
@@ -12,8 +15,13 @@ implementation walkthrough. Code: `packages/pitchlab_core/src/pitchlab_core/prov
 determine is the literal string `"unknown"` (or `null` for the small number of fields typed
 as optional — see below), never an absent key. This means:
 
-- A consumer can always safely read `manifest["provenance"]["git_revision"]` etc. without a
-  `KeyError`/`.get()` guard, on any manifest written by this system.
+- A consumer can safely read `manifest["provenance"]["git_revision"]` etc. without a
+  `KeyError`/`.get()` guard **for any manifest written since this feature landed, or read back
+  through pydantic** (`RunManifest.model_validate`, which fills in the all-`"unknown"` default
+  via `Field(default_factory=RunProvenance)` for older manifests missing the key). A manifest
+  served as raw JSON without that revalidation step (e.g. `pitchlab_server`'s
+  `GET /api/runs/{id}` today, which does a plain `json.loads`) may be a pre-feature manifest
+  with **no `provenance` key at all** -- guard for its absence there.
 - `"unknown"` is a real, meaningful value — it says "we could not determine this," not "we
   forgot to look." Treat two runs both reporting `"unknown"` for the same field as
   **not** proven identical on that axis; only equal *known* values are a positive match.

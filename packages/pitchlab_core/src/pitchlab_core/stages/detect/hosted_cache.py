@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -111,6 +112,10 @@ class HostedDetectionCache:
         threshold), `xyxy`, `scores`, `class_id` -- the post-conversion
         detection arrays plus the header fields identifying what produced
         them. `cached_at` and `schema` are stamped here, not by the caller.
+
+        Writes atomically (temp file in the same directory, then
+        `os.replace`) so a run killed mid-write can never leave a truncated
+        JSON file on disk that would poison a later replay.
         """
         self.dir.mkdir(parents=True, exist_ok=True)
         record = {
@@ -122,7 +127,10 @@ class HostedDetectionCache:
             "scores": payload["scores"],
             "class_id": payload["class_id"],
         }
-        self._path(key).write_text(json.dumps(record))
+        final_path = self._path(key)
+        tmp_path = final_path.with_suffix(f"{final_path.suffix}.tmp-{os.getpid()}")
+        tmp_path.write_text(json.dumps(record))
+        os.replace(tmp_path, final_path)
 
     def content_hash(self) -> str:
         """sha256 over the sorted set of (key, file-sha256) pairs -- the

@@ -234,7 +234,12 @@ export interface RunManifest {
   metrics: Record<string, number | string>;
   status: string;
   error: string | null;
-  provenance: RunProvenance;
+  // Optional because the server serves old manifests as raw JSON without
+  // pydantic revalidation (pitchlab_server/api/runs.py's `_detail`, a plain
+  // `json.loads`), so pre-provenance-feature manifests have no `provenance`
+  // key at all -- see the SPO-15 optional-`source` precedent on
+  // `TrackletFrame` above.
+  provenance?: RunProvenance;
 }
 
 // ---- Ground truth + evaluation (labelled benchmark clips) ----
