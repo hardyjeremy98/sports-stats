@@ -206,12 +206,12 @@ def _discover_min_track_length(manifest: dict) -> int | None:
     Two fallbacks, in order:
     1. `manifest.config.stages.track.params.min_length`, if the resolved
        config snapshot set it explicitly.
-    2. No shipped config (`configs/*.yaml`) sets `min_length` explicitly --
-       it's always the stage's pydantic default (5 for both `botsort` and
-       `iou`) -- so falling back straight to 0 here would silently report a
-       wrong threshold with no signal that anything was lost, exactly the
-       failure mode this program exists to police. Instead resolve the
-       registered track impl's `Params.min_length` default via
+    2. Configs written before SPO-15 and hand-built manifests may omit
+       `min_length`; shipped configs now state it explicitly. Falling
+       back straight to 0 here would silently report a wrong threshold
+       with no signal that anything was lost, exactly the failure mode this
+       program exists to police. Instead resolve the registered track
+       impl's `Params.min_length` default via
        `_resolve_track_min_length_default`.
 
     Returns `None` (not `0`) if neither works, e.g. the manifest has no
