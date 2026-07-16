@@ -1,0 +1,86 @@
+{
+  "created": "2026-07-16",
+  "dataset": "soccernet-tracking",
+  "notes": [
+    "SNMOT-116..123 used in July 2026 re-ID ablation sweeps and threshold calibration -> tuning only, never eligible for held-out promotion.",
+    "SNMOT-124..127 ingested 2026-07-16 specifically for this manifest via `pitchlab-train ingest-soccernet --split test --sequences SNMOT-124 SNMOT-125 SNMOT-126 SNMOT-127`; never referenced by any tuning config or experiment prior to ingest (verified: git grep -n \"SNMOT-1\" -- configs/ packages/pitchlab_train/) -> held_out.",
+    "held_out sequences must never be added to a tuning config, experiment YAML, or ablation sweep; if a held-out sequence is ever referenced by one, it must be re-classified as tuning and a fresh held-out set drawn.",
+    "45 additional raw test sequences (SNMOT-128..150, SNMOT-187..200) remain unused under data/soccernet/tracking/test/ and are available for future held-out expansion without needing a re-download."
+  ],
+  "sequences": [
+    {
+      "gt": "data/videos/soccernet/SNMOT-116.gt.json",
+      "name": "SNMOT-116",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-116.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-117.gt.json",
+      "name": "SNMOT-117",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-117.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-118.gt.json",
+      "name": "SNMOT-118",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-118.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-119.gt.json",
+      "name": "SNMOT-119",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-119.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-120.gt.json",
+      "name": "SNMOT-120",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-120.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-121.gt.json",
+      "name": "SNMOT-121",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-121.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-122.gt.json",
+      "name": "SNMOT-122",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-122.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-123.gt.json",
+      "name": "SNMOT-123",
+      "role": "tuning",
+      "video": "data/videos/soccernet/SNMOT-123.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-124.gt.json",
+      "name": "SNMOT-124",
+      "role": "held_out",
+      "video": "data/videos/soccernet/SNMOT-124.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-125.gt.json",
+      "name": "SNMOT-125",
+      "role": "held_out",
+      "video": "data/videos/soccernet/SNMOT-125.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-126.gt.json",
+      "name": "SNMOT-126",
+      "role": "held_out",
+      "video": "data/videos/soccernet/SNMOT-126.mp4"
+    },
+    {
+      "gt": "data/videos/soccernet/SNMOT-127.gt.json",
+      "name": "SNMOT-127",
+      "role": "held_out",
+      "video": "data/videos/soccernet/SNMOT-127.mp4"
+    }
+  ],
+  "source_split": "test",
+  "tier": "soccernet"
+}
