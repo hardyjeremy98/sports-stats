@@ -79,9 +79,9 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   `hash_dataset_manifest` hash `json.dumps(json.loads(text), sort_keys=True,
   separators=(",", ":"))`, so formatting differences never change the hash but any semantic
   change always does; `check_evaluation_set` is a refusal primitive (raises, naming both
-  hashes and a context string, on mismatch) for a future benchmark runner (SPO-17, not
-  implemented) to call before aggregating two runs together — landing the primitive does
-  not itself gate any aggregation path yet. Consumer-facing schema doc: `docs/provenance.md`;
+  hashes and a context string, on mismatch) now used by the `benchmark` experiment's
+  evaluation-set-consistency gate (SPO-17 part 2, see Experiment tooling below) before
+  aggregating rows together. Consumer-facing schema doc: `docs/provenance.md`;
   `web/src/lib/types.ts` mirrors the schema by hand. No benchmark or comparison numbers
   depend on this yet — Phase 0 instrumentation.
   `packages/pitchlab_core/src/pitchlab_core/provenance.py`,
@@ -137,9 +137,10 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
     `check_evaluation_set` refusal primitive. Since no `players.json` is written, the
     semantic-identity evaluation layer is correctly skipped (stays `null`) when an imported
     run is scored — only the raw-tracklet MOT metrics apply.
-  - `reference_only` is recorded on the sidecar (and copied into `external_provenance.json`)
-    but nothing currently reads it to exclude a run from anything — enforcement is the
-    benchmark runner (SPO-17, not implemented; same caveat as `check_evaluation_set` above).
+  - `reference_only` is recorded on the sidecar (and copied into `external_provenance.json`);
+    enforcement is the benchmark runner's `ImportCandidate` validation (SPO-17 part 2, see
+    Experiment tooling below): a `reference_only: true` import is refused outright if its
+    `comparison_class` is `"matched_data"`.
   - Tested (`packages/pitchlab_core/tests/test_exchange.py`): export row/ball-filter/sidecar/
     determinism/missing-input cases; import fixture parsing, all refusal paths above
     (parametrized over each required sidecar field), and a hash-mismatch case; an
@@ -330,6 +331,37 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   aggregation of every completed, GT-scored run into a config × video mean/range matrix — the
   batch-GT-metrics aggregation that `eval-pipelines` doesn't do (see limitation below), surfaced
   in the Lab at `/lab/benchmark`.
+- `pitchlab-train run` `benchmark` experiment (SPO-17, `pitchlab_train/experiments/
+  benchmark.py`): the PRD's decision-making backbone — a parallel system to `GET
+  /api/benchmark` above, by design (no `pitchlab_server`/DB imports, offline-first). Loads a
+  `configs/datasets/<tier>.json` manifest, expands a candidate matrix (pipeline candidates:
+  a config path + dotted-path overrides + parameter sweeps; import candidates: sequence name
+  → an `exchange.import_mot_tracklets` run dir), runs/scores each candidate over each
+  selected sequence, and emits one provenance-stamped row per (candidate, sequence). Rows
+  then pass three pure gates before any aggregate is computed — missing provenance (empty
+  `git_revision`/`stage_impls`), provenance inconsistency within one candidate's rows
+  (differing `stage_impls` or model identity set across its sequences), and evaluation-set
+  hash mismatch across candidates scoring the same sequence — each a loud `RuntimeError`
+  naming the offending run_id(s)/candidate/hashes (`check_evaluation_set`-style); a candidate
+  whose config or import provenance is invalid refuses at expansion, before any run/score
+  happens. Surviving rows fold into `summary.tables = {"matched_data": {...}, "as_published":
+  {...}}` (mean/median per headline metric, `n_sequences`, a `by_role` sub-breakdown when a
+  candidate has both `tuning` and `held_out` rows; zero completed rows still produces an
+  entry with `n_sequences: 0, metrics: None` — never omitted) — the two tables are never
+  merged, and an `ImportCandidate` with `reference_only: true` is refused outright if it
+  names `comparison_class: "matched_data"` (a reference-only external system can never enter
+  a shipping comparison). An optional `Params.compare = {baseline: <matched_data candidate>}`
+  plus `Params.tolerances` (pre-registered per gate issue, never a hardcoded default in code)
+  produces `summary.comparison.verdicts`: per other matched_data candidate, per tolerance
+  metric, `"improved"`/`"regressed"`/`"within_tolerance"` (a small `LOWER_IS_BETTER` set —
+  `idsw_tracklet`, `idsw_entity`, `mixed_track_seconds`, `detection_miss_burst_p95` — inverts
+  the delta sign) or `"unavailable"` when the metric never got a headline value. Covered by a
+  PRD-mandated golden integration suite (`tests/test_benchmark_golden.py`): one end-to-end run
+  (2 rendered clips, 2 pipeline candidates, 1 import candidate) asserting exact row shape,
+  table separation/disjointness, import-row confinement to `as_published`, and deterministic
+  tolerance verdicts derived from that run's own measured deltas — plus refusal-path unit
+  tests (`tests/test_benchmark_task9.py`) on the pure gate/aggregation/comparison functions.
+  No benchmark numbers yet — the pre-registered gate thresholds this feeds are a later phase.
 
 ### Limitations
 
