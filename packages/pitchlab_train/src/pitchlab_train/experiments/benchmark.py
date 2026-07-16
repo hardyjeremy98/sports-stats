@@ -127,6 +127,11 @@ class BenchmarkExperiment(Experiment):
             # mirroring reid_ablation.py's per-variant config reuse.
             config = _load_pipeline_config(candidate)
             for seq in sequences:
+                # Sweep-derived candidate names contain "@"/"=" (e.g.
+                # "base@max_age_frames=10") -- both are legal path
+                # characters on every filesystem this project targets, so
+                # they're kept as-is rather than sanitized; run_dir below
+                # becomes a real, readable directory name.
                 run_id = f"{candidate.name}-{seq.name}"
                 run_dir = workdir / "runs" / run_id
                 runner = PipelineRunner(
