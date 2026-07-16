@@ -372,6 +372,7 @@ def test_aggregate_candidate_rows_mean_median():
     agg = _aggregate_candidate_rows("cand-a", "matched_data", rows)
     assert agg["n_sequences"] == 2
     assert agg["metrics"]["idf1_entity"] == {"mean": 0.5, "median": 0.5}
+    assert agg["sequences"] == ["seq-1", "seq-2"]
 
 
 def test_aggregate_candidate_rows_skips_none_metric_values():
@@ -385,7 +386,7 @@ def test_aggregate_candidate_rows_skips_none_metric_values():
 
 def test_aggregate_candidate_rows_zero_completed_rows_null_metrics():
     agg = _aggregate_candidate_rows("cand-a", "matched_data", [])
-    assert agg == {"n_sequences": 0, "metrics": None}
+    assert agg == {"n_sequences": 0, "metrics": None, "sequences": []}
 
 
 def test_aggregate_candidate_rows_ignores_other_candidates_rows():
@@ -435,7 +436,7 @@ def test_build_tables_separates_matched_and_as_published():
 def test_build_tables_includes_zero_row_candidates():
     matched = PipelineCandidate(name="cand-a", config=STUB_CONFIG, comparison_class="matched_data")
     tables = _build_tables([matched], [])
-    assert tables["matched_data"]["cand-a"] == {"n_sequences": 0, "metrics": None}
+    assert tables["matched_data"]["cand-a"] == {"n_sequences": 0, "metrics": None, "sequences": []}
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +444,12 @@ def test_build_tables_includes_zero_row_candidates():
 # ---------------------------------------------------------------------------
 
 
-def _table_agg(mean: float) -> dict:
-    return {"n_sequences": 1, "metrics": {"idf1_entity": {"mean": mean, "median": mean}}}
+def _table_agg(mean: float, sequences: tuple[str, ...] = ("seq-1",)) -> dict:
+    return {
+        "n_sequences": len(sequences),
+        "metrics": {"idf1_entity": {"mean": mean, "median": mean}},
+        "sequences": list(sequences),
+    }
 
 
 def test_lower_is_better_set_contents():
@@ -496,7 +501,11 @@ def test_compute_comparison_lower_is_better_inverted():
     'regressed'."""
 
     def agg(mean):
-        return {"n_sequences": 1, "metrics": {"idsw_entity": {"mean": mean, "median": mean}}}
+        return {
+            "n_sequences": 1,
+            "metrics": {"idsw_entity": {"mean": mean, "median": mean}},
+            "sequences": ["seq-1"],
+        }
 
     tables = {"matched_data": {"base": agg(5.0), "cand": agg(1.0)}, "as_published": {}}
     result = _compute_comparison(Compare(baseline="base"), {"idsw_entity": 0.5}, tables)
@@ -507,7 +516,11 @@ def test_compute_comparison_lower_is_better_inverted():
 
 def test_compute_comparison_lower_is_better_regressed():
     def agg(mean):
-        return {"n_sequences": 1, "metrics": {"idsw_entity": {"mean": mean, "median": mean}}}
+        return {
+            "n_sequences": 1,
+            "metrics": {"idsw_entity": {"mean": mean, "median": mean}},
+            "sequences": ["seq-1"],
+        }
 
     tables = {"matched_data": {"base": agg(1.0), "cand": agg(5.0)}, "as_published": {}}
     result = _compute_comparison(Compare(baseline="base"), {"idsw_entity": 0.5}, tables)
@@ -525,14 +538,80 @@ def test_compute_comparison_metric_absent_from_aggregate_unavailable():
     assert v == {"delta": None, "verdict": "unavailable"}
 
 
-def test_compute_comparison_metric_absent_because_zero_rows_unavailable():
+def test_compute_comparison_zero_rows_candidate_is_sequence_set_mismatch():
+    """A candidate with zero completed rows has an empty `sequences` set,
+    which differs from any non-empty baseline set -- this is a sequence-set
+    mismatch (not a bare 'metric absent'), since comparing an empty-set mean
+    (None) against the baseline's real mean would otherwise be misleading
+    about *why* nothing is available."""
     tables = {
-        "matched_data": {"base": _table_agg(0.5), "cand": {"n_sequences": 0, "metrics": None}},
+        "matched_data": {
+            "base": _table_agg(0.5),
+            "cand": {"n_sequences": 0, "metrics": None, "sequences": []},
+        },
         "as_published": {},
     }
     result = _compute_comparison(Compare(baseline="base"), {"idf1_entity": 0.02}, tables)
     v = result["verdicts"]["cand"]["idf1_entity"]
-    assert v == {"delta": None, "verdict": "unavailable"}
+    assert v["delta"] is None
+    assert v["verdict"] == "sequence_set_mismatch"
+    assert v["baseline_sequences"] == ["seq-1"]
+    assert v["candidate_sequences"] == []
+    assert v["missing_from_candidate"] == ["seq-1"]
+
+
+def test_compute_comparison_sequence_set_mismatch_replaces_all_metric_verdicts():
+    """The PRD-mandated fix: baseline and candidate completed DIFFERENT
+    sequence sets (e.g. the candidate failed on one sequence the baseline
+    completed, and covered another the baseline didn't) -- every tolerance
+    metric for that candidate must verdict 'sequence_set_mismatch' with a
+    null delta, never a silently-unsound numeric improved/regressed/
+    within_tolerance verdict."""
+    base_agg = {
+        "n_sequences": 2,
+        "metrics": {
+            "idf1_entity": {"mean": 0.5, "median": 0.5},
+            "idsw_entity": {"mean": 2.0, "median": 2.0},
+        },
+        "sequences": ["seq-1", "seq-2"],
+    }
+    cand_agg = {
+        "n_sequences": 2,
+        "metrics": {
+            "idf1_entity": {"mean": 0.6, "median": 0.6},
+            "idsw_entity": {"mean": 1.0, "median": 1.0},
+        },
+        "sequences": ["seq-1", "seq-3"],
+    }
+    tables = {"matched_data": {"base": base_agg, "cand": cand_agg}, "as_published": {}}
+    result = _compute_comparison(
+        Compare(baseline="base"), {"idf1_entity": 0.02, "idsw_entity": 0.5}, tables
+    )
+    verdicts = result["verdicts"]["cand"]
+    for metric in ("idf1_entity", "idsw_entity"):
+        assert verdicts[metric]["verdict"] == "sequence_set_mismatch"
+        assert verdicts[metric]["delta"] is None
+        assert verdicts[metric]["baseline_sequences"] == ["seq-1", "seq-2"]
+        assert verdicts[metric]["candidate_sequences"] == ["seq-1", "seq-3"]
+        assert verdicts[metric]["missing_from_candidate"] == ["seq-2"]
+        assert verdicts[metric]["missing_from_baseline"] == ["seq-3"]
+
+
+def test_compute_comparison_matched_sequence_sets_unchanged_behavior():
+    """When baseline and candidate completed the SAME sequence set, behavior
+    is unchanged: a normal numeric delta/verdict, no mismatch fields."""
+    tables = {
+        "matched_data": {
+            "base": _table_agg(0.5, sequences=("seq-1", "seq-2")),
+            "cand": _table_agg(0.6, sequences=("seq-1", "seq-2")),
+        },
+        "as_published": {},
+    }
+    result = _compute_comparison(Compare(baseline="base"), {"idf1_entity": 0.02}, tables)
+    v = result["verdicts"]["cand"]["idf1_entity"]
+    assert set(v) == {"delta", "verdict"}
+    assert v["delta"] == pytest.approx(0.1)
+    assert v["verdict"] == "improved"
 
 
 def test_compute_comparison_never_includes_as_published_candidates():

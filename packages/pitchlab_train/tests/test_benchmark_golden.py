@@ -239,6 +239,29 @@ def test_golden_import_row_shape_and_metrics(probe_result):
     assert ext["license"] == {"code": "MIT", "weights": "unknown", "training_data": "unknown"}
 
 
+def test_golden_import_row_eval_path_is_workdir_relative(probe_result):
+    """eval_path for an import row follows the same workdir-relative
+    convention as native rows -- never an absolute path into the
+    externally-owned import dir."""
+    ext_row = next(r for r in probe_result["rows"] if r["candidate"] == "ext")
+    assert ext_row["eval_path"] == f"runs/{ext_row['run_id']}/eval.json"
+    assert not Path(ext_row["eval_path"]).is_absolute()
+
+
+def test_golden_import_dir_never_gets_eval_json(golden_fixture, probe_result):
+    """The import dir is externally owned and must stay read-only: scoring
+    an import candidate must never write eval.json (or anything else) into
+    it, no matter how many benchmark runs (this module runs several against
+    the same shared `golden_fixture` import dir) have scored it."""
+    _, _, import_run_dir = golden_fixture
+    assert not (import_run_dir / "eval.json").exists()
+    assert {p.name for p in import_run_dir.iterdir()} == {
+        "tracklets.json",
+        "manifest.json",
+        "external_provenance.json",
+    }
+
+
 def test_golden_tables_present_and_disjoint(probe_result):
     tables = probe_result["summary"]["tables"]
     assert set(tables) == {"matched_data", "as_published"}

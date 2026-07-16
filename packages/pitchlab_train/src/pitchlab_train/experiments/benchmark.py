@@ -86,13 +86,12 @@ class ImportCandidate(BaseModel):
     are both refused before any scoring happens (the PRD rule: reference-only
     systems can never silently enter a shipping comparison).
 
-    Caveat: scoring is the one exception to "never produces or owns that run
-    dir" -- `BenchmarkExperiment.run` writes/overwrites `eval.json` inside
-    this externally-owned import dir on every benchmark run that includes
-    it, same as it does for native pipeline run dirs. That file always
-    reflects only the LAST benchmark scoring pass (whatever GT and
-    `Params.iou_threshold` that pass used), not a durable per-import record
-    -- manifest.json and external_provenance.json remain untouched.
+    The import dir is never written to -- not manifest.json,
+    external_provenance.json, nor eval.json. Scoring reads `runs`' tracklets/
+    manifest from the import dir but writes the resulting eval.json into
+    THIS experiment's own workdir (`workdir/runs/<run_id>/eval.json`, same
+    convention `_row_from_run` uses for native pipeline rows), so the import
+    dir stays truly read-only across every benchmark run that includes it.
 
     `comparison_class` has no default (unlike PipelineCandidate's
     "matched_data") -- an import's table membership must be stated
@@ -201,7 +200,14 @@ class BenchmarkExperiment(Experiment):
                     evaluation_set_hash = hash_evaluation_set(gt_text)
                     gt = GroundTruth.model_validate_json(gt_text)
                     full_eval = evaluate_run(run_dir, gt, p.iou_threshold)
-                    eval_file = run_dir / "eval.json"
+                    # eval.json is written into THIS experiment's own workdir,
+                    # never into `run_dir` (the externally-owned import dir --
+                    # see ImportCandidate's docstring: that dir is never
+                    # written to), same workdir-relative eval_path convention
+                    # native rows use below.
+                    eval_run_dir = workdir / "runs" / run_id
+                    eval_run_dir.mkdir(parents=True, exist_ok=True)
+                    eval_file = eval_run_dir / "eval.json"
                     eval_file.write_text(json.dumps(full_eval))
 
                     row = _row_from_import(
@@ -212,7 +218,7 @@ class BenchmarkExperiment(Experiment):
                         raw_manifest,
                         ext_prov,
                         full_eval,
-                        str(eval_file),
+                        str(eval_file.relative_to(workdir)),
                         evaluation_set_hash,
                     )
                     rows.append(row)
@@ -799,10 +805,16 @@ def _aggregate_candidate_rows(candidate_name: str, comparison_class: str, rows: 
     recording, not a silently-missing row in the table)."""
     completed = [r for r in rows if r["candidate"] == candidate_name and r["status"] == "completed"]
     if not completed:
-        return {"n_sequences": 0, "metrics": None}
+        return {"n_sequences": 0, "metrics": None, "sequences": []}
     agg: dict = {
         "n_sequences": len(completed),
         "metrics": _aggregate_metric_block(completed),
+        # The completed sequence names this aggregate's means are actually
+        # computed over -- `_compute_comparison` compares this set against
+        # the baseline's before trusting a mean-vs-mean delta (a candidate
+        # that failed on/never ran some sequences the baseline completed
+        # would otherwise silently get an unsound numeric verdict).
+        "sequences": sorted({r["sequence"] for r in completed}),
     }
     roles = {r["role"] for r in completed}
     if len(roles) > 1:
@@ -852,12 +864,19 @@ def _compute_comparison(
     `compare.baseline`, per metric in `tolerances`, delta = candidate_mean -
     baseline_mean and a verdict (`_verdict`, LOWER_IS_BETTER-aware). A metric
     named in `tolerances` but absent from either aggregate (no headline value
-    ever recorded, or the candidate has zero completed rows) verdicts
-    "unavailable" with a null delta -- present, never omitted. Only
-    matched_data candidates are ever compared: as-published rows are
-    reference-only by definition, so the baseline must itself be
+    ever recorded) verdicts "unavailable" with a null delta -- present, never
+    omitted. Only matched_data candidates are ever compared: as-published
+    rows are reference-only by definition, so the baseline must itself be
     matched_data, and no as_published candidate ever appears in `verdicts`
-    -- no comparison across tables, ever. `None` when `compare` is unset."""
+    -- no comparison across tables, ever. `None` when `compare` is unset.
+
+    Mean-vs-mean is only sound when both means are computed over the SAME
+    completed sequences. If a candidate's aggregate `sequences` set differs
+    from the baseline's (a partial failure, a partial-coverage import
+    candidate, or zero completed rows), every metric for that candidate
+    verdicts "sequence_set_mismatch" instead -- naming both sets -- rather
+    than a silently-unsound numeric delta. This check runs before, and takes
+    priority over, the per-metric "unavailable" handling above."""
     if compare is None:
         return None
     baseline_name = compare.baseline
@@ -874,9 +893,22 @@ def _compute_comparison(
 
     baseline_agg = matched[baseline_name]
     baseline_metrics = baseline_agg["metrics"] or {}
+    baseline_sequences = set(baseline_agg.get("sequences") or [])
     verdicts: dict[str, dict[str, dict]] = {}
     for candidate_name, agg in matched.items():
         if candidate_name == baseline_name:
+            continue
+        candidate_sequences = set(agg.get("sequences") or [])
+        if candidate_sequences != baseline_sequences:
+            mismatch = {
+                "delta": None,
+                "verdict": "sequence_set_mismatch",
+                "baseline_sequences": sorted(baseline_sequences),
+                "candidate_sequences": sorted(candidate_sequences),
+                "missing_from_candidate": sorted(baseline_sequences - candidate_sequences),
+                "missing_from_baseline": sorted(candidate_sequences - baseline_sequences),
+            }
+            verdicts[candidate_name] = {metric: dict(mismatch) for metric in tolerances}
             continue
         candidate_metrics = agg["metrics"] or {}
         per_metric: dict[str, dict] = {}

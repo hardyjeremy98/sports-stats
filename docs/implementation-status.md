@@ -366,9 +366,12 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 ### Limitations
 
 - `eval-pipelines` aggregates artifact counts, not ground-truth identity metrics — `GET
-  /api/benchmark` covers batch GT-metric aggregation for runs already in the run table, but
-  there is still no CLI experiment that launches a sweep and scores it against GT directly.
-- There is no parameter-sweep or repeated-seed experiment.
+  /api/benchmark` covers batch GT-metric aggregation for runs already in the run table.
+  Launching a sweep and scoring it against GT directly is now covered by the `benchmark`
+  experiment (SPO-17, documented above), not by `eval-pipelines`.
+- There is no repeated-seed experiment — the `benchmark` experiment's candidate/sweep
+  expansion is deterministic (one row per candidate × sequence), so run-to-run variance from
+  re-running the same candidate isn't measured.
 - Pipeline stages do not share persisted identity embeddings.
 - Model and weight provenance are not consistently represented as first-class run metadata.
 - The CLI pipeline path does not automatically score against ground truth.

@@ -162,7 +162,10 @@ class ExternalProvenance(BaseModel):
     required, not defaulted -- a caller must state them explicitly (even
     "unknown" per axis) so a provenance-less external result can never enter
     a run directory, and `reference_only` is the flag that keeps reference
-    systems out of shipping comparisons (SPO-17, out of scope here)."""
+    systems out of shipping comparisons -- enforced at benchmark-candidate
+    expansion time by `pitchlab_train.experiments.benchmark
+    ._validate_import_candidate` (SPO-17), which refuses a `reference_only`
+    import outright if it names `comparison_class: "matched_data"`."""
 
     system: str  # e.g. "TDLP" -- required, no default.
     variant: str = "unknown"  # e.g. "bbox-only"

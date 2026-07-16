@@ -28,7 +28,7 @@ params:
   sweeps:
     - candidate: oracle-iou-baseline
       param: stages.track.params.max_age_frames
-      values: [10, 20]
+      values: [10, 40]
   device: cuda
   iou_threshold: 0.5
   # Pre-registered per gate issue (e.g. "no metric may regress by more than
