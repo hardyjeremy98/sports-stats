@@ -12,7 +12,7 @@ from pitchlab_core.stages.calibrate import (  # noqa: F401
     static,
     yolo_pitch_local,
 )
-from pitchlab_core.stages.detect import roboflow, synthetic, yolo_local  # noqa: F401
+from pitchlab_core.stages.detect import oracle, roboflow, synthetic, yolo_local  # noqa: F401
 from pitchlab_core.stages.events import possession, spotting_stub  # noqa: F401
 from pitchlab_core.stages.fuse import minimap  # noqa: F401
 from pitchlab_core.stages.identity import face, none  # noqa: F401

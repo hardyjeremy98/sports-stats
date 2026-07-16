@@ -1,0 +1,48 @@
+# Tracker-ceiling experiment: GT boxes stand in for the detector so tracker/
+# association failures can be measured with detection quality held perfect.
+# Otherwise identical to pipeline.stub.yaml -- this is a runnable harness
+# config, not a production recipe. Point at any GT-backed video (sibling
+# `<video>.gt.json`, e.g. one ingested via `pitchlab-train ingest-soccernet`).
+name: oracle-eval
+description: Oracle (GT-box) detector + IoU tracker + kit-color teams + static camera, for tracker-ceiling analysis.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
