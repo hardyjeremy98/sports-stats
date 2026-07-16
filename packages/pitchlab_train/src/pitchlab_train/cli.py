@@ -60,6 +60,21 @@ def main() -> int:
         help="Include ball detections (excluded by default -- external MOT trackers track persons)",
     )
 
+    it_p = sub.add_parser(
+        "import-tracklets",
+        help="Import an external tracker's MOT output as a scoreable run directory",
+    )
+    it_p.add_argument("--mot", required=True, help="MOT-format tracklet file")
+    it_p.add_argument("--sidecar", required=True, help="ExternalProvenance sidecar JSON")
+    it_p.add_argument("--out", required=True, help="Output run directory")
+    it_p.add_argument("--fps", type=float, required=True, help="Video fps")
+    it_p.add_argument("--frame-count", type=int, required=True, help="Video frame count")
+    it_p.add_argument("--sample-stride", type=int, default=1, help="Video sample stride")
+    it_p.add_argument(
+        "--frozen-detections", default=None,
+        help="Frozen-detections export dir to cross-check the sidecar's det.txt hash against",
+    )
+
     st_p = sub.add_parser(
         "ingest-soccertrack",
         help="Register SoccerTrack sequences as Lab videos with ground truth",
@@ -109,6 +124,23 @@ def main() -> int:
         det_txt_hash = sha256_file(out_dir / "det.txt")
         print(f"exported to {out_dir}")
         print(f"det.txt sha256: {det_txt_hash}")
+        return 0
+
+    if args.command == "import-tracklets":
+        from pitchlab_core.exchange import import_mot_tracklets
+
+        out_dir = import_mot_tracklets(
+            args.mot,
+            args.sidecar,
+            args.out,
+            fps=args.fps,
+            frame_count=args.frame_count,
+            sample_stride=args.sample_stride,
+            frozen_detections_dir=args.frozen_detections,
+        )
+        n_tracklets = len(json.loads((out_dir / "tracklets.json").read_text()))
+        print(f"imported to {out_dir}")
+        print(f"{n_tracklets} tracklets")
         return 0
 
     if args.command == "ingest-soccernet":
