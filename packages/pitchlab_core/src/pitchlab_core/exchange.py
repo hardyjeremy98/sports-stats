@@ -84,7 +84,10 @@ def export_frozen_detections(
     if not manifest_path.exists():
         raise FileNotFoundError(f"No manifest.json found at {manifest_path}")
 
-    manifest = json.loads(manifest_path.read_text())
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"manifest.json at {manifest_path} is not valid JSON: {exc}") from exc
 
     include_set = set(include_classes)
     # (mot_frame, x, y, w, h, conf) in input order; sorted by mot_frame below.
@@ -224,6 +227,25 @@ def _parse_mot_tracklets(mot_path: Path) -> list[Tracklet]:
                 f"Malformed MOT row in {mot_path}, row {lineno}: {line!r}"
             ) from exc
 
+        if frame < 1:
+            raise ValueError(
+                f"Invalid MOT row in {mot_path}, row {lineno}: {line!r} "
+                f"(frame={frame} must be >= 1 -- MOT frames are 1-based; a "
+                "0-based external file would silently shift every frame_idx)"
+            )
+        if track_id < 0:
+            raise ValueError(
+                f"Invalid MOT row in {mot_path}, row {lineno}: {line!r} "
+                f"(track_id={track_id} must be >= 0 -- negative ids look like "
+                "det.txt imported by mistake, which uses id=-1 for every row)"
+            )
+        if w <= 0 or h <= 0:
+            raise ValueError(
+                f"Invalid MOT row in {mot_path}, row {lineno}: {line!r} "
+                f"(w={w}, h={h} must both be positive -- an inverted or "
+                "degenerate box)"
+            )
+
         frame_idx = frame - 1
         key = (track_id, frame_idx)
         if key in seen:
@@ -299,13 +321,20 @@ def import_mot_tracklets(
             raise FileNotFoundError(
                 f"No detections_provenance.json found at {frozen_prov_path}"
             )
-        frozen_prov = json.loads(frozen_prov_path.read_text())
-        if sidecar.frozen_detections_sha256 is not None:
-            check_evaluation_set(
-                sidecar.frozen_detections_sha256,
-                frozen_prov.get("det_txt_sha256", "unknown"),
-                context=f"frozen-detections check for import of {mot_path}",
+        if sidecar.frozen_detections_sha256 is None:
+            raise RuntimeError(
+                f"frozen_detections_dir={frozen_detections_dir} was given but the "
+                f"provenance sidecar {sidecar_path} has no frozen_detections_sha256: "
+                "passing --frozen-detections explicitly requests hash verification, "
+                "so a sidecar that cannot state what it consumed cannot be silently "
+                "accepted."
             )
+        frozen_prov = json.loads(frozen_prov_path.read_text())
+        check_evaluation_set(
+            sidecar.frozen_detections_sha256,
+            frozen_prov.get("det_txt_sha256", "unknown"),
+            context=f"frozen-detections check for import of {mot_path}",
+        )
 
     out_run_dir.mkdir(parents=True, exist_ok=True)
 

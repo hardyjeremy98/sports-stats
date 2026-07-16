@@ -218,8 +218,23 @@ def test_export_frozen_detections_corrupt_jsonl_line(tmp_path):
     with pytest.raises(ValueError) as exc_info:
         export_frozen_detections(run_dir, tmp_path / "out")
     msg = str(exc_info.value)
-    assert "detections.jsonl" in msg
-    assert "2" in msg  # line number of the corrupt row
+    # Path + line number, unambiguously -- matches the importer's "row N" style.
+    assert f"{run_dir / 'detections.jsonl'}:2:" in msg
+
+
+def test_export_frozen_detections_corrupt_manifest(tmp_path):
+    from pitchlab_core.exchange import export_frozen_detections
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    manifest_path = run_dir / "manifest.json"
+    manifest_path.write_text("not valid json {")
+    (run_dir / "detections.jsonl").write_text("")
+
+    with pytest.raises(ValueError) as exc_info:
+        export_frozen_detections(run_dir, tmp_path / "out")
+    msg = str(exc_info.value)
+    assert str(manifest_path) in msg
 
 
 # --- MOT importer (SPO-18 part 2) -------------------------------------------
@@ -427,6 +442,62 @@ def test_import_mot_tracklets_malformed_row(tmp_path):
     assert "row 2" in msg  # line number of the malformed row, unambiguously
 
 
+def test_import_mot_tracklets_zero_based_frame_rejected(tmp_path):
+    """frame < 1 refused loudly: a 0-based external file would silently
+    shift every frame_idx and depress scores rather than erroring."""
+    from pitchlab_core.exchange import import_mot_tracklets
+
+    mot_path = _write_mot_file(
+        tmp_path / "mot.txt", ["1,1,0,0,10,10,0.9", "0,2,5,5,10,10,0.8"]
+    )
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")
+
+    with pytest.raises(ValueError) as exc_info:
+        import_mot_tracklets(
+            mot_path, sidecar_path, tmp_path / "out", fps=25.0, frame_count=1
+        )
+    msg = str(exc_info.value)
+    assert str(mot_path) in msg
+    assert "row 2" in msg
+
+
+def test_import_mot_tracklets_negative_track_id_rejected(tmp_path):
+    """track_id < 0 refused loudly: catches det.txt (id=-1 for every row)
+    imported by mistake in place of a tracker's MOT output."""
+    from pitchlab_core.exchange import import_mot_tracklets
+
+    mot_path = _write_mot_file(
+        tmp_path / "mot.txt", ["1,1,0,0,10,10,0.9", "2,-1,5,5,10,10,0.8"]
+    )
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")
+
+    with pytest.raises(ValueError) as exc_info:
+        import_mot_tracklets(
+            mot_path, sidecar_path, tmp_path / "out", fps=25.0, frame_count=1
+        )
+    msg = str(exc_info.value)
+    assert str(mot_path) in msg
+    assert "row 2" in msg
+
+
+def test_import_mot_tracklets_nonpositive_box_dims_rejected(tmp_path):
+    """w <= 0 or h <= 0 refused loudly: an inverted or degenerate box."""
+    from pitchlab_core.exchange import import_mot_tracklets
+
+    mot_path = _write_mot_file(
+        tmp_path / "mot.txt", ["1,1,0,0,10,10,0.9", "2,2,5,5,0,10,0.8"]
+    )
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")
+
+    with pytest.raises(ValueError) as exc_info:
+        import_mot_tracklets(
+            mot_path, sidecar_path, tmp_path / "out", fps=25.0, frame_count=1
+        )
+    msg = str(exc_info.value)
+    assert str(mot_path) in msg
+    assert "row 2" in msg
+
+
 def test_import_mot_tracklets_duplicate_track_frame_row(tmp_path):
     from pitchlab_core.exchange import import_mot_tracklets
 
@@ -466,6 +537,29 @@ def test_import_mot_tracklets_frozen_hash_mismatch(tmp_path):
     msg = str(exc_info.value)
     assert "not-the-real-hash" in msg
     assert sha256_file(frozen_dir / "det.txt") in msg
+
+
+def test_import_mot_tracklets_frozen_dir_without_hash_raises(tmp_path):
+    """frozen_detections_dir given but the sidecar's frozen_detections_sha256
+    is None must refuse loudly -- passing --frozen-detections explicitly
+    requests verification, so a silent no-op would contradict the module's
+    no-silent-anything rule."""
+    from pitchlab_core.exchange import export_frozen_detections, import_mot_tracklets
+
+    run_dir = _write_run_dir(tmp_path)
+    frozen_dir = export_frozen_detections(run_dir, tmp_path / "frozen")
+
+    mot_path = _write_mot_file(tmp_path / "mot.txt", ["1,1,100,100,40,120,0.9"])
+    sidecar_path = _write_sidecar(tmp_path / "sidecar.json")  # frozen_detections_sha256 defaults to None
+
+    with pytest.raises(RuntimeError) as exc_info:
+        import_mot_tracklets(
+            mot_path, sidecar_path, tmp_path / "out",
+            fps=25.0, frame_count=10, sample_stride=2, frozen_detections_dir=frozen_dir,
+        )
+    msg = str(exc_info.value)
+    assert str(sidecar_path) in msg
+    assert "frozen_detections_sha256" in msg
 
 
 def test_import_mot_tracklets_round_trip(tmp_path):
