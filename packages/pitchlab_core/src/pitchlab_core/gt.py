@@ -119,9 +119,14 @@ def load_sportsmot_sequence(seq_dir: str | Path) -> GroundTruth:
         parts = line.strip().split(",")
         if len(parts) < 7:
             continue
-        frame, tid = int(parts[0]), int(parts[1])
-        x, y, w, h = (float(v) for v in parts[2:6])
-        conf = float(parts[6])
+        try:
+            frame, tid = int(parts[0]), int(parts[1])
+            x, y, w, h = (float(v) for v in parts[2:6])
+            conf = float(parts[6])
+        except ValueError as exc:
+            raise ValueError(
+                f"SportsMOT gt.txt row has a non-numeric field: {gt_path}: {line!r}"
+            ) from exc
         if conf == 0:
             continue
         frames_by_track.setdefault(tid, []).append(
@@ -147,8 +152,9 @@ def load_sportsmot_sequence(seq_dir: str | Path) -> GroundTruth:
 
 
 # SoccerTrack ball TeamID and the synthetic track_id assigned to it. Player
-# track_ids are `team_id * 1000 + player_id`, which never collides with this
-# since player team_ids are only ever 0 or 1 (max player track_id < 2000).
+# track_ids are `team_id * 1000 + player_id` (team_id in {0, 1});
+# load_soccertrack_sequence enforces player_id < 1000 in the header so these
+# can never collide with each other or with the fixed ball id below.
 _SOCCERTRACK_BALL_TEAM_ID = 3
 _SOCCERTRACK_BALL_TRACK_ID = 9999
 _SOCCERTRACK_ATTRS = ("bb_left", "bb_top", "bb_width", "bb_height")
@@ -173,7 +179,8 @@ def load_soccertrack_sequence(
     role="ball", team=None. track_id is deterministic and collision-free:
     `team_id * 1000 + player_id` for players, and a fixed 9999 for the ball.
     Empty cells (player not visible that frame) emit no GroundTruthFrame;
-    float parsing is NaN-safe (an all-NaN cell group is treated as empty).
+    float parsing is NaN-safe (a cell group with any NaN value is treated as
+    empty, same as a blank cell).
     """
     csv_path = Path(csv_path)
     if not csv_path.is_file():
@@ -226,6 +233,12 @@ def load_soccertrack_sequence(
                 f"SoccerTrack CSV header group {g} has unexpected TeamID {team_id} "
                 f"(expected 0, 1, or {_SOCCERTRACK_BALL_TEAM_ID} for ball): {csv_path}"
             )
+        if team_id in (0, 1) and not (0 <= player_id < 1000):
+            raise ValueError(
+                f"SoccerTrack CSV header group {g} has PlayerID {player_id} outside "
+                f"[0, 1000), required for collision-free team_id*1000+player_id "
+                f"track_ids: {csv_path}"
+            )
         groups.append((team_id, player_id))
 
     frames_by_track: dict[int, list[GroundTruthFrame]] = {}
@@ -235,7 +248,12 @@ def load_soccertrack_sequence(
         if not row or not row[0].strip():
             continue
         n_data_rows += 1
-        frame_idx = int(float(row[0]))
+        try:
+            frame_idx = int(float(row[0]))
+        except ValueError as exc:
+            raise ValueError(
+                f"SoccerTrack CSV row has a non-numeric frame number: {csv_path}: {row!r}"
+            ) from exc
         for g, (team_id, player_id) in enumerate(groups):
             base = 1 + g * 4
             cell = row[base : base + 4]

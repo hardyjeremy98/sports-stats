@@ -92,6 +92,23 @@ def test_load_sportsmot_sequence_missing_seqinfo(tmp_path):
     assert str(seq / "seqinfo.ini") in msg
 
 
+def test_load_sportsmot_sequence_malformed_row(tmp_path):
+    """A corrupt gt.txt row (non-numeric field) must fail loudly, naming the
+    gt.txt path and the offending row -- not a bare, contextless ValueError."""
+    seq = tmp_path / "SPT-004"
+    (seq / "gt").mkdir(parents=True)
+    (seq / "seqinfo.ini").write_text(
+        "[Sequence]\nname=SPT-004\nimDir=img1\nframeRate=30\nseqLength=1\n"
+        "imWidth=1280\nimHeight=720\nimExt=.jpg\n"
+    )
+    (seq / "gt" / "gt.txt").write_text("1,1,notanumber,60,30,90,1,-1,-1,-1")
+    with pytest.raises(ValueError) as exc_info:
+        load_sportsmot_sequence(seq)
+    msg = str(exc_info.value)
+    assert str(seq / "gt" / "gt.txt") in msg
+    assert "notanumber" in msg
+
+
 # --- SoccerTrack ---------------------------------------------------------
 #
 # 3-row header: TeamID / PlayerID / attribute name, each column-group of 4
@@ -194,3 +211,95 @@ def test_load_soccertrack_sequence_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError) as exc_info:
         load_soccertrack_sequence(csv_path, fps=25.0, width=1920, height=1080)
     assert str(csv_path) in str(exc_info.value)
+
+
+def test_load_soccertrack_sequence_non_numeric_frame_cell(tmp_path):
+    """A corrupt data row (non-numeric frame number) must fail loudly, naming
+    the CSV path and the offending row."""
+    csv_path = tmp_path / "bad_frame.csv"
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["", "0", "0", "0", "0"])
+        w.writerow(["", "0", "0", "0", "0"])
+        w.writerow(["", "bb_left", "bb_top", "bb_width", "bb_height"])
+        w.writerow(["notaframe", "10", "10", "20", "30"])
+    with pytest.raises(ValueError) as exc_info:
+        load_soccertrack_sequence(csv_path, fps=25.0, width=1920, height=1080)
+    msg = str(exc_info.value)
+    assert str(csv_path) in msg
+    assert "notaframe" in msg
+
+
+def test_load_soccertrack_sequence_nan_cell_and_short_row(tmp_path):
+    """Exercises two edge cases together: (1) a cell group whose 4 values are
+    literal "nan" -- the NaN-safe branch must treat it as absent, same as a
+    blank cell; (2) a data row shorter than the header declares (trailing
+    group entirely missing) -- the row-length guard must treat the missing
+    group as absent rather than raising an IndexError."""
+    csv_path = tmp_path / "nan_short.csv"
+    header_team = [""] + [str(team) for team, _ in _ST_GROUPS for _ in range(4)]
+    header_player = [""] + [str(player) for _, player in _ST_GROUPS for _ in range(4)]
+    header_attr = [""] + ["bb_left", "bb_top", "bb_width", "bb_height"] * len(_ST_GROUPS)
+
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header_team)
+        w.writerow(header_player)
+        w.writerow(header_attr)
+        # Frame 0: group1 (team0/player1) is all-NaN -> must be treated as absent.
+        w.writerow(
+            [
+                "0",
+                "10", "10", "20", "30",  # team0/player0
+                "nan", "nan", "nan", "nan",  # team0/player1 -- NaN
+                "300", "100", "40", "120",  # team1/player0
+                "400", "200", "40", "120",  # team1/player1
+                "500", "300", "10", "10",  # ball
+            ]
+        )
+        # Frame 1: row is short -- the trailing ball group's 4 columns are
+        # entirely absent from the row (fewer columns than the header).
+        w.writerow(
+            [
+                "1",
+                "12", "10", "20", "30",  # team0/player0
+                "104", "100", "40", "120",  # team0/player1
+                "302", "100", "40", "120",  # team1/player0
+                "402", "200", "40", "120",  # team1/player1
+                # ball group omitted entirely
+            ]
+        )
+
+    gt = load_soccertrack_sequence(csv_path, fps=25.0, width=1920, height=1080)
+    by_id = {t.track_id: t for t in gt.tracks}
+
+    # team0/player1 (track_id 1): frame 0 was all-NaN -> no frame there.
+    t_01 = by_id[1]
+    assert [f.frame_idx for f in t_01.frames] == [1]
+
+    # team0/player0 (track_id 0) has valid data on both frames.
+    t_00 = by_id[0]
+    assert [f.frame_idx for f in t_00.frames] == [0, 1]
+
+    # Ball (9999): present at frame 0; frame 1's row was too short to include it.
+    ball = by_id[9999]
+    assert [f.frame_idx for f in ball.frames] == [0]
+
+
+def test_load_soccertrack_sequence_player_id_out_of_range(tmp_path):
+    """PlayerID 1000 for team_id=1 would collide with team_id=0, player_id=1000
+    (or with team_id=1, player_id=0's own id space) under the deterministic
+    team_id*1000+player_id scheme -- must fail loudly rather than silently
+    assigning a colliding track_id."""
+    csv_path = tmp_path / "bad_player_id.csv"
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["", "0", "0", "0", "0"])
+        w.writerow(["", "1000", "1000", "1000", "1000"])
+        w.writerow(["", "bb_left", "bb_top", "bb_width", "bb_height"])
+        w.writerow(["0", "10", "10", "20", "30"])
+    with pytest.raises(ValueError) as exc_info:
+        load_soccertrack_sequence(csv_path, fps=25.0, width=1920, height=1080)
+    msg = str(exc_info.value)
+    assert str(csv_path) in msg
+    assert "1000" in msg
