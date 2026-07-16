@@ -5,7 +5,7 @@
     "SNMOT-116..123 used in July 2026 re-ID ablation sweeps and threshold calibration -> tuning only, never eligible for held-out promotion.",
     "SNMOT-124..127 ingested 2026-07-16 specifically for this manifest via `pitchlab-train ingest-soccernet --split test --sequences SNMOT-124 SNMOT-125 SNMOT-126 SNMOT-127`; never referenced by any tuning config or experiment prior to ingest (verified: git grep -n \"SNMOT-1\" -- configs/ packages/pitchlab_train/) -> held_out.",
     "held_out sequences must never be added to a tuning config, experiment YAML, or ablation sweep; if a held-out sequence is ever referenced by one, it must be re-classified as tuning and a fresh held-out set drawn.",
-    "45 additional raw test sequences (SNMOT-128..150, SNMOT-187..200) remain unused under data/soccernet/tracking/test/ and are available for future held-out expansion without needing a re-download."
+    "37 additional raw test sequences (SNMOT-128..150, SNMOT-187..200) remain unused under data/soccernet/tracking/test/ and are available for future held-out expansion without needing a re-download."
   ],
   "sequences": [
     {
