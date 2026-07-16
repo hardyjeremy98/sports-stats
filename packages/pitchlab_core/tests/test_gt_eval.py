@@ -812,13 +812,15 @@ def test_evaluate_run_min_track_length_explicit_override(tmp_path):
 
 
 def test_evaluate_run_discovers_min_track_length_from_stage_default(tmp_path):
-    """The realistic case: NO shipped config (configs/*.yaml) sets min_length
-    explicitly -- it's always left at the stage's pydantic default (5 for
-    both botsort and iou). If discovery silently fell back to 0 here, every
-    real run would report a wrong threshold with no signal that a 5-frame
-    filter actually ran -- exactly the silent-parameter-loss failure mode
-    this program exists to police. The manifest below has an `impl` but no
-    `min_length` key, mirroring every real manifest.config.stages.track."""
+    """The fallback path for manifests with no explicit min_length -- e.g.
+    older runs from before SPO-15 (shipped configs/*.yaml now state
+    min_length explicitly, but earlier ones left it at the stage's pydantic
+    default of 5 for both botsort and iou) or hand-written fixtures. If
+    discovery silently fell back to 0 here, such a run would report a wrong
+    threshold with no signal that a 5-frame filter actually ran -- exactly
+    the silent-parameter-loss failure mode this program exists to police.
+    The manifest below has an `impl` but no `min_length` key, mirroring a
+    pre-SPO-15 manifest.config.stages.track."""
     pytest.importorskip("motmetrics")
     from pitchlab_core.evaluation import evaluate_run
 

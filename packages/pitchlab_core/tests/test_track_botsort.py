@@ -1,4 +1,4 @@
-"""Tests for the BoT-SORT tracker wrapper (SPO-13, SPO-14).
+"""Tests for the BoT-SORT tracker wrapper (SPO-13, SPO-14, SPO-15).
 
 Covers:
 - the fail-loud replacement for the old silent zero-argument constructor
@@ -12,6 +12,10 @@ Covers:
   tracker that reorders and slightly perturbs boxes (simulating BoT-SORT's
   Kalman update + internal reordering) — exactly the scenario where
   nearest-centre matching swaps classes between close detections.
+- SPO-15: every `Params` field is settable from a YAML-shaped dict and
+  reaches the real tracker constructor call verbatim (round-trip test), and
+  `TrackletFrame.source` round-trips including the old (no-`source`-key)
+  artifact shape.
 """
 
 from __future__ import annotations
@@ -21,7 +25,8 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from pitchlab_core.schemas import Box, Detection, DetectionClass, FrameDetections, VideoMeta
-from pitchlab_core.stages.track.botsort import BotSortTracker, _construct_tracker
+from pitchlab_core.schemas.tracks import TrackletFrame
+from pitchlab_core.stages.track.botsort import BotSortTracker, Params, _construct_tracker
 
 _KWARGS = {
     "lost_track_buffer": 25,
@@ -352,3 +357,194 @@ def test_real_botsort_preserves_source_idx_through_update():
     assert len(tracked.tracker_id) == 2
     assert "source_idx" in tracked.data
     assert sorted(int(i) for i in tracked.data["source_idx"]) == [0, 1]
+
+
+# --- SPO-15: every Params field is YAML-drivable and reaches the tracker ---
+
+
+def test_all_params_reach_constructor_verbatim():
+    """Round-trip (SPO-15 decision 4): a YAML-shaped params dict with a
+    non-default value for EVERY `Params` field must reach the real BoT-SORT
+    constructor call verbatim, guarded by the fail-loud `_construct_tracker`.
+    `min_length` is the one field that never reaches the constructor (it's a
+    post-tracking length filter, not a tracker kwarg) so it's asserted
+    separately via tracklet-filtering behaviour instead.
+    """
+    trackers = pytest.importorskip("trackers")
+
+    yaml_params = {
+        "track_activation_threshold": 0.42,
+        "lost_track_buffer_s": 2.0,
+        "minimum_consecutive_frames": 7,
+        "min_length": 11,
+        "enable_cmc": False,
+        "minimum_iou_threshold_first_assoc": 0.11,
+        "minimum_iou_threshold_second_assoc": 0.22,
+        "minimum_iou_threshold_unconfirmed_assoc": 0.33,
+        "high_conf_det_threshold": 0.77,
+        "cmc_method": "ecc",
+        "cmc_downscale": 4,
+        "instant_first_frame_activation": False,
+        "state_estimator": "xyxy",
+    }
+    # Every Params field is covered by this dict — catches future fields
+    # added to Params without a matching entry here.
+    assert set(yaml_params) == set(Params.model_fields)
+
+    captured: dict = {}
+
+    class _FakeCapturingTracker:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def update(self, detections, frame=None):
+            import supervision as sv
+
+            return sv.Detections.empty()
+
+    stage = BotSortTracker(**yaml_params)
+    stage._tracker_cls = _FakeCapturingTracker
+    ctx = _ctx()  # fps=25.0, sample_stride=1 -> effective_fps=25.0
+
+    stage.track(ctx, [FrameDetections(frame_idx=0, t=0.0, detections=[])])
+
+    effective_fps = ctx.video.fps / max(1, ctx.config.video.sample_stride)
+    assert effective_fps == 25.0
+
+    # lost_track_buffer_s -> lost_track_buffer frame conversion, verbatim.
+    expected_buffer = max(1, int(yaml_params["lost_track_buffer_s"] * effective_fps))
+    assert captured["lost_track_buffer"] == expected_buffer == 50
+    assert captured["frame_rate"] == effective_fps
+
+    assert captured["track_activation_threshold"] == yaml_params["track_activation_threshold"]
+    assert captured["minimum_consecutive_frames"] == yaml_params["minimum_consecutive_frames"]
+    assert captured["enable_cmc"] == yaml_params["enable_cmc"]
+    assert (
+        captured["minimum_iou_threshold_first_assoc"]
+        == yaml_params["minimum_iou_threshold_first_assoc"]
+    )
+    assert (
+        captured["minimum_iou_threshold_second_assoc"]
+        == yaml_params["minimum_iou_threshold_second_assoc"]
+    )
+    assert (
+        captured["minimum_iou_threshold_unconfirmed_assoc"]
+        == yaml_params["minimum_iou_threshold_unconfirmed_assoc"]
+    )
+    assert captured["high_conf_det_threshold"] == yaml_params["high_conf_det_threshold"]
+    assert captured["cmc_method"] == yaml_params["cmc_method"]
+    assert captured["cmc_downscale"] == yaml_params["cmc_downscale"]
+    assert (
+        captured["instant_first_frame_activation"]
+        == yaml_params["instant_first_frame_activation"]
+    )
+    state_representations = trackers.utils.state_representations
+    assert captured["state_estimator_class"] is state_representations.XYXYStateEstimator
+
+
+def test_min_length_filters_short_tracklets_not_forwarded_to_constructor():
+    """`min_length` is a Params field but never a tracker constructor kwarg —
+    verify it still does its job (post-tracking length filter) so the
+    round-trip test's carve-out above isn't hiding a dropped parameter.
+
+    Frame 0 has two detections: one starts tracklet 0 (never seen again, so
+    it ends up length 1) and one starts tracklet 1 (matched again on every
+    later frame, ending up length 3). With min_length=2, tracklet 0 must be
+    dropped and tracklet 1 must survive.
+    """
+
+    class _FakeStatefulTracker:
+        def __init__(self, **_kwargs):
+            self._call = 0
+
+        def update(self, detections, frame=None):
+            import supervision as sv
+
+            n = len(detections)
+            result = sv.Detections(
+                xyxy=detections.xyxy.copy(),
+                confidence=detections.confidence,
+                class_id=detections.class_id,
+                data=dict(detections.data),
+            )
+            # Frame 0: two detections -> tracklets 0 and 1. Later frames: one
+            # detection, always matched to tracklet 1.
+            ids = [0, 1] if self._call == 0 else [1]
+            result.tracker_id = np.array(ids[:n], dtype=int)
+            self._call += 1
+            return result
+
+    stage = BotSortTracker(min_length=2, enable_cmc=False)
+    stage._tracker_cls = _FakeStatefulTracker
+
+    frames = [
+        FrameDetections(
+            frame_idx=0,
+            t=0.0,
+            detections=[
+                _det(10, 10, 30, 60, DetectionClass.PLAYER),
+                _det(100, 100, 130, 160, DetectionClass.PLAYER),
+            ],
+        ),
+        *[
+            FrameDetections(
+                frame_idx=i, t=float(i), detections=[_det(100, 100, 130, 160, DetectionClass.PLAYER)]
+            )
+            for i in (1, 2)
+        ],
+    ]
+    tracklets = {t.tracklet_id: t for t in stage.track(_ctx(), frames)}
+
+    assert 0 not in tracklets  # length-1 tracklet dropped by min_length=2
+    assert 1 in tracklets
+    assert len(tracklets[1].frames) == 3
+
+
+# --- SPO-15: TrackletFrame.source provenance ---
+
+
+def test_trackletframe_source_defaults_to_observed():
+    frame = TrackletFrame(frame_idx=0, box=Box(x1=0, y1=0, x2=1, y2=1), confidence=0.9)
+    assert frame.source == "observed"
+
+
+def test_trackletframe_source_round_trips():
+    frame = TrackletFrame(
+        frame_idx=0, box=Box(x1=0, y1=0, x2=1, y2=1), confidence=0.9, source="interpolated"
+    )
+    restored = TrackletFrame.model_validate_json(frame.model_dump_json())
+    assert restored.source == "interpolated"
+
+
+def test_trackletframe_old_shape_json_without_source_still_validates():
+    """Artifacts written by pre-SPO-15 code have no `source` key at all —
+    must still parse, defaulting to 'observed'."""
+    old_shape = '{"frame_idx": 3, "box": {"x1": 0, "y1": 0, "x2": 1, "y2": 1}, "confidence": 0.5}'
+    frame = TrackletFrame.model_validate_json(old_shape)
+    assert frame.source == "observed"
+
+
+def test_botsort_track_marks_frames_observed():
+    """Both trackers mark every emitted frame `source="observed"` explicitly
+    (SPO-15 design decision 1) — they only ever emit matched detections."""
+
+    class _FakeIdentityTracker:
+        def __init__(self, **_kwargs):
+            pass
+
+        def update(self, detections, frame=None):
+            idx = np.arange(len(detections))
+            result = detections[idx]
+            result.tracker_id = np.arange(len(detections), dtype=int)
+            return result
+
+    fd = FrameDetections(
+        frame_idx=0, t=0.0, detections=[_det(10, 10, 30, 60, DetectionClass.PLAYER)]
+    )
+    stage = BotSortTracker(min_length=1, enable_cmc=False)
+    stage._tracker_cls = _FakeIdentityTracker
+
+    tracklets = stage.track(_ctx(), [fd])
+
+    assert len(tracklets) == 1
+    assert all(f.source == "observed" for f in tracklets[0].frames)

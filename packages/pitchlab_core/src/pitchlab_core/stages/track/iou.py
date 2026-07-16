@@ -53,7 +53,12 @@ class _Track:
             self.vx = (det.box.center.x - prev.box.center.x) / dt
             self.vy = (det.box.center.y - prev.box.center.y) / dt
         self.frames.append(
-            TrackletFrame(frame_idx=frame_idx, box=det.box, confidence=det.confidence)
+            TrackletFrame(
+                frame_idx=frame_idx,
+                box=det.box,
+                confidence=det.confidence,
+                source="observed",
+            )
         )
         self.classes[det.cls] += 1
         self.missed = 0

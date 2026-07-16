@@ -35,6 +35,11 @@ export interface TrackletFrame {
   frame_idx: number;
   box: Box;
   confidence: number;
+  // Box provenance (SPO-15). Optional because artifacts written before this
+  // field existed have no `source` key at all; the pydantic side defaults
+  // missing/older data to "observed" but that default isn't visible here, so
+  // treat `undefined` as "observed" if you need a concrete value.
+  source?: "observed" | "predicted" | "interpolated";
 }
 
 export interface Tracklet {

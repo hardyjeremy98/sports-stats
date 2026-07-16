@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from pitchlab_core.schemas.detections import DetectionClass
@@ -10,6 +12,14 @@ class TrackletFrame(BaseModel):
     frame_idx: int
     box: Box
     confidence: float
+    # Where this box came from (SPO-15). Both shipped trackers (`botsort`,
+    # `iou`) only ever emit matched detections today, so they set this to
+    # "observed" for every frame explicitly -- the schema just makes that
+    # fact visible instead of implicit. "predicted"/"interpolated" are
+    # vocabulary for future smoothing/gap-filling stages (not implemented
+    # yet -- see docs/prds/tracklet-modernization.md). Defaulted so
+    # artifacts written by pre-SPO-15 code (no `source` key) still parse.
+    source: Literal["observed", "predicted", "interpolated"] = "observed"
 
 
 class Tracklet(BaseModel):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.metadata
 from collections import Counter, defaultdict
+from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel
@@ -38,13 +39,63 @@ _SOURCE_IDX_KEY = "source_idx"
 
 
 class Params(BaseModel):
-    track_activation_threshold: float = 0.25
+    # track_activation_threshold, minimum_consecutive_frames were already
+    # exposed pre-SPO-15 with defaults deliberately overriding the library's
+    # own (see values noted below); min_length is ours only (post-tracking
+    # length filter, never forwarded to the tracker constructor).
+    track_activation_threshold: float = 0.25   # library default: 0.7
     lost_track_buffer_s: float = 1.0    # converted to frames from video fps
-    minimum_consecutive_frames: int = 3
+    minimum_consecutive_frames: int = 3  # library default: 2
     min_length: int = 5
     # Camera-motion compensation — BoT-SORT's edge over ByteTrack on moving
     # phone footage. Needs pixel access (we pass frames to update()).
     enable_cmc: bool = True
+
+    # --- SPO-15: remaining `BoTSORTTracker.__init__` constructor kwargs,
+    # newly surfaced so parameter sweeps (SPO-22) can drive them from YAML.
+    # Defaults below are the library's own, copied verbatim from the
+    # installed `trackers==2.4.0` signature
+    # (trackers/core/botsort/tracker.py::BoTSORTTracker.__init__):
+    #
+    #   lost_track_buffer: int = 30, frame_rate: float = 30.0,
+    #   track_activation_threshold: float = 0.7, minimum_consecutive_frames: int = 2,
+    #   minimum_iou_threshold_first_assoc: float = 0.2,
+    #   minimum_iou_threshold_second_assoc: float = 0.5,
+    #   minimum_iou_threshold_unconfirmed_assoc: float = 0.3,
+    #   high_conf_det_threshold: float = 0.6, enable_cmc: bool = True,
+    #   cmc_method: Literal['orb','sift','sparseOptFlow','ecc'] = 'sparseOptFlow',
+    #   cmc_downscale: int = 2, instant_first_frame_activation: bool = True,
+    #   state_estimator_class: type[BaseStateEstimator] = XCYCWHStateEstimator.
+    minimum_iou_threshold_first_assoc: float = 0.2
+    minimum_iou_threshold_second_assoc: float = 0.5
+    minimum_iou_threshold_unconfirmed_assoc: float = 0.3
+    high_conf_det_threshold: float = 0.6
+    cmc_method: Literal["orb", "sift", "sparseOptFlow", "ecc"] = "sparseOptFlow"
+    cmc_downscale: int = 2
+    instant_first_frame_activation: bool = True
+    # Kalman-filter box-state parameterisation. Maps to one of `trackers`'
+    # `BaseStateEstimator` subclasses (trackers/utils/state_representations.py)
+    # via `_STATE_ESTIMATOR_CLASS_NAMES` below — the library accepts a class
+    # object, not a string, so this is a YAML-safe stand-in for the same
+    # accepted kwarg, not an invented parameter.
+    state_estimator: Literal["xcycwh", "xcycsr", "xyxy"] = "xcycwh"
+
+
+# Maps Params.state_estimator -> the trackers.utils.state_representations
+# class name accepted by BoTSORTTracker's `state_estimator_class` kwarg.
+# Resolved lazily in `track()` (import deferred like the rest of `trackers`).
+_STATE_ESTIMATOR_CLASS_NAMES = {
+    "xcycwh": "XCYCWHStateEstimator",
+    "xcycsr": "XCYCSRStateEstimator",
+    "xyxy": "XYXYStateEstimator",
+}
+
+
+def _resolve_state_estimator_class(name: str):
+    import trackers.utils.state_representations as state_representations
+
+    class_name = _STATE_ESTIMATOR_CLASS_NAMES[name]
+    return getattr(state_representations, class_name)
 
 
 @register(StageKind.TRACK, "botsort")
@@ -84,7 +135,17 @@ class BotSortTracker(Tracker):
                 "frame_rate": effective_fps,
                 "minimum_consecutive_frames": p.minimum_consecutive_frames,
                 "track_activation_threshold": p.track_activation_threshold,
+                "minimum_iou_threshold_first_assoc": p.minimum_iou_threshold_first_assoc,
+                "minimum_iou_threshold_second_assoc": p.minimum_iou_threshold_second_assoc,
+                "minimum_iou_threshold_unconfirmed_assoc": (
+                    p.minimum_iou_threshold_unconfirmed_assoc
+                ),
+                "high_conf_det_threshold": p.high_conf_det_threshold,
                 "enable_cmc": p.enable_cmc,
+                "cmc_method": p.cmc_method,
+                "cmc_downscale": p.cmc_downscale,
+                "instant_first_frame_activation": p.instant_first_frame_activation,
+                "state_estimator_class": _resolve_state_estimator_class(p.state_estimator),
             },
         )
 
@@ -165,6 +226,7 @@ class BotSortTracker(Tracker):
                         frame_idx=fd.frame_idx,
                         box=Box(x1=float(x1), y1=float(y1), x2=float(x2), y2=float(y2)),
                         confidence=float(conf),
+                        source="observed",
                     )
                 )
                 classes_by_track[tid][dets[int(src_idx)].cls] += 1

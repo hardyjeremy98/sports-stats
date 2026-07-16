@@ -19,6 +19,7 @@ stages:
     params:
       iou_threshold: 0.2
       max_age_frames: 20
+      min_length: 5
   team:
     impl: kit-color
     params: {}
