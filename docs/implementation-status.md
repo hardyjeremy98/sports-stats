@@ -55,11 +55,72 @@ stated.
 this field existed still parse — currently always `"observed"` from the shipped tracker
 implementations; no stage yet writes `predicted`/`interpolated` frames.
 
+## Provenance and reproducibility
+
+- **Run provenance recorder** (SPO-10 part 1): every `manifest.json` written by
+  `PipelineRunner` carries an immutable `provenance` block — git revision (`-dirty`
+  suffixed on an unclean tree, `"unknown"` if git is unavailable), installed versions of
+  `DEFAULT_PACKAGE_NAMES`, one `StageProvenance` (resolved params + a `ModelProvenance`
+  list) per stage that actually ran, and `evaluation_set_hash`/`evaluation_set_source`.
+  Every declared field is always present — unknown values are the literal string
+  `"unknown"` (or `null` where the schema allows it), never an absent key. `Stage.
+  provenance()` is a hook (default `[]`), overridden by `yolo-local` detect,
+  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, the
+  `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
+  identity — each reports architecture, local weights path + streaming SHA-256 (when
+  applicable), lineage, and per-axis (`code`/`weights`/`training_data`) license status.
+  `evaluation_set_hash` is `"unknown"` on every manifest as written by the pipeline runner
+  itself (GT linkage is server-side); the server's GT auto-scoring hook
+  (`pitchlab_server/evaluation.py::evaluate_run_against_gt`, called by the worker on run
+  completion and by `POST /api/runs/{id}/evaluate`) writes the canonical-JSON hash of the
+  scored GT file back into the manifest in place before scoring. `hash_evaluation_set` /
+  `hash_dataset_manifest` hash `json.dumps(json.loads(text), sort_keys=True,
+  separators=(",", ":"))`, so formatting differences never change the hash but any semantic
+  change always does; `check_evaluation_set` is a refusal primitive (raises, naming both
+  hashes and a context string, on mismatch) for a future benchmark runner (SPO-17, not
+  implemented) to call before aggregating two runs together — landing the primitive does
+  not itself gate any aggregation path yet. Consumer-facing schema doc: `docs/provenance.md`;
+  `web/src/lib/types.ts` mirrors the schema by hand. No benchmark or comparison numbers
+  depend on this yet — Phase 0 instrumentation.
+  `packages/pitchlab_core/src/pitchlab_core/provenance.py`,
+  `packages/pitchlab_core/src/pitchlab_core/runner.py`.
+- **Hosted-detection response cache** (SPO-10 part 2): `RoboflowDetector` gains `cache_dir`
+  (default `data/cache/hosted-detections`) and `cache_mode` (`off` / `readwrite` / `replay`)
+  params; both shipped roboflow configs (`configs/pipeline.v1.yaml`,
+  `configs/pipeline.v1-iou-baseline.yaml`) default to `readwrite`. Cache keys are
+  `sha256(model_id, confidence, sha256-of-raw-pixel-bytes, shape, dtype)` — frame index is
+  deliberately excluded, so identical pixel content recurring across frames/strides/runs
+  hits the same entry; entries store the post-conversion `xyxy`/`scores`/`class_id` arrays
+  (`hosted-detections/v1` JSON), not the raw hosted-API response object. `readwrite` fills
+  the cache as it runs; `replay` is cache-hits-only, needs no `ROBOFLOW_API_KEY` and never
+  constructs the hosted model in `prepare()`, and raises `RuntimeError` naming the key,
+  frame index, and cache dir on a miss instead of silently falling back to the network.
+  Both the player-model path and the tiled ball-detection path go through the cache.
+  `HostedDetectionCache.content_hash()` (an order-independent sha256 over the directory's
+  sorted (key, file-sha256) pairs) is recorded into `ModelProvenance.detections_cache_hash`
+  (`null` when caching is off or the stage doesn't cache), refreshed by the runner both
+  after `prepare()` and after the stage finishes executing, so a cold cache warmed during a
+  `readwrite` run reflects its actual output rather than the pre-run empty-cache hash.
+  `packages/pitchlab_core/src/pitchlab_core/stages/detect/hosted_cache.py`.
+
 ## Evaluation
 
 ### Implemented
 
 - SoccerNet Tracking ground-truth ingestion with boxes, track IDs, role, team, and optional jersey.
+- SportsMOT ground-truth ingestion (SPO-11, `gt.py::load_sportsmot_sequence`): standard
+  MOT17-style `gt.txt` + `seqinfo.ini`; players only (no ball/referee distinction, no team
+  labels); rows with `conf == 0` (MOT's ignore-region convention, not a real detection) are
+  skipped.
+- SoccerTrack ground-truth ingestion (SPO-11, `gt.py::load_soccertrack_sequence`): parses
+  the 3-header-row (TeamID/PlayerID/attribute) bounding-box CSV directly, since SoccerTrack
+  carries no `seqinfo`; caller supplies fps/width/height (read from the ingested video via
+  `probe()`). Deterministic, collision-free `track_id = team_id * 1000 + player_id`
+  (`player_id` bound-checked `< 1000`; ball fixed at `9999`); NaN-safe cell parsing.
+  **Caveat, unverified against real data:** SoccerTrack CSV frame numbers are assumed
+  already 0-based (unlike MOT's 1-based `gt.txt` convention) — this has not been checked
+  against an actual released SoccerTrack file, only against fixture data written to match
+  the assumption.
 - MOT evaluation at two levels:
   - **Tracklet:** raw tracker IDs.
   - **Entity:** post-association `player_id` groupings.
@@ -144,6 +205,30 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 - A run-diff API and UI for config, headline metric, timeline, and stat differences.
 - CLI `eval-pipelines` experiment that runs two configurations over multiple clips.
 - SoccerNet ingestion and QA-label export commands.
+- `pitchlab-train ingest-sportsmot` / `ingest-soccertrack` (SPO-11): mirror
+  `ingest-soccernet`'s register-as-Lab-video pattern (stitch frames or copy the source
+  video, write a `.gt.json`, register a `Video` row with `gt_path` set) and additionally
+  write/merge a `configs/datasets/<tier>.json` split-manifest entry for each ingested
+  sequence — the first programmatic writer of that file format (`soccernet.json` remains
+  hand-maintained). Frame-stitching is shared via `pitchlab_train/datasets/stitch.py`
+  (used by both `ingest-soccernet` and `ingest-sportsmot`; `ingest-soccertrack` needs no
+  stitching since SoccerTrack ships pre-encoded video, discovered by same-directory,
+  same-stem `*.mp4`/`*.csv` pairing). `packages/pitchlab_train/src/pitchlab_train/datasets/
+  {sportsmot,soccertrack,stitch}.py`.
+- `pitchlab_train.datasets.manifest.update_tier_manifest` (SPO-11): deterministic
+  (`sort_keys=True`, `sequences` grouped `"tuning"` entries first then `"held_out"`,
+  ascending by name within each group) merge-writer for `configs/datasets/<tier>.json`.
+  Verifies every `video`/`gt` path exists before writing anything; records paths relative
+  to the repo root, raising loudly (naming both the path and the root) rather than falling
+  back to an absolute, machine-specific path if one isn't actually under it; refuses
+  (`RuntimeError` naming the sequence) to flip a sequence already recorded `"tuning"` to
+  `"held_out"` — promotion the other way (`"held_out"` to `"tuning"`) is allowed. Covered
+  by an end-to-end scoreability test (`test_end_to_end_scoreability_of_ingested_sequence`)
+  that ingests a fixture sequence, builds a run whose tracklets echo the ingested ground
+  truth exactly, and asserts `pitchlab_core.evaluation.evaluate_run` recovers near-1.0
+  IDF1/HOTA against it — confirms the ingest's ground truth is scoreable through the
+  existing evaluator, not a benchmark measurement on real detector/tracker output.
+  `packages/pitchlab_train/src/pitchlab_train/datasets/manifest.py`.
 - `pitchlab-train export-reid`: exports identity-QA "same"/"different" pair verdicts (unsure
   pairs excluded) as re-ID training pairs with copied crop images, cross-run crop-name-collision
   safe.

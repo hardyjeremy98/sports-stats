@@ -19,8 +19,10 @@ cd web && npm run build      # tsc --noEmit + vite build (this is the frontend t
 uv run --with ultralytics pitchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.v1-local-eval.yaml --device cuda --run-id my-run
 
-# Register SoccerNet tracking sequences as Lab videos with ground truth:
+# Register MOT-style tracking sequences as Lab videos with ground truth:
 uv run pitchlab-train ingest-soccernet --split test --limit 8
+uv run pitchlab-train ingest-sportsmot --split val --limit 8
+uv run pitchlab-train ingest-soccertrack --limit 8
 
 uv run pitchlab-train run <experiment.yaml>   # config-driven experiments (pitchlab_train/experiments/)
 ```
