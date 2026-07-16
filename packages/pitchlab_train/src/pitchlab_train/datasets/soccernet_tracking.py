@@ -9,10 +9,11 @@ Requires the server package (like qa_labels) and ffmpeg on PATH.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from pitchlab_core.gt import load_soccernet_sequence
+
+from pitchlab_train.datasets.stitch import stitch_frames_to_mp4
 
 
 def ingest_soccernet(
@@ -47,7 +48,7 @@ def ingest_soccernet(
             gt = load_soccernet_sequence(seq_dir)
             mp4 = dest_dir / f"{seq_dir.name}.mp4"
             if not mp4.exists():
-                _stitch(seq_dir / "img1", gt.fps, mp4)
+                stitch_frames_to_mp4(seq_dir / "img1", gt.fps, mp4)
             gt_path = dest_dir / f"{seq_dir.name}.gt.json"
             gt_path.write_text(gt.model_dump_json())
 
@@ -61,17 +62,3 @@ def ingest_soccernet(
                 flush=True,
             )
     return registered
-
-
-def _stitch(img_dir: Path, fps: float, dest: Path) -> None:
-    """Frames -> h264 mp4. ffmpeg CLI rather than cv2: browsers can't play
-    cv2's mp4v, and yuv420p + libx264 is the compatibility baseline."""
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-framerate", str(fps),
-        "-i", str(img_dir / "%06d.jpg"),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        str(dest),
-    ]
-    subprocess.run(cmd, check=True)

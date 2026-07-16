@@ -36,6 +36,31 @@ def main() -> int:
     sn_p.add_argument("--limit", type=int, default=None, help="Max sequences to ingest")
     sn_p.add_argument("--sequences", nargs="*", default=None, help="Specific sequence names")
 
+    sm_p = sub.add_parser(
+        "ingest-sportsmot",
+        help="Register SportsMOT sequences as Lab videos with ground truth",
+    )
+    sm_p.add_argument("--root", default="data/sportsmot", help="Dataset root")
+    sm_p.add_argument("--split", default="val")
+    sm_p.add_argument("--limit", type=int, default=None, help="Max sequences to ingest")
+    sm_p.add_argument("--sequences", nargs="*", default=None, help="Specific sequence names")
+    sm_p.add_argument(
+        "--role", default="tuning", choices=["tuning", "held_out"],
+        help="Split-manifest role to record for newly ingested sequences",
+    )
+
+    st_p = sub.add_parser(
+        "ingest-soccertrack",
+        help="Register SoccerTrack sequences as Lab videos with ground truth",
+    )
+    st_p.add_argument("--root", default="data/soccertrack", help="Dataset root")
+    st_p.add_argument("--limit", type=int, default=None, help="Max sequences to ingest")
+    st_p.add_argument("--sequences", nargs="*", default=None, help="Specific sequence names")
+    st_p.add_argument(
+        "--role", default="tuning", choices=["tuning", "held_out"],
+        help="Split-manifest role to record for newly ingested sequences",
+    )
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -66,6 +91,32 @@ def main() -> int:
 
         registered = ingest_soccernet(
             Path(args.root), split=args.split, limit=args.limit, sequences=args.sequences
+        )
+        print(f"ingested {len(registered)} sequences")
+        return 0
+
+    if args.command == "ingest-sportsmot":
+        from pathlib import Path
+
+        from pitchlab_train.datasets.sportsmot import ingest_sportsmot
+
+        registered = ingest_sportsmot(
+            Path(args.root),
+            split=args.split,
+            limit=args.limit,
+            sequences=args.sequences,
+            role=args.role,
+        )
+        print(f"ingested {len(registered)} sequences")
+        return 0
+
+    if args.command == "ingest-soccertrack":
+        from pathlib import Path
+
+        from pitchlab_train.datasets.soccertrack import ingest_soccertrack
+
+        registered = ingest_soccertrack(
+            Path(args.root), limit=args.limit, sequences=args.sequences, role=args.role
         )
         print(f"ingested {len(registered)} sequences")
         return 0
