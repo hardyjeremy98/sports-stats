@@ -131,11 +131,28 @@ class BotSortTracker(Tracker):
             # Empty-result short-circuits in trackers' update() (e.g. no
             # tracks and no detections this frame) return a fresh
             # sv.Detections.empty() rather than an index into our input, so
-            # the key may be absent — but then tracker_id/xyxy are empty too
-            # and the zip below simply doesn't iterate.
+            # the key may be absent — but then tracker_id/xyxy are empty too.
+            # For non-empty results the key must be present and the same
+            # length as the output rows: silently zipping past a shorter/
+            # missing payload would drop tracked detections with no error —
+            # worse than the mislabeling bug this replaced. Fail loud instead
+            # (same spirit as _construct_tracker's signature-drift check).
             source_indices = np.asarray(
                 tracked.data.get(_SOURCE_IDX_KEY, []), dtype=int
             )
+            n_out = len(tracked.xyxy)
+            if n_out > 0 and len(source_indices) != n_out:
+                raise RuntimeError(
+                    f"{type(tracker).__name__}.update() returned {n_out} tracked "
+                    f"detection(s) but data[{_SOURCE_IDX_KEY!r}] has "
+                    f"{len(source_indices)} entries — the source-detection-index "
+                    "payload was dropped or truncated, so class attribution "
+                    "cannot be trusted. Installed `trackers` version: "
+                    f"{_trackers_version()}. The `trackers` package's data-"
+                    "preservation contract has likely drifted from what this "
+                    "wrapper (and its SPO-14 investigation) assumed — do not "
+                    "silently drop detections."
+                )
             for (x1, y1, x2, y2), conf, tid, src_idx in zip(
                 tracked.xyxy,
                 tracked.confidence,
@@ -163,6 +180,13 @@ class BotSortTracker(Tracker):
         ]
 
 
+def _trackers_version() -> str:
+    try:
+        return importlib.metadata.version("trackers")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown (package not found)"
+
+
 def _construct_tracker(tracker_cls, kwargs: dict):
     """Construct `tracker_cls(**kwargs)`, failing loudly on signature drift.
 
@@ -177,15 +201,11 @@ def _construct_tracker(tracker_cls, kwargs: dict):
     try:
         return tracker_cls(**kwargs)
     except TypeError as exc:
-        try:
-            version = importlib.metadata.version("trackers")
-        except importlib.metadata.PackageNotFoundError:
-            version = "unknown (package not found)"
         raise RuntimeError(
             f"Failed to construct {tracker_cls.__name__} with parameters "
-            f"{sorted(kwargs)}: {exc}. Installed `trackers` version: {version}. "
-            "The `trackers` package's constructor signature has likely drifted "
-            "from the version pinned in pyproject.toml — upgrade the pin and "
-            "this wrapper's construction call together; do not silently drop "
-            "parameters."
+            f"{sorted(kwargs)}: {exc}. Installed `trackers` version: "
+            f"{_trackers_version()}. The `trackers` package's constructor "
+            "signature has likely drifted from the version pinned in "
+            "pyproject.toml — upgrade the pin and this wrapper's construction "
+            "call together; do not silently drop parameters."
         ) from exc

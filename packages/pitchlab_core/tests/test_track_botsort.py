@@ -245,6 +245,76 @@ def test_ball_detections_excluded_before_reaching_tracker():
     assert tracklets[0].cls == DetectionClass.PLAYER
 
 
+def test_dropped_source_idx_payload_raises_loudly():
+    """If a future `trackers` version ever stripped or truncated the `data`
+    payload on a non-empty result, silently zipping past the mismatch would
+    drop tracked detections from tracklets with no error — worse than the
+    mislabeling bug this mechanism replaced. Must fail loudly instead, naming
+    the mismatch (contradicts the fail-loud convention `_construct_tracker`
+    established in this same file otherwise)."""
+
+    class _FakeDroppingTracker:
+        """Returns non-empty tracked rows but drops the `data` dict entirely,
+        simulating a `trackers` release that stopped preserving custom
+        payloads through `update()`."""
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def update(self, detections, frame=None):
+            import supervision as sv
+
+            n = len(detections)
+            result = sv.Detections(
+                xyxy=detections.xyxy.copy(),
+                confidence=detections.confidence,
+                class_id=detections.class_id,
+            )
+            result.tracker_id = np.arange(n, dtype=int)
+            return result
+
+    gk = _det(96, 200, 104, 260, DetectionClass.GOALKEEPER)
+    pl = _det(106, 200, 114, 260, DetectionClass.PLAYER)
+    fd = FrameDetections(frame_idx=0, t=0.0, detections=[gk, pl])
+
+    stage = BotSortTracker(min_length=1, enable_cmc=False)
+    stage._tracker_cls = _FakeDroppingTracker
+
+    with pytest.raises(RuntimeError) as exc_info:
+        stage.track(_ctx(), [fd])
+
+    message = str(exc_info.value)
+    assert "source_idx" in message
+    assert "2 tracked" in message  # n_out
+    assert "0 entries" in message  # len(source_indices)
+    assert "trackers` version" in message
+
+
+def test_empty_tracker_result_does_not_raise():
+    """The missing-`data`-key fallback must stay silent when the tracker
+    legitimately returns zero rows (e.g. no detections and no existing
+    tracks this frame) — the length check only fires for non-empty results."""
+
+    class _FakeEmptyTracker:
+        def __init__(self, **_kwargs):
+            pass
+
+        def update(self, detections, frame=None):
+            import supervision as sv
+
+            empty = sv.Detections.empty()
+            empty.tracker_id = np.array([], dtype=int)
+            return empty
+
+    fd = FrameDetections(frame_idx=0, t=0.0, detections=[])
+    stage = BotSortTracker(min_length=1, enable_cmc=False)
+    stage._tracker_cls = _FakeEmptyTracker
+
+    tracklets = stage.track(_ctx(), [fd])
+
+    assert tracklets == []
+
+
 def test_real_botsort_preserves_source_idx_through_update():
     """Integration check (Decision 5): the actual installed `trackers`
     BoT-SORT `update()` — not just the fake above — really does return
