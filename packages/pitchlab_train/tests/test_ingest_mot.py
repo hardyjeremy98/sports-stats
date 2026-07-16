@@ -130,8 +130,12 @@ def test_ingest_sportsmot_registers_video_and_manifest(env, tmp_path):
     assert manifest["source_split"] == "val"
     seq = next(s for s in manifest["sequences"] if s["name"] == "SPORTSMOT-001")
     assert seq["role"] == "tuning"
-    assert Path(seq["video"]).exists()
-    assert Path(seq["gt"]).exists()
+    # Paths are recorded relative to the dir containing configs/ (matching
+    # the existing hand-maintained soccernet.json), not as absolute paths.
+    assert not Path(seq["video"]).is_absolute()
+    assert not Path(seq["gt"]).is_absolute()
+    assert (env.config_dir.parent / seq["video"]).exists()
+    assert (env.config_dir.parent / seq["gt"]).exists()
 
 
 @pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg not on PATH; required to stitch SportsMOT frames")
@@ -172,8 +176,10 @@ def test_ingest_soccertrack_registers_video_and_manifest(env, tmp_path):
     assert manifest["tier"] == "soccertrack"
     seq = next(s for s in manifest["sequences"] if s["name"] == "SOCCERTRACK-001")
     assert seq["role"] == "tuning"
-    assert Path(seq["video"]).exists()
-    assert Path(seq["gt"]).exists()
+    assert not Path(seq["video"]).is_absolute()
+    assert not Path(seq["gt"]).is_absolute()
+    assert (env.config_dir.parent / seq["video"]).exists()
+    assert (env.config_dir.parent / seq["gt"]).exists()
 
 
 def test_ingest_soccertrack_no_pairs_raises(env, tmp_path):

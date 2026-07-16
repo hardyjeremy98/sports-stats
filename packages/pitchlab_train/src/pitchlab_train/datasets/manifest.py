@@ -36,7 +36,10 @@ def update_tier_manifest(
     the manifest's `sequences[]` schema). Every `video`/`gt` path must exist
     on disk -- raises `FileNotFoundError` naming the missing path otherwise,
     *before* anything is written, so a bad ingest can never corrupt an
-    existing manifest. `role` must be `"tuning"` or `"held_out"` (raises
+    existing manifest. Paths are recorded relative to the directory
+    containing `configs/` (matching the existing hand-maintained
+    soccernet.json) rather than as the absolute paths `get_settings()`
+    resolves internally. `role` must be `"tuning"` or `"held_out"` (raises
     `ValueError` otherwise). A sequence already recorded as `"tuning"` in an
     existing manifest can never be re-recorded as `"held_out"` (raises
     `RuntimeError` naming the sequence) -- tuning is a one-way, permanent
@@ -46,9 +49,16 @@ def update_tier_manifest(
     """
     from pitchlab_server.settings import get_settings
 
-    manifests_dir = get_settings().config_dir / "datasets"
+    settings = get_settings()
+    manifests_dir = settings.config_dir / "datasets"
     manifests_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifests_dir / f"{tier}.json"
+    # configs/datasets/<tier>.json lives at <root>/configs/datasets/<tier>.json;
+    # anchoring paths here (rather than storing get_settings()'s already-resolved
+    # absolute data_dir paths) keeps the checked-in manifest portable across
+    # machines/checkouts, matching the existing hand-maintained soccernet.json
+    # ("data/videos/soccernet/SNMOT-116.mp4", not an absolute path).
+    root = settings.config_dir.parent
 
     existing: dict = {}
     if manifest_path.exists():
@@ -64,7 +74,7 @@ def update_tier_manifest(
                 f"Invalid role {role!r} for sequence {name!r} in tier {tier!r}: "
                 f"must be 'tuning' or 'held_out'"
             )
-        video, gt = Path(entry["video"]), Path(entry["gt"])
+        video, gt = Path(entry["video"]).resolve(), Path(entry["gt"]).resolve()
         if not video.exists():
             raise FileNotFoundError(
                 f"Manifest entry {name!r} (tier {tier!r}) video path does not exist: {video}"
@@ -81,7 +91,12 @@ def update_tier_manifest(
                 f"and can never be flipped to {role!r} -- tuning is permanent "
                 f"(see configs/datasets/README.md)."
             )
-        merged[name] = {"name": name, "video": str(video), "gt": str(gt), "role": role}
+        merged[name] = {
+            "name": name,
+            "video": _relative_to(video, root),
+            "gt": _relative_to(gt, root),
+            "role": role,
+        }
 
     combined_notes = existing_notes + [n for n in (notes or []) if n not in existing_notes]
 
@@ -95,3 +110,14 @@ def update_tier_manifest(
     }
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     return manifest_path
+
+
+def _relative_to(path: Path, root: Path) -> str:
+    """Repo-relative form of `path` when it's under `root`; falls back to the
+    absolute path (rather than raising) for the unusual case of a video/gt
+    file living outside the configs dir's parent -- still a valid, if less
+    portable, manifest entry."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
