@@ -51,8 +51,12 @@ Fields:
 ## Determinism
 
 Manifest JSON keys are sorted (`json.dump(..., sort_keys=True)`) and the `sequences` list
-is written in a stable order (ascending by `name` within each role group) so the file
-hashes identically across regenerations that don't actually change content. When
+is written in a stable, explicit group order: all `"tuning"` entries first, then all
+`"held_out"` entries, ascending by `name` within each group (never a single flat
+alphabetical sort across both roles — a `"tuning"` sequence named `ZZZ` sorts before a
+`"held_out"` sequence named `AAA`). This is what `soccernet.json` already looks like and
+what `pitchlab_train.datasets.manifest.update_tier_manifest` writes. The point is that the
+file hashes identically across regenerations that don't actually change content. When
 refreshing a manifest, regenerate the whole file rather than hand-editing entries, and
 diff before committing to confirm only the intended sequences changed role or were added.
 

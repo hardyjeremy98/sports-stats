@@ -278,6 +278,102 @@ def test_manifest_new_sequence_recorded_with_requested_role(env, tmp_path):
     assert by_name["SEQ-B"]["role"] == "held_out"
 
 
+def test_manifest_held_out_promoted_to_tuning_is_allowed(env, tmp_path):
+    """The README's Roles section only forbids tuning -> held_out; promotion
+    the other way (held_out -> tuning) must succeed, not raise."""
+    video, gt = _touch_pair(tmp_path, "SEQ-A")
+    update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[{"name": "SEQ-A", "video": str(video), "gt": str(gt), "role": "held_out"}],
+    )
+
+    manifest_path = update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[{"name": "SEQ-A", "video": str(video), "gt": str(gt), "role": "tuning"}],
+    )
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["sequences"][0]["role"] == "tuning"
+
+
+def test_manifest_notes_merge_and_dedup(env, tmp_path):
+    video, gt = _touch_pair(tmp_path, "SEQ-A")
+    update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[{"name": "SEQ-A", "video": str(video), "gt": str(gt), "role": "tuning"}],
+        notes=["first note"],
+    )
+
+    # Re-running with an overlapping notes list must append the new note
+    # without repeating the one already recorded.
+    manifest_path = update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[{"name": "SEQ-A", "video": str(video), "gt": str(gt), "role": "tuning"}],
+        notes=["first note", "second note"],
+    )
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["notes"] == ["first note", "second note"]
+
+
+def test_manifest_sequences_grouped_tuning_before_held_out(env, tmp_path):
+    """Ordering is role-grouped (all tuning, then all held_out), each group
+    ascending by name -- NOT a flat alphabetical sort across both roles. A
+    tuning sequence named ZZZ must sort before a held_out sequence named
+    AAA, per configs/datasets/README.md's Determinism section."""
+    video_aaa, gt_aaa = _touch_pair(tmp_path, "AAA")
+    video_zzz, gt_zzz = _touch_pair(tmp_path, "ZZZ")
+
+    manifest_path = update_tier_manifest(
+        tier="sportsmot",
+        dataset="sportsmot",
+        source_split="val",
+        entries=[
+            {"name": "AAA", "video": str(video_aaa), "gt": str(gt_aaa), "role": "held_out"},
+            {"name": "ZZZ", "video": str(video_zzz), "gt": str(gt_zzz), "role": "tuning"},
+        ],
+    )
+
+    manifest = json.loads(manifest_path.read_text())
+    assert [s["name"] for s in manifest["sequences"]] == ["ZZZ", "AAA"]
+
+
+def test_manifest_path_outside_root_raises_naming_path_and_root(env, tmp_path, tmp_path_factory):
+    """A video/gt path that isn't under the configs-dir's parent can't be
+    made repo-relative -- must raise loudly (naming both the offending path
+    and the root it was checked against), never silently fall back to an
+    absolute, unportable path."""
+    outside = tmp_path_factory.mktemp("outside-root")
+    video = outside / "a.mp4"
+    video.write_bytes(b"fake-video-bytes")
+    gt = outside / "a.gt.json"
+    gt.write_text("{}")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        update_tier_manifest(
+            tier="sportsmot",
+            dataset="sportsmot",
+            source_split="val",
+            entries=[
+                {"name": "SEQ-OUTSIDE", "video": str(video), "gt": str(gt), "role": "tuning"}
+            ],
+        )
+
+    message = str(exc_info.value)
+    assert str(video.resolve()) in message
+    assert str(tmp_path) in message  # the root (env.config_dir.parent) it was checked against
+    manifest_path = env.config_dir / "datasets" / "sportsmot.json"
+    assert not manifest_path.exists()
+
+
 def test_manifest_output_is_byte_identical_across_identical_runs(env, tmp_path):
     video, gt = _touch_pair(tmp_path, "SEQ-A")
     entries = [{"name": "SEQ-A", "video": str(video), "gt": str(gt), "role": "tuning"}]

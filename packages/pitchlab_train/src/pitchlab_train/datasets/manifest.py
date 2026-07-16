@@ -5,9 +5,12 @@ write is a *merge* against any existing manifest: sequences already recorded
 there but not present in this call's `entries` are left untouched, and a
 sequence already recorded with role "tuning" can never be flipped to
 "held_out" (loud RuntimeError naming the sequence) -- tuning is permanent.
-Output is deterministic (`json.dump(..., sort_keys=True)`, `sequences`
-written in ascending-name order) so re-running an ingest that changed
-nothing produces a byte-identical file.
+(Promotion the other way, "held_out" -> "tuning", is allowed -- see the
+README's Roles section.) Output is deterministic (`json.dump(...,
+sort_keys=True)`, `sequences` grouped "tuning" entries first then
+"held_out", ascending by name within each group -- see the README's
+Determinism section) so re-running an ingest that changed nothing produces a
+byte-identical file.
 
 The manifest root is `get_settings().config_dir / "datasets"` -- the same
 `PITCHLAB_CONFIG_DIR` override existing tests already use to redirect
@@ -39,11 +42,15 @@ def update_tier_manifest(
     existing manifest. Paths are recorded relative to the directory
     containing `configs/` (matching the existing hand-maintained
     soccernet.json) rather than as the absolute paths `get_settings()`
-    resolves internally. `role` must be `"tuning"` or `"held_out"` (raises
+    resolves internally -- raises `RuntimeError` naming both the path and
+    that root if a `video`/`gt` path isn't actually under it (no silent
+    absolute-path fallback: an unportable path defeats the point of this
+    function). `role` must be `"tuning"` or `"held_out"` (raises
     `ValueError` otherwise). A sequence already recorded as `"tuning"` in an
     existing manifest can never be re-recorded as `"held_out"` (raises
     `RuntimeError` naming the sequence) -- tuning is a one-way, permanent
-    classification.
+    classification; promotion the other way (`"held_out"` -> `"tuning"`) is
+    allowed.
 
     Returns the path written.
     """
@@ -105,19 +112,32 @@ def update_tier_manifest(
         "tier": tier,
         "source_split": source_split,
         "created": date.today().isoformat(),
-        "sequences": [merged[name] for name in sorted(merged)],
+        "sequences": _ordered_sequences(merged),
         "notes": combined_notes,
     }
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     return manifest_path
 
 
+def _ordered_sequences(merged: dict[str, dict]) -> list[dict]:
+    """'tuning' entries first, then 'held_out', ascending by name within
+    each group -- per configs/datasets/README.md's Determinism section."""
+    tuning = sorted(name for name, s in merged.items() if s["role"] == "tuning")
+    held_out = sorted(name for name, s in merged.items() if s["role"] == "held_out")
+    return [merged[name] for name in tuning + held_out]
+
+
 def _relative_to(path: Path, root: Path) -> str:
-    """Repo-relative form of `path` when it's under `root`; falls back to the
-    absolute path (rather than raising) for the unusual case of a video/gt
-    file living outside the configs dir's parent -- still a valid, if less
-    portable, manifest entry."""
+    """Repo-relative form of `path`, required to be under `root` -- a
+    video/gt file outside the configs dir's parent would make the manifest
+    entry unportable (the whole point of anchoring paths here at all, see
+    the module docstring), so this raises loudly rather than silently
+    falling back to an absolute, machine-specific path."""
     try:
         return str(path.relative_to(root))
-    except ValueError:
-        return str(path)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Cannot record a portable manifest path for {path} -- it is not "
+            f"under {root} (the directory containing configs/, i.e. the "
+            f"anchor every manifest path is made relative to)."
+        ) from exc
