@@ -131,6 +131,48 @@ def test_expand_candidates_import_missing_provenance_sidecar_refuses(tmp_path):
         )
 
 
+def test_expand_candidates_import_malformed_json_sidecar_refuses_as_runtimeerror(tmp_path):
+    """A structurally broken sidecar must refuse as RuntimeError (this
+    module's refusal style throughout), not an uncaught json.JSONDecodeError."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "external_provenance.json").write_text("not valid json {")
+    with pytest.raises(RuntimeError, match="external_provenance.json"):
+        _expand_candidates(
+            [
+                {
+                    "name": "ext",
+                    "kind": "import",
+                    "runs": {"seq-1": str(run_dir)},
+                    "comparison_class": "as_published",
+                }
+            ],
+            [],
+        )
+
+
+def test_expand_candidates_import_incomplete_sidecar_refuses_as_runtimeerror(tmp_path):
+    """A sidecar missing a required ExternalProvenance field must refuse as
+    RuntimeError, not an uncaught pydantic ValidationError."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    sidecar = _valid_sidecar()
+    del sidecar["license"]
+    (run_dir / "external_provenance.json").write_text(json.dumps(sidecar))
+    with pytest.raises(RuntimeError, match="ext"):
+        _expand_candidates(
+            [
+                {
+                    "name": "ext",
+                    "kind": "import",
+                    "runs": {"seq-1": str(run_dir)},
+                    "comparison_class": "as_published",
+                }
+            ],
+            [],
+        )
+
+
 def test_expand_candidates_import_reference_only_matched_data_refuses(tmp_path):
     run_dir = _write_import_run_dir(tmp_path, reference_only=True)
     with pytest.raises(RuntimeError, match="reference_only"):

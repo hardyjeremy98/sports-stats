@@ -44,7 +44,7 @@ from pitchlab_core.provenance import (
 )
 from pitchlab_core.runner import PipelineRunner
 from pitchlab_core.schemas.run import RunManifest, StageKind, StageStatus
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from pitchlab_train.experiments.base import Experiment
 from pitchlab_train.registry import register
@@ -186,10 +186,7 @@ class BenchmarkExperiment(Experiment):
                         )
                     run_dir = Path(run_dir_str)
                     run_id = f"{candidate.name}-{seq.name}"
-                    sidecar_path = run_dir / "external_provenance.json"
-                    ext_prov = ExternalProvenance.model_validate(
-                        json.loads(sidecar_path.read_text())
-                    )
+                    ext_prov = _read_external_provenance(run_dir / "external_provenance.json")
                     raw_manifest = json.loads((run_dir / "manifest.json").read_text())
 
                     gt_text = Path(seq.gt).read_text()
@@ -449,22 +446,45 @@ def _load_pipeline_config(candidate: PipelineCandidate) -> PipelineConfig:
     return config
 
 
+def _read_external_provenance(sidecar_path: Path) -> ExternalProvenance:
+    """Read + validate one imported run dir's `external_provenance.json`,
+    refusing loudly (naming the sidecar path) on any structural problem: a
+    missing file, malformed JSON, or an incomplete/invalid ExternalProvenance
+    schema -- a provenance-less external result is refused outright, same
+    contract as `exchange._load_external_provenance` (which this mirrors;
+    this module's refusal style is `RuntimeError` throughout, not
+    `ValueError`)."""
+    if not sidecar_path.exists():
+        raise RuntimeError(f"No external_provenance.json found at {sidecar_path}")
+    try:
+        raw = json.loads(sidecar_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"external_provenance.json at {sidecar_path} is not valid JSON: {exc}"
+        ) from exc
+    try:
+        return ExternalProvenance.model_validate(raw)
+    except ValidationError as exc:
+        raise RuntimeError(f"Invalid external_provenance.json at {sidecar_path}: {exc}") from exc
+
+
 def _validate_import_candidate(candidate: ImportCandidate) -> None:
     """Eager provenance validation for one `ImportCandidate`, at expansion
     time (before any scoring): every run dir in `candidate.runs` must carry
-    `external_provenance.json` (a provenance-less external result is refused
-    outright -- the SPO-18 import contract), and a `reference_only` system
-    can never enter a `matched_data` comparison_class (the PRD rule: a
-    reference-only system can never silently enter a shipping comparison)."""
+    a valid `external_provenance.json` (a provenance-less external result is
+    refused outright -- the SPO-18 import contract), and a `reference_only`
+    system can never enter a `matched_data` comparison_class (the PRD rule:
+    a reference-only system can never silently enter a shipping
+    comparison)."""
     for seq_name, run_dir in candidate.runs.items():
         sidecar_path = Path(run_dir) / "external_provenance.json"
-        if not sidecar_path.exists():
+        try:
+            ext_prov = _read_external_provenance(sidecar_path)
+        except RuntimeError as exc:
             raise RuntimeError(
-                f"Import candidate '{candidate.name}': no external_provenance.json "
-                f"found at {sidecar_path} for sequence '{seq_name}' (provenance-less "
-                "input is refused)"
-            )
-        ext_prov = ExternalProvenance.model_validate(json.loads(sidecar_path.read_text()))
+                f"Import candidate '{candidate.name}' (sequence '{seq_name}'): {exc} "
+                "-- provenance-less input is refused"
+            ) from exc
         if ext_prov.reference_only and candidate.comparison_class == "matched_data":
             raise RuntimeError(
                 f"Import candidate '{candidate.name}': reference_only=True "
