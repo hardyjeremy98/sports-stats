@@ -181,6 +181,18 @@ def test_load_pipeline_config_malformed_path_raises():
         _load_pipeline_config(candidate)
 
 
+def test_load_pipeline_config_whole_stage_replacement_raises_not_silent_noop():
+    """A 2-segment path bottoming out directly on `config.stages` (e.g.
+    "stages.track") must refuse loudly, not silently insert a plain-string
+    key alongside the StageKind-keyed entries (which PipelineRunner would
+    never look up -- a silent no-op override)."""
+    candidate = PipelineCandidate(
+        name="a", config=STUB_CONFIG, overrides={"stages.track": {"impl": "iou", "params": {}}}
+    )
+    with pytest.raises(ValueError, match="stages.track"):
+        _load_pipeline_config(candidate)
+
+
 def test_load_pipeline_config_missing_config_file_raises():
     candidate = PipelineCandidate(name="a", config=str(REPO / "configs" / "pipeline.nope.yaml"))
     with pytest.raises(FileNotFoundError, match="pipeline.nope.yaml"):

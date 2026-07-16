@@ -310,6 +310,19 @@ def _set_override(config: PipelineConfig, path: str, value) -> None:
             )
         setattr(obj, last, value)
     elif isinstance(obj, dict):
+        if obj and isinstance(next(iter(obj)), StageKind):
+            # `obj` is PipelineConfig.stages itself (StageKind-keyed) -- a
+            # bare "stages.<stage>" path would otherwise silently insert a
+            # plain-string key alongside the StageKind-keyed entries (a
+            # no-op override: PipelineRunner only ever looks stages up by
+            # StageKind, so the inserted key is dead). Whole-StageConfig
+            # replacement via override is questionable anyway -- refuse and
+            # name a real target instead of coercing/accepting it.
+            raise ValueError(
+                f"Unknown override path '{path}': '{last}' would replace a "
+                f"whole stage config on the stages map -- target a field "
+                f"under it instead, e.g. '{path}.impl' or '{path}.params.<key>'"
+            )
         # A stage's `params` dict is data, not schema -- new keys are valid
         # (the stage's own Params model validates them when constructed).
         obj[last] = value
