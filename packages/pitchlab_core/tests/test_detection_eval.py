@@ -232,6 +232,9 @@ def test_duplicate_detection_on_matched_gt():
 def test_duplicates_null_rate_with_zero_detections():
     result = evaluate_detections({}, {0: [(1, (0.0, 0.0, 10.0, 10.0))]})
     assert result["duplicates"] == {"n_duplicates": 0, "duplicate_rate": None}
+    # GT present, zero detections: AP is 0.0 (curve never leaves the origin),
+    # never None -- None is reserved for n_gt == 0 (undefined, not zero).
+    assert result["ap"] == 0.0
 
 
 def test_jitter_constant_offset_is_zero_and_gap_breaks_pairing():

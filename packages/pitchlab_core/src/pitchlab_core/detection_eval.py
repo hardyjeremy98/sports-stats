@@ -59,6 +59,10 @@ def evaluate_detections(
     mathematically undefined (e.g. precision with zero detections, AP with
     zero GT boxes in a bin) are `None`, never NaN, so the result is always
     JSON-clean.
+
+    The pipeline applies a confidence floor upstream of `detections.jsonl`,
+    so `ap` here is computed over the emitted operating range only, not a
+    full precision-recall curve down to confidence zero.
     """
     frames = sorted(gt_by_frame)
 
@@ -302,10 +306,12 @@ def _consecutive_false_runs(flags: list[bool]) -> list[int]:
 def _distribution_summary(values: list[int]) -> dict[str, float | int | None]:
     """min/median/p95/max/mean via numpy's linear-interpolation percentile.
     A local twin of `evaluation._distribution_summary` -- deliberately NOT
-    imported from there (this module must stay import-independent of
-    evaluation.py, which imports THIS module) -- with `p95` added, since
-    burst-length analysis and the `detection_miss_burst_p95` headline need
-    it and the tracklet-purity summary this mirrors does not."""
+    imported from there, keeping this module's purity/independence from
+    evaluation.py per the layer design (see module docstring) -- with a
+    different key set: `p95` added, since burst-length analysis and the
+    `detection_miss_burst_p95` headline need it, and no `p25`/`p75`, which
+    the tracklet-purity summary this mirrors has but detection bursts do
+    not need."""
     arr = np.asarray(values, dtype=float)
     return {
         "min": min(values),

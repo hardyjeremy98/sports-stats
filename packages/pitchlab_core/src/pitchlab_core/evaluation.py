@@ -253,7 +253,7 @@ def _load_detections(
             if frame.frame_idx not in eval_frame_set:
                 continue
             for det in frame.detections:
-                if det.cls not in ("player", "goalkeeper", "referee"):
+                if det.cls not in _SCORED_ROLES:
                     continue
                 det_by_frame.setdefault(frame.frame_idx, []).append(
                     (det.confidence, _xywh(det.box.model_dump()))
