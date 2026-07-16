@@ -13,11 +13,15 @@
 #   own `_iou_distance` docstring notes for `np.asfarray`/motmetrics.
 #   Behaviourally identical either way: `np.float` always meant the Python
 #   builtin `float`, never `np.float64` specifically.
-# Everything else (algorithm, field names, combine_* methods,
-# plot_single_tracker_results) is unmodified -- plot_single_tracker_results
-# imports matplotlib lazily inside its own body and is never called by
-# `pitchlab_core.hota` (we only call `eval_sequence`).
-import os
+#   TRIMMED: `pitchlab_core.hota.compute_hota` only ever calls
+#   `HOTA().eval_sequence(data)` once per level, so everything reachable
+#   only from multi-sequence combination or reporting/plotting has been
+#   removed rather than carried as unused weight (upstream fidelity is
+#   preserved by the recorded commit hash above, not by keeping dead code):
+#   `combine_sequences`, `combine_classes_class_averaged`,
+#   `combine_classes_det_averaged`, `plot_single_tracker_results` (and the
+#   now-unused `import os`). `eval_sequence` and the `_compute_final_fields`
+#   helper it calls are otherwise unmodified from upstream.
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from ._base_metric import _BaseMetric
@@ -134,52 +138,6 @@ class HOTA(_BaseMetric):
         res = self._compute_final_fields(res)
         return res
 
-    def combine_sequences(self, all_res):
-        """Combines metrics across all sequences"""
-        res = {}
-        for field in self.integer_array_fields:
-            res[field] = self._combine_sum(all_res, field)
-        for field in ['AssRe', 'AssPr', 'AssA']:
-            res[field] = self._combine_weighted_av(all_res, field, res, weight_field='HOTA_TP')
-        loca_weighted_sum = sum([all_res[k]['LocA'] * all_res[k]['HOTA_TP'] for k in all_res.keys()])
-        res['LocA'] = np.maximum(1e-10, loca_weighted_sum) / np.maximum(1e-10, res['HOTA_TP'])
-        res = self._compute_final_fields(res)
-        return res
-
-    def combine_classes_class_averaged(self, all_res, ignore_empty_classes=False):
-        """Combines metrics across all classes by averaging over the class values.
-        If 'ignore_empty_classes' is True, then it only sums over classes with at least one gt or predicted detection.
-        """
-        res = {}
-        for field in self.integer_array_fields:
-            if ignore_empty_classes:
-                res[field] = self._combine_sum(
-                    {k: v for k, v in all_res.items()
-                     if (v['HOTA_TP'] + v['HOTA_FN'] + v['HOTA_FP'] > 0 + np.finfo('float').eps).any()}, field)
-            else:
-                res[field] = self._combine_sum({k: v for k, v in all_res.items()}, field)
-
-        for field in self.float_fields + self.float_array_fields:
-            if ignore_empty_classes:
-                res[field] = np.mean([v[field] for v in all_res.values() if
-                                      (v['HOTA_TP'] + v['HOTA_FN'] + v['HOTA_FP'] > 0 + np.finfo('float').eps).any()],
-                                     axis=0)
-            else:
-                res[field] = np.mean([v[field] for v in all_res.values()], axis=0)
-        return res
-
-    def combine_classes_det_averaged(self, all_res):
-        """Combines metrics across all classes by averaging over the detection values"""
-        res = {}
-        for field in self.integer_array_fields:
-            res[field] = self._combine_sum(all_res, field)
-        for field in ['AssRe', 'AssPr', 'AssA']:
-            res[field] = self._combine_weighted_av(all_res, field, res, weight_field='HOTA_TP')
-        loca_weighted_sum = sum([all_res[k]['LocA'] * all_res[k]['HOTA_TP'] for k in all_res.keys()])
-        res['LocA'] = np.maximum(1e-10, loca_weighted_sum) / np.maximum(1e-10, res['HOTA_TP'])
-        res = self._compute_final_fields(res)
-        return res
-
     @staticmethod
     def _compute_final_fields(res):
         """Calculate sub-metric ('field') values which only depend on other sub-metric values.
@@ -195,27 +153,3 @@ class HOTA(_BaseMetric):
         res['LocA(0)'] = res['LocA'][0]
         res['HOTALocA(0)'] = res['HOTA(0)']*res['LocA(0)']
         return res
-
-    def plot_single_tracker_results(self, table_res, tracker, cls, output_folder):
-        """Create plot of results"""
-
-        # Only loaded when run to reduce minimum requirements
-        from matplotlib import pyplot as plt
-
-        res = table_res['COMBINED_SEQ']
-        styles_to_plot = ['r', 'b', 'g', 'b--', 'b:', 'g--', 'g:', 'm']
-        for name, style in zip(self.float_array_fields, styles_to_plot):
-            plt.plot(self.array_labels, res[name], style)
-        plt.xlabel('alpha')
-        plt.ylabel('score')
-        plt.title(tracker + ' - ' + cls)
-        plt.axis([0, 1, 0, 1])
-        legend = []
-        for name in self.float_array_fields:
-            legend += [name + ' (' + str(np.round(np.mean(res[name]), 2)) + ')']
-        plt.legend(legend, loc='lower left')
-        out_file = os.path.join(output_folder, cls + '_plot.pdf')
-        os.makedirs(os.path.dirname(out_file), exist_ok=True)
-        plt.savefig(out_file)
-        plt.savefig(out_file.replace('.pdf', '.png'))
-        plt.clf()

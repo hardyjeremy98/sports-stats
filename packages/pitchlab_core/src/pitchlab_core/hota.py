@@ -21,22 +21,23 @@ from pitchlab_core._vendor.trackeval.hota import HOTA
 def compute_hota(
     gt_by_frame: dict[int, list[tuple[int, list[float]]]],
     pred_by_frame: dict[int, list[tuple[int, list[float]]]],
-    iou_threshold: float = 0.5,
 ) -> dict[str, float]:
     """HOTA, DetA, AssA, LocA for one sequence, alpha-averaged (TrackEval's
     standard scalar summary: the mean over its built-in 19-point alpha grid,
     0.05..0.95 step 0.05 -- this IS the metric normally reported as "HOTA" in
     papers/leaderboards, not a value at one threshold).
 
-    `iou_threshold` is accepted for call-site symmetry with this file's
-    sibling helpers in `evaluation.py` (`merge_quality`, `tracklet_purity`,
-    `_evaluate_identity`), which all take the run's single global IoU
-    threshold. HOTA does not need it: its alpha grid already sweeps
-    thresholds from 0.05 to 0.95 (including 0.5) and reports the mean, so an
-    external single threshold would either be redundant or would silently
-    diverge from the standard HOTA definition and from independently
-    generated reference values (see the golden test in test_hota.py, which
-    validates against upstream TrackEval run on raw/unclamped IoU).
+    Deliberately no `iou_threshold` parameter: unlike this file's sibling
+    helpers in `evaluation.py` (`merge_quality`, `tracklet_purity`,
+    `_evaluate_identity`), HOTA's alpha grid already sweeps every threshold
+    from 0.05 to 0.95 (including 0.5) internally and reports the mean -- an
+    external single threshold would be a no-op at best and a silent,
+    config-that-does-nothing trap at worst (exactly the failure mode this
+    program exists to police), or would diverge from both the standard HOTA
+    definition and the golden test's independently generated reference
+    values (which were computed on raw/unclamped IoU). A future caller that
+    genuinely needs a similarity floor should apply it before calling this
+    function -- that's a benchmark-runner concern, not this adapter's.
 
     `gt_by_frame` / `pred_by_frame` boxes are xywh, matching
     `evaluation.py::_xywh`'s convention. IDs are arbitrary hashable ints (raw

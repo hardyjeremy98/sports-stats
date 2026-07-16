@@ -161,7 +161,7 @@ def evaluate_run(
         instances.extend(_switch_instances(acc, level, fps, gt_label))
 
         pred_scored = {f: preds.get(f, []) for f in eval_frames}
-        hota_levels[level] = compute_hota(gt_scored, pred_scored, iou_threshold)
+        hota_levels[level] = compute_hota(gt_scored, pred_scored)
 
     result = {
         "source": gt.source,
