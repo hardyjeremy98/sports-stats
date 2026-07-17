@@ -1,6 +1,9 @@
 # PRD: Benchmark-First Tracklet Modernization Program
 
-**Status:** Draft for decomposition
+**Status:** Draft for decomposition; amended 2026-07-17 — Phase 2 rescoped from a
+matched-data detector fine-tuning ladder to adoption of frozen reference detectors,
+consistent with the Phase 0 exit-gate decision (SPO-21, detection-first; see Phase 2
+rescope note).
 **Date:** 2026-07-16
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
@@ -170,50 +173,84 @@ This baseline is the comparator for every later phase.
 **Stop/go:** if parameter hardening alone closes most of the gap to the oracle ceiling,
 later phases shrink accordingly.
 
-### Phase 2 — Detector benchmark ladder
+### Phase 2 — Frozen reference detectors (rescoped 2026-07-17)
 
-**Gate question:** Which detector produces the best downstream tracklets across labelled
-sports domains — judged by tracklet quality, not public image mAP?
+**Gate question (rescoped):** What frozen, provenance-stamped detection source does each
+dataset tier use for tracker selection?
 
-**Entrance:** Phases 0–1 complete; detector fine-tuning data prepared with a recorded split
-manifest.
+**Rescope decision (2026-07-17).** The original matched-data detector fine-tuning ladder is
+skipped in favour of importing an existing checkpoint. This aligns with the Phase 0 exit
+gate decision recorded the same day
+([`docs/reports/2026-07-17-phase0-exit-gate.md`](../reports/2026-07-17-phase0-exit-gate.md),
+SPO-21): **GO, detection-first — Phase 2 imports a standard pretrained YOLOX as the frozen
+comparator detector and is prioritised ahead of Phase 3.** Rationale:
 
-**Candidates:** fine-tuned RF-DETR Medium/Large (training harness already exists), D-FINE,
-RT-DETRv2, and YOLOX. The hosted football detector is a **soccer-tier reference only**
-(SoccerNet and soccer clips) — it is soccer-specific with unpinned lineage, so it is not a
-comparator on SportsMOT or other tiers. Local AGPL YOLO weights remain a non-shippable
-local reference. Fine-tuned architectures get 2–3 training seeds once to measure training
-variance.
+- The Phase 0 gate measured detection as the current stack's dominant error source: 63–75%
+  of baseline ID switches are detection-attributed, and the football-specialised incumbent
+  produces near-zero detections on SportsMOT basketball/volleyball. The remedy is domain
+  coverage, which the literature's shared sports-tuned checkpoint provides off the shelf —
+  a fine-tuning program is not required to close this gap, only an import. (The Phase 1
+  gate corroborates the sequencing: parameter hardening closed only ~4% of the gap to the
+  oracle ceiling.)
+- On the public leaderboards themselves, that shared YOLOX is near-saturated on detection
+  and methods differ almost entirely in association — so adopting it both fixes our
+  measured detection deficit and makes Phase 3 tracker results directly comparable to
+  published SportsMOT numbers, which an in-house fine-tune would not be.
+- Any detector fine-tuned on SportsMOT — including an in-house one — inherits the dataset's
+  CC BY-NC 4.0 license on the training-data axis, so the ladder could never have produced a
+  shipping detector; the shipping detector was always going to come from the Phase 5
+  phone-footage fine-tune. (Gate caveat, restated: the comparator detector is not the
+  shipped detector — the production amateur-footage detector question stays open until
+  Phase 5.)
 
-**Protocol:** two comparison classes, never mixed in one table:
-- **Matched-data comparisons** (the decision-making class): every architecture fine-tuned
-  on the same dataset and split manifest, evaluated at a declared resolution policy, so the
-  comparison isolates architecture rather than checkpoint lineage.
-- **As-published checkpoint comparisons** (reference rows only): official checkpoints with
-  their own pretraining/fine-tuning lineage, recorded with per-axis provenance and clearly
-  labeled — these conflate architecture, data, and training recipe and cannot promote a
-  candidate by themselves.
+**Entrance:** Phase 0 external-exchange tooling (detections export) exists.
 
-Frozen tracker (hardened baseline); identical evaluation sequences; measure the detection
-evaluator suite plus downstream raw tracklet IDF1/HOTA/purity plus quality-approved
-body/face crop yield per player, runtime, and VRAM. Test stride 1 vs 2 and model-native
-resolution; selective tiling before any generic TTA.
+**Scope (what replaces the ladder):**
+- Adopt existing downloadable checkpoints as the frozen reference detector per tier:
+  - **SportsMOT tier:** MixSort's SportsMOT-fine-tuned YOLOX (MIT-licensed repository;
+    weights trained on CC BY-NC SportsMOT, therefore recorded in provenance as
+    **selection-only, non-shippable**). This is the shared public detector of the SportsMOT
+    literature.
+  - **Soccer tier (SoccerNet + soccer clips):** the hosted incumbent detector, frozen and
+    replayable via the hosted-response cache. Local AGPL YOLO weights remain a
+    non-shippable local reference.
+  - **Excluded:** Deep-EIoU's YOLOX checkpoint — its repository and weights carry no
+    license, and unlicensed code/weights grant no execution right.
+- Export frozen detections once per tier over the evaluation sequences, hash them, and feed
+  every Phase 3 tracker candidate identical input.
+- Detector architecture selection is **deferred to Phase 5** as a two-candidate bake-off
+  fine-tuned on owned phone footage: YOLOX (Apache 2.0 code and COCO weights) and RF-DETR
+  (fine-tuning harness already exists). D-FINE and RT-DETRv2 drop to research watch.
 
-**Exit criteria:** at most two permissively-licensed detector finalists selected on
-downstream tracklet quality and cross-dataset consistency, with full provenance.
+**Exit criteria:** frozen, hashed, provenance-stamped reference detections exist for the
+held-out SportsMOT and SoccerNet evaluation sequences, with license status (selection-only
+vs shippable) recorded per checkpoint.
 
-**Stop/go:** a challenger is promoted only if it beats the incumbent by the pre-registered
-delta on held-out sequences in at least two tiers; otherwise the incumbent stands and the
-program proceeds with it.
+**Revisit trigger (replaces the stop/go):** the Phase 0 gate already established a large
+detection-attributable gap for the *incumbent* detector; the import above is the chosen
+remedy. The matched-data ladder below re-enters scope only if (a) after the imported YOLOX
+detections are scored, a large detection-attributable gap **persists** on the sports tiers
+(i.e. the import did not close what the gate measured), or (b) Phase 5 transfer fails for
+detection-attributable reasons (small/distant players, motion blur, missed detections on
+phone footage).
+
+**Conditional annex — superseded matched-data ladder (retained only for the revisit
+trigger):** fine-tuned RF-DETR Medium/Large, D-FINE, RT-DETRv2, and YOLOX, each fine-tuned
+on the same dataset and split manifest with 2–3 training seeds, judged on the detection
+evaluator suite plus downstream raw tracklet IDF1/HOTA/purity, crop yield, runtime, and
+VRAM, with as-published checkpoints as clearly-labeled reference rows only, and promotion
+requiring the pre-registered delta on held-out sequences in at least two tiers. If this
+annex is ever activated, the fine-tuning dataset must be permissively licensed or owned for
+any checkpoint intended to outlive benchmark selection.
 
 ### Phase 3 — Online tracker benchmark ladder
 
 **Gate question:** Which online tracker produces the purest raw tracklets on frozen
 detections, and does body appearance reduce within-team switches?
 
-**Entrance:** Phase 2 detector finalists chosen (tracker evaluation can begin earlier on
-baseline detections, since the frozen-detections protocol makes the detector a swappable
-input).
+**Entrance:** frozen reference detections exported per tier (Phase 2 as rescoped); tracker
+evaluation can begin as soon as they exist, since the frozen-detections protocol makes the
+detector a swappable input.
 
 **Candidates:**
 - Hardened BoT-SORT-style baseline (comparator).
@@ -286,10 +323,11 @@ evaluation; SAM2-class correction additionally must justify its runtime per matc
 **Gate question:** Which gains survive the move from labelled broadcast benchmarks to the
 product domain?
 
-**Entrance:** at most two finalist detector/tracker stacks; SoccerTrack ingested; phone
-footage captured (started in Phase 0) and a small phone evaluation set labeled; handheld
-tier entered only if the scouting task found a usable licensed dataset, otherwise finalists
-jump from SoccerTrack to phone footage with wider pre-registered acceptance margins.
+**Entrance:** tracker finalist(s) from Phase 3/4 plus the detector bake-off shortlist
+(YOLOX-COCO, RF-DETR — per the Phase 2 rescope); SoccerTrack ingested; phone footage
+captured (started in Phase 0) and a small phone evaluation set labeled; handheld tier
+entered only if the scouting task found a usable licensed dataset, otherwise finalists jump
+from SoccerTrack to phone footage with wider pre-registered acceptance margins.
 
 **Scope:**
 - Full SoccerTrack evaluation (scale, distortion, amateur players, fixed camera).
@@ -297,7 +335,9 @@ jump from SoccerTrack to phone footage with wider pre-registered acceptance marg
 - Phone evaluation set: a handful of 30–60 second clips, annotated with model-assisted
   pre-labels from the best stack plus manual correction, held out from all tuning, with
   condition slices (player scale, occlusion, camera motion).
-- Final adaptation: fine-tune the finalist detector on a small match-separated phone set;
+- Final adaptation: the deferred detector bake-off — fine-tune both shortlist
+  architectures (YOLOX from Apache COCO weights, RF-DETR via the existing harness) on a
+  small match-separated phone set and select by the pre-registered delta;
   temporally-consistent pseudo-labels to expand training data; re-tune camera compensation
   and blur handling for phone motion.
 - Cost accounting: runtime, VRAM, and cost per match for the finalist stack.
@@ -313,33 +353,37 @@ shipped.
 - Phase 0 blocks all evaluation work; it is the program's critical path.
 - Baseline code hardening (Phase 1 fixes) can proceed in parallel with Phase 0 metrics.
 - Phone capture and handheld-dataset scouting run in parallel with all phases from day one.
-- Phase 3 tracker evaluation on baseline detections can overlap Phase 2 detector
-  fine-tuning, because frozen detections decouple the two ladders; final tracker selection
-  waits for the detector finalists.
-- Detector fine-tuning runs and benchmark sweeps must be serially scheduled on the single
-  local GPU; the PRD's phase gates assume wall-clock, not parallel compute.
+- Phase 2 (as rescoped) is a short adoption-and-export task; Phase 3 tracker evaluation
+  starts as soon as frozen reference detections are exported.
+- Benchmark sweeps and the Phase 5 detector fine-tunes must be serially scheduled on the
+  single local GPU; the PRD's phase gates assume wall-clock, not parallel compute.
 - Phases 4 and 5 are strictly sequential after Phase 3.
 
 ### Candidate triage
 
-**Immediately actionable:** oracle detector; hardened BoT-SORT baseline; RF-DETR
-fine-tuning (harness exists); D-FINE and RT-DETRv2 challengers; YOLOX (Apache code, so
-shipping-eligible as an architecture — individual checkpoints reviewed per-axis like any
-candidate — while also serving as the literature-reproduction baseline); TDLP bbox-only and
-TDLP+ReID via import adapter; OC-SORT; GTA-style split/reconnect; full BoT-SORT+ReID
-reusing the existing embedder stack.
+**Immediately actionable:** oracle detector; hardened BoT-SORT baseline; MixSort's public
+SportsMOT-fine-tuned YOLOX as the frozen SportsMOT-tier reference detector (MIT repository;
+NC training data → selection-only, non-shippable); TDLP bbox-only and TDLP+ReID via import
+adapter; OC-SORT; GTA-style split/reconnect; full BoT-SORT+ReID reusing the existing
+embedder stack. Deferred to Phase 5: YOLOX-COCO (Apache) and RF-DETR (harness exists) as
+the phone-footage fine-tuning shortlist.
 
 **Benchmark references:** Deep-EIoU (no clear license — paper-only reference or clean-room
-reproduction, never executed as-is); local AGPL YOLO weights (AGPL permits local execution;
-non-shippable per existing policy); hosted incumbent detector (soccer-tier reference and
-incumbent to beat; not a cross-sport comparator, provenance-limited).
+reproduction, never executed as-is; its YOLOX checkpoint is equally unlicensed and is not
+executed either); local AGPL YOLO weights (AGPL permits local execution; non-shippable per
+existing policy); hosted incumbent detector (soccer-tier reference; not a cross-sport
+comparator, provenance-limited, frozen via the hosted-response cache).
 
-**Research watch (re-evaluate when code/weights/licenses mature):** SAMIDARE, HyperSSM,
-NOOUGAT; SAM2-class mask tracking as a whole-pipeline approach (selective correction on
-hard windows is the only sanctioned entry point, in Phase 4); CAMELTrack starts as watch
-and enters Phase 4 only if margin logs show learned association is the binding constraint.
+**Research watch (re-evaluate when code/weights/licenses mature):** D-FINE and RT-DETRv2
+(re-enter only via the Phase 2 revisit trigger); SAMIDARE, HyperSSM, NOOUGAT; SAM2-class
+mask tracking as a whole-pipeline approach (selective correction on hard windows is the
+only sanctioned entry point, in Phase 4); CAMELTrack starts as watch and enters Phase 4
+only if margin logs show learned association is the binding constraint.
 
 ## User Stories
+
+*(2026-07-17 rescope note: stories 19, 20, and 35 now apply only to the Phase 5 detector
+bake-off and to the Phase 2 conditional annex if its revisit trigger fires.)*
 
 1. As a pipeline developer, I want an oracle-detection mode that feeds ground-truth boxes
    into any tracker, so that I can separate detector limitations from association
@@ -553,7 +597,9 @@ and enters Phase 4 only if margin logs show learned association is the binding c
   deterministic: comparisons run over cached, frozen detections (hosted responses cached
   and hashed); repeat-run stability is measured once per harness; and gates use
   pre-registered metric tolerances, not exact-match expectations. Fine-tuned detector
-  architectures additionally get 2–3 training seeds once to establish variance bands.
+  architectures additionally get 2–3 training seeds once to establish variance bands
+  (after the 2026-07-17 rescope: the Phase 5 bake-off, plus the Phase 2 annex only if its
+  revisit trigger fires).
 - Public benchmark gains are never assumed to transfer to phone footage; transfer is
   measured at Phase 5 and non-transferring gains are recorded as domain-limited findings.
 
