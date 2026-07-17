@@ -1,0 +1,76 @@
+# SPO-22 Phase 1 gate -- parameter-sensitivity sweep of the current baseline
+# (v1-local-eval: local football YOLOv8x + BoT-SORT) over SoccerNet held-out.
+#
+# One-at-a-time (OAT) sweep around the current defaults: each `sweeps` entry
+# perturbs a single axis against the base candidate, so every derived
+# candidate differs from `baseline-botsort` in exactly one parameter and its
+# delta is that parameter's sensitivity. Two explicit joint candidates probe
+# confidence x activation together (PRD: lower the pre-tracker threshold so
+# low-score association has material, tuned jointly with activation).
+#
+# Pre-registered in Linear SPO-22 before running (axes, ranges, tolerances,
+# selection rule). SoccerNet held-out only -- the football detector floors at
+# ~0 on SportsMOT non-football (Phase 0 / SPO-21), so a sweep there has no
+# parameter signal; the selected config is confirmed on SportsMOT separately.
+#
+# min-length pre/post-filter sensitivity (AC3) is read from each run's
+# eval.json purity.{tracklet,entity}.{pre_filter,post_filter} blocks.
+name: benchmark-phase1-sweep-soccernet
+task: benchmark
+description: Phase 1 gate -- OAT parameter sensitivity sweep of the baseline on SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: baseline-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+    - name: joint-conf0.1-act0.15
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.confidence: 0.1
+        stages.track.params.track_activation_threshold: 0.15
+    - name: joint-conf0.15-act0.2
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.confidence: 0.15
+        stages.track.params.track_activation_threshold: 0.2
+  sweeps:
+    - candidate: baseline-botsort
+      param: video.sample_stride
+      values: [1, 4]
+    - candidate: baseline-botsort
+      param: stages.detect.params.confidence
+      values: [0.1, 0.2, 0.4]
+    - candidate: baseline-botsort
+      param: stages.track.params.lost_track_buffer_s
+      values: [0.5, 2.0]
+    - candidate: baseline-botsort
+      param: stages.track.params.track_activation_threshold
+      values: [0.15, 0.4]
+    - candidate: baseline-botsort
+      param: stages.track.params.min_length
+      values: [3, 10]
+    - candidate: baseline-botsort
+      param: stages.track.params.enable_cmc
+      values: [false]
+  compare:
+    baseline: baseline-botsort
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments
