@@ -36,6 +36,11 @@ is absent for imported external runs (`exchange.py::import_mot_tracklets`
 writes none), in which case `result["detection"] is None` -- never a crash
 or a fabricated score.
 
+A seventh annotation pass (SPO-19) attributes every per-instance ID switch
+to a pipeline layer -- detection, online association, refinement (reserved),
+offline association -- or an explicit `ambiguous` tag, with the evidence
+basis recorded per instance; see `pitchlab_core.attribution`.
+
 Requires the `eval` extra (motmetrics; scipy comes in transitively and is
 what the HOTA backend actually needs). Imported lazily so the lean server
 install works without it.
@@ -190,6 +195,16 @@ def evaluate_run(
         "instances": sorted(instances, key=lambda i: (i["frame_idx"], i["level"])),
         "identity": _evaluate_identity(players_data, gt_by_frame, pred_entity, eval_frames, iou_threshold),
     }
+
+    from pitchlab_core.attribution import attribute_switches, detect_context
+
+    # SPO-19: every switch instance carries a layer attribution or an explicit
+    # ambiguous tag. Single-run evidence only here; callers holding an
+    # oracle-counterpart eval payload re-invoke attribute_switches to upgrade
+    # ambiguous tracklet-level switches (see pitchlab_core.attribution).
+    result["attribution"] = detect_context(manifest)
+    attribute_switches(result)
+
     mq = merge_quality(tracklets_by_id, players_data, gt_by_frame, iou_threshold)
     result["association"].update({k: v for k, v in mq.items() if k != "merged_pairs"})
     result["association"]["merged_pairs"] = mq["merged_pairs"]
