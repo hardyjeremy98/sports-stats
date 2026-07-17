@@ -73,6 +73,10 @@ class PipelineCandidate(BaseModel):
     config: str  # pipeline YAML path
     overrides: dict = Field(default_factory=dict)  # dotted-path -> value
     comparison_class: Literal["matched_data", "as_published"] = "matched_data"
+    # SPO-19: names another pipeline candidate that is this candidate's
+    # oracle counterpart (same tracker, pristine oracle detections). Explicit
+    # only, never inferred; validated in _validate_oracle_candidates.
+    oracle_candidate: str | None = None
 
 
 class ImportCandidate(BaseModel):
@@ -268,6 +272,11 @@ class BenchmarkExperiment(Experiment):
                 rows.append(row)
                 if row["status"] == "failed":
                     failed_rows.append({"run_id": run_id, "error": row["error"]})
+
+        # Oracle-comparison enrichment (SPO-19) -- after all rows exist so an
+        # oracle row is available regardless of candidate order, before any
+        # aggregation (attribution never changes headline metrics).
+        _enrich_with_oracle(candidates, rows, workdir)
 
         # Provenance aggregation gates (Task 9): refuse loudly, before any
         # aggregate is computed, rather than silently aggregating a result
@@ -508,6 +517,101 @@ def _validate_import_candidate(candidate: ImportCandidate) -> None:
             )
 
 
+def _validate_oracle_candidates(candidates: list[PipelineCandidate | ImportCandidate]) -> None:
+    """Eager validation of every `oracle_candidate` pairing (SPO-19), at
+    expansion time: the named candidate must exist, be a pipeline candidate,
+    not be the candidate itself, resolve to a PRISTINE oracle detect stage
+    (impl 'oracle', dropout_rate == 0, jitter_px == 0), and share an
+    identical resolved track stage config and sample_stride with the paired
+    candidate -- the oracle counterpart is definitionally "same tracker,
+    perfect detections", so anything else refuses loudly here rather than
+    producing an incomparable enrichment at scoring time. Sweep-derived
+    candidates inherit `oracle_candidate` and are validated the same way, so
+    a sweep that mutates track params refuses at expansion."""
+    by_name = {c.name: c for c in candidates}
+    for c in candidates:
+        if not isinstance(c, PipelineCandidate) or c.oracle_candidate is None:
+            continue
+        target = by_name.get(c.oracle_candidate)
+        if target is None:
+            raise RuntimeError(
+                f"Candidate '{c.name}': oracle_candidate '{c.oracle_candidate}' is not "
+                f"a known candidate (known: {sorted(by_name)})"
+            )
+        if target.name == c.name:
+            raise RuntimeError(f"Candidate '{c.name}': oracle_candidate cannot name itself")
+        if not isinstance(target, PipelineCandidate):
+            raise RuntimeError(
+                f"Candidate '{c.name}': oracle_candidate '{target.name}' is an import "
+                "candidate -- oracle counterparts must be pipeline candidates"
+            )
+        oracle_config = _load_pipeline_config(target)
+        detect = oracle_config.stages[StageKind.DETECT]
+        if detect.impl != "oracle":
+            raise RuntimeError(
+                f"Candidate '{c.name}': oracle_candidate '{target.name}' resolves to "
+                f"detect impl '{detect.impl}', not 'oracle'"
+            )
+        params = detect.params or {}
+        if float(params.get("dropout_rate", 0.0) or 0.0) != 0.0 or (
+            float(params.get("jitter_px", 0.0) or 0.0) != 0.0
+        ):
+            raise RuntimeError(
+                f"Candidate '{c.name}': oracle_candidate '{target.name}' is not "
+                "pristine (dropout_rate/jitter_px must be 0 for attribution)"
+            )
+        own_config = _load_pipeline_config(c)
+        if own_config.stages[StageKind.TRACK] != oracle_config.stages[StageKind.TRACK]:
+            raise RuntimeError(
+                f"Candidate '{c.name}' and oracle_candidate '{target.name}' have "
+                "different resolved track stage configs -- the oracle counterpart "
+                "must run the identical tracker"
+            )
+        if own_config.video.sample_stride != oracle_config.video.sample_stride:
+            raise RuntimeError(
+                f"Candidate '{c.name}' and oracle_candidate '{target.name}' have "
+                "different sample_stride -- their evals are not comparable"
+            )
+
+
+def _enrich_with_oracle(
+    candidates: list[PipelineCandidate | ImportCandidate], rows: list[dict], workdir: Path
+) -> None:
+    """Oracle-comparison enrichment (SPO-19): for each completed row of a
+    candidate with `oracle_candidate` set, re-attribute its eval.json against
+    the oracle candidate's completed row on the same sequence and rewrite the
+    file in place. A missing/failed oracle row records
+    `row["attribution_oracle"] = {"status": "unavailable", ...}` and leaves
+    the baseline (ambiguous) attribution -- visible, never silent. Headline
+    metrics are untouched; only eval.json changes."""
+    from pitchlab_core.attribution import attribute_switches
+
+    by_name = {c.name: c for c in candidates}
+    completed = {(r["candidate"], r["sequence"]): r for r in rows if r["status"] == "completed"}
+    for row in rows:
+        cand = by_name.get(row["candidate"])
+        if not isinstance(cand, PipelineCandidate) or cand.oracle_candidate is None:
+            continue
+        if row["status"] != "completed":
+            continue
+        oracle_row = completed.get((cand.oracle_candidate, row["sequence"]))
+        if oracle_row is None:
+            row["attribution_oracle"] = {
+                "status": "unavailable",
+                "reason": (
+                    f"no completed row for oracle candidate "
+                    f"'{cand.oracle_candidate}' on sequence '{row['sequence']}'"
+                ),
+            }
+            continue
+        eval_file = workdir / row["eval_path"]
+        result = json.loads(eval_file.read_text())
+        oracle_eval = json.loads((workdir / oracle_row["eval_path"]).read_text())
+        attribute_switches(result, oracle_eval=oracle_eval, oracle_run_id=oracle_row["run_id"])
+        eval_file.write_text(json.dumps(result))
+        row["attribution_oracle"] = {"status": "enriched", "oracle_run_id": oracle_row["run_id"]}
+
+
 def _expand_candidates(
     raw_candidates: list[dict], sweeps: list[SweepSpec]
 ) -> list[PipelineCandidate | ImportCandidate]:
@@ -572,6 +676,7 @@ def _expand_candidates(
             )
             _load_pipeline_config(derived)  # eager validation, result discarded
             expanded.append(derived)
+    _validate_oracle_candidates(expanded)
     return expanded
 
 
