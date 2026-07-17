@@ -294,6 +294,17 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   as `held_out` (ingested 2026-07-16 specifically for this manifest, never referenced by a tuning
   config or experiment). Byte-stable (`sort_keys=True`, stable sequence ordering) so the file can
   be hashed as the identity of "which sequences an evaluation used."
+- SportsMOT tuning/held-out split manifest (`configs/datasets/sportsmot.json`, SPO-16): 9
+  sequences drawn from the SportsMOT `val` split (HuggingFace MCG-NJU/SportsMOT) — 6 `held_out`
+  (2 each football/basketball/volleyball) + 3 `tuning` (1 per sport), all from distinct source
+  videos so no clip correlation crosses the held-out/tuning boundary. Ingested 2026-07-17 via
+  `pitchlab-train ingest-sportsmot`; one held-out sequence scored end-to-end through the
+  oracle-eval pipeline to confirm the GT is scorable. **License: CC BY-NC 4.0 — non-commercial /
+  research only.** This tier is an evaluation benchmark only; SportsMOT must never train shipped
+  models or be redistributed with the product (see CLAUDE.md → Licensing boundaries). Upstream
+  distribution is also CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the
+  gate was not clicked through — **commercial use needs an explicit recorded licensing sign-off,
+  which is still open** (raised at SPO-16, deferred to the owner of product licensing risk).
 
 Primary locations:
 
