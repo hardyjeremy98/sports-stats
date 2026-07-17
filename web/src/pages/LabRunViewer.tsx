@@ -1285,6 +1285,10 @@ function EvalTab({
       </div>
     );
   const gain = ev.association.idf1_gain;
+  // Captions render below the whole table (they are prose, and a <tr> here
+  // would take over :last-child and strip the last data row's border). Only
+  // one group has a caption today; a second would need its group named in the
+  // text, since position no longer ties a caption to its rows.
   const captions = EVAL_ROW_GROUPS.map((group) => group.caption?.(ev)).filter(
     (c): c is string => !!c,
   );
