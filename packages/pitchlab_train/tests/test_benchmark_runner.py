@@ -549,3 +549,165 @@ def test_benchmark_config_path_missing_refuses_at_expansion_not_as_failed_row(tm
     )
     with pytest.raises(FileNotFoundError, match="no-such-config.yaml"):
         build(config.task, config).run()
+
+
+# ---------------------------------------------------------------------------
+# oracle_candidate (SPO-19)
+# ---------------------------------------------------------------------------
+
+
+def test_oracle_candidate_unknown_name_refuses():
+    with pytest.raises(RuntimeError, match="ghost"):
+        _expand_candidates(
+            [{"name": "base", "config": STUB_CONFIG, "oracle_candidate": "ghost"}], []
+        )
+
+
+def test_oracle_candidate_self_reference_refuses():
+    with pytest.raises(RuntimeError, match="itself"):
+        _expand_candidates(
+            [{"name": "base", "config": ORACLE_CONFIG, "oracle_candidate": "base"}], []
+        )
+
+
+def test_oracle_candidate_must_use_oracle_detect():
+    with pytest.raises(RuntimeError, match="oracle"):
+        _expand_candidates(
+            [
+                {"name": "base", "config": STUB_CONFIG, "oracle_candidate": "other"},
+                {"name": "other", "config": STUB_CONFIG},
+            ],
+            [],
+        )
+
+
+def test_oracle_candidate_must_be_pristine():
+    with pytest.raises(RuntimeError, match="pristine"):
+        _expand_candidates(
+            [
+                {"name": "base", "config": STUB_CONFIG, "oracle_candidate": "orc"},
+                {
+                    "name": "orc",
+                    "config": ORACLE_CONFIG,
+                    "overrides": {"stages.detect.params.dropout_rate": 0.1},
+                },
+            ],
+            [],
+        )
+
+
+def test_oracle_candidate_track_config_must_match():
+    with pytest.raises(RuntimeError, match="track"):
+        _expand_candidates(
+            [
+                {
+                    "name": "base",
+                    "config": STUB_CONFIG,
+                    "overrides": {"stages.track.params.max_age_frames": 99},
+                    "oracle_candidate": "orc",
+                },
+                {"name": "orc", "config": ORACLE_CONFIG},
+            ],
+            [],
+        )
+
+
+def test_oracle_candidate_sweep_on_track_params_refuses():
+    # Sweep-derived candidates inherit oracle_candidate; a sweep that mutates
+    # track params breaks comparability and must refuse at expansion.
+    with pytest.raises(RuntimeError, match="track"):
+        _expand_candidates(
+            [
+                {"name": "base", "config": STUB_CONFIG, "oracle_candidate": "orc"},
+                {"name": "orc", "config": ORACLE_CONFIG},
+            ],
+            [SweepSpec(candidate="base", param="stages.track.params.max_age_frames", values=[30])],
+        )
+
+
+def test_oracle_candidate_valid_pairing_expands():
+    candidates = _expand_candidates(
+        [
+            {"name": "base", "config": STUB_CONFIG, "oracle_candidate": "orc"},
+            {"name": "orc", "config": ORACLE_CONFIG},
+        ],
+        [],
+    )
+    assert [c.name for c in candidates] == ["base", "orc"]
+    assert candidates[0].oracle_candidate == "orc"
+
+
+def test_benchmark_oracle_enrichment_end_to_end(tmp_path):
+    pytest.importorskip("motmetrics")
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    render_demo_video(videos_dir / "clip-a.mp4", duration_s=2, fps=20, width=960, height=540)
+    _write_gt_for_clip(videos_dir / "clip-a.mp4", seq_length=40, fps=20)
+
+    manifest_path = _write_manifest_tree(
+        tmp_path,
+        [
+            {
+                "name": "clip-a",
+                "video": "videos/clip-a.mp4",
+                "gt": "videos/clip-a.gt.json",
+                "role": "tuning",
+            }
+        ],
+        write_files=False,
+    )
+
+    config = ExperimentConfig(
+        name="test-benchmark-oracle",
+        task="benchmark",
+        params={
+            "dataset_manifest": str(manifest_path),
+            "roles": ["tuning"],
+            "candidates": [
+                {"name": "base", "config": STUB_CONFIG, "oracle_candidate": "orc"},
+                {"name": "orc", "config": ORACLE_CONFIG},
+            ],
+            "device": "cpu",
+        },
+        output_dir=str(tmp_path / "exp"),
+    )
+    result = build(config.task, config).run()
+
+    by_candidate = {row["candidate"]: row for row in result["rows"]}
+    assert by_candidate["base"]["status"] == "completed"
+    assert by_candidate["orc"]["status"] == "completed"
+    assert by_candidate["base"]["attribution_oracle"] == {
+        "status": "enriched",
+        "oracle_run_id": "orc-clip-a",
+    }
+    assert "attribution_oracle" not in by_candidate["orc"]
+
+    workdir = next((tmp_path / "exp").glob("*/result.json")).parent
+    base_eval = json.loads((workdir / by_candidate["base"]["eval_path"]).read_text())
+    assert base_eval["attribution"]["oracle_comparison"] == {"oracle_run": "orc-clip-a"}
+    for inst in base_eval["instances"]:
+        assert inst["attribution"]["layer"] in (
+            "detection",
+            "online_association",
+            "offline_association",
+            "ambiguous",
+        )
+        # tracklet-level switches must no longer be ambiguous after enrichment
+        if inst["level"] == "tracklet":
+            assert inst["attribution"]["layer"] in ("detection", "online_association")
+    orc_eval = json.loads((workdir / by_candidate["orc"]["eval_path"]).read_text())
+    assert orc_eval["attribution"]["oracle_input"] is True
+
+
+def test_oracle_candidate_on_pristine_oracle_candidate_refuses_at_expansion():
+    # A pristine-oracle candidate declaring its own oracle_candidate would
+    # only fail post-hoc at enrichment (oracle-to-oracle refusal) after all
+    # pipeline runs completed; the runner's discipline is refuse-at-expansion.
+    with pytest.raises(RuntimeError, match="oracle to oracle"):
+        _expand_candidates(
+            [
+                {"name": "orc", "config": ORACLE_CONFIG, "oracle_candidate": "orc2"},
+                {"name": "orc2", "config": ORACLE_CONFIG},
+            ],
+            [],
+        )

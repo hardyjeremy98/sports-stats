@@ -279,6 +279,33 @@ export interface EvalLevelMetrics {
   recall: number;
 }
 
+// SPO-19: evidence-based layer attribution per ID switch. "refinement" is
+// reserved (Phase 4 refined-tracklet layer) and never emitted today;
+// "ambiguous" is a first-class honest outcome, not a fallback guess.
+export type AttributionLayer =
+  | "detection"
+  | "online_association"
+  | "refinement"
+  | "offline_association"
+  | "ambiguous";
+
+export interface AttributionEvidence {
+  kind: string; // oracle_input | oracle_comparison | tracklet_counterpart | entity_only | insufficient_evidence
+  detail?: string;
+  outcome?: "persists" | "disappears";
+  oracle_run?: string | null;
+  oracle_frame_idx?: number;
+  oracle_t?: number;
+  frame_idx?: number;
+  t?: number;
+  tol_s?: number;
+}
+
+export interface EvalInstanceAttribution {
+  layer: AttributionLayer;
+  evidence: AttributionEvidence[];
+}
+
 export interface EvalInstance {
   level: "tracklet" | "entity";
   kind: "id_switch";
@@ -288,6 +315,8 @@ export interface EvalInstance {
   gt_label: string;
   prev_id: number | null;
   new_id: number | null;
+  // Absent on eval.json files written before SPO-19 — re-evaluate to attribute.
+  attribution?: EvalInstanceAttribution;
 }
 
 // Third eval layer (ADR 004): does `identity.label` correspond to the right
@@ -388,6 +417,14 @@ export interface EvalResult {
     }[];
   };
   instances: EvalInstance[];
+  // SPO-19 context block: how attribution was derived for this payload.
+  attribution?: {
+    detect_impl: string | null;
+    oracle_input: boolean;
+    oracle_comparison: { oracle_run: string | null } | null;
+    tol_s: number;
+    counts: Record<"tracklet" | "entity", Partial<Record<AttributionLayer, number>>>;
+  };
   identity?: EvalIdentity | null;
   detection?: DetectionEval | null;
 }

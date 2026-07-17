@@ -102,9 +102,17 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{run_id}/evaluate", response_model=RunDetailOut)
-def evaluate_run(run_id: str, db: Session = Depends(get_db)):
+def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = Depends(get_db)):
     """(Re-)score a completed run against its video's ground truth. Writes the
-    eval.json artifact and folds headline metrics into run.metrics."""
+    eval.json artifact and folds headline metrics into run.metrics.
+
+    `oracle_run_id` (optional, SPO-19): a scored run of the SAME video that
+    consumed pristine oracle detections; its eval.json upgrades this run's
+    ambiguous tracklet-level switch attributions via oracle comparison. The
+    oracle run must already carry an eval.json -- evaluate it first. Note:
+    attribution is always recomputed from the evidence given to THIS call, so
+    re-evaluating without `oracle_run_id` discards any previous oracle
+    enrichment (the payload self-describes via `attribution.oracle_comparison`)."""
     from pitchlab_server.evaluation import evaluate_run_against_gt, merged_metrics
 
     run = db.get(Run, run_id)
@@ -113,10 +121,34 @@ def evaluate_run(run_id: str, db: Session = Depends(get_db)):
     video = db.get(Video, run.video_id)
     if video is None or not video.gt_path:
         raise HTTPException(422, "Video has no ground truth to evaluate against")
+
+    oracle_eval = None
+    if oracle_run_id is not None:
+        oracle = db.get(Run, oracle_run_id)
+        if oracle is None:
+            raise HTTPException(404, "Oracle run not found")
+        if oracle.video_id != run.video_id:
+            raise HTTPException(422, "Oracle run must be a run of the same video")
+        oracle_eval_path = Path(oracle.run_dir) / ARTIFACT_FILES[ArtifactName.EVAL]
+        if not oracle_eval_path.exists():
+            raise HTTPException(
+                422, f"Oracle run '{oracle_run_id}' has no eval.json -- evaluate it first"
+            )
+        try:
+            oracle_eval = json.loads(oracle_eval_path.read_text())
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                422, f"Oracle run '{oracle_run_id}' has a malformed eval.json: {exc}"
+            ) from exc
+
     try:
-        result = evaluate_run_against_gt(run, video)
+        result = evaluate_run_against_gt(
+            run, video, oracle_eval=oracle_eval, oracle_run_id=oracle_run_id
+        )
     except ImportError as exc:
         raise HTTPException(501, "motmetrics not installed (uv sync --group eval)") from exc
+    except ValueError as exc:  # attribution refusals (pitchlab_core.attribution)
+        raise HTTPException(422, str(exc)) from exc
     if result is None:
         raise HTTPException(422, "Run has no tracklets artifact to score")
     run.metrics = merged_metrics(run, result)

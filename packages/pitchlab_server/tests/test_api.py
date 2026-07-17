@@ -192,3 +192,114 @@ def test_run_diff_same_video_guard(client, video_id):
 
     diff_resp_same = client.get(f"/api/runs/{run_a}/diff/{run_c}")
     assert diff_resp_same.status_code == 200, diff_resp_same.text
+
+
+def test_evaluate_endpoint_with_oracle_run_id(client, video_id):
+    """POST /runs/{id}/evaluate?oracle_run_id=... enriches attribution from a
+    scored oracle run of the same video; refusals surface as 422."""
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
+    from pitchlab_core.schemas.geometry import Box
+    from pitchlab_server.db import session
+    from pitchlab_server.models import Run, Video
+
+    # Attach a tiny GT to the shared demo video (120 frames at 20 fps).
+    with session() as db:
+        video = db.get(Video, video_id)
+        frame_count = 120
+        gt = GroundTruth(
+            source="test",
+            sequence="clip",
+            fps=20.0,
+            width=960,
+            height=540,
+            seq_length=frame_count,
+            tracks=[
+                GroundTruthTrack(
+                    track_id=1,
+                    role="player",
+                    frames=[
+                        GroundTruthFrame(frame_idx=f, box=Box(x1=100, y1=100, x2=140, y2=220))
+                        for f in range(frame_count)
+                    ],
+                )
+            ],
+        )
+        gt_path = Path(os.environ["PITCHLAB_DATA_DIR"]) / "clip.gt.json"
+        gt_path.write_text(gt.model_dump_json())
+        video.gt_path = str(gt_path)
+        db.commit()
+
+    # Earlier tests in this module may leave queued jobs behind; drain them so
+    # claim_next_job below picks up THIS test's runs.
+    while (stale := claim_next_job()) is not None:
+        execute_job(stale)
+
+    ids = []
+    for _ in range(2):
+        resp = client.post(
+            "/api/runs", json={"video_id": video_id, "config_name": "stub-synthetic"}
+        )
+        ids.append(resp.json()["id"])
+        execute_job(claim_next_job())
+    run_id, oracle_id = ids
+
+    # Fabricate run dirs whose tracklets exercise attribution: baseline
+    # fragments GT1 at frame 60; the "oracle" run tracks it cleanly.
+    def _frames(rng):
+        return [
+            {
+                "frame_idx": f,
+                "box": {"x1": 100, "y1": 100, "x2": 140, "y2": 220},
+                "confidence": 0.9,
+            }
+            for f in rng
+        ]
+
+    with session() as db:
+        base_dir = Path(db.get(Run, run_id).run_dir)
+        oracle_dir = Path(db.get(Run, oracle_id).run_dir)
+    (base_dir / "tracklets.json").write_text(
+        json.dumps(
+            [
+                {"tracklet_id": 10, "cls": "player", "frames": _frames(range(0, 60))},
+                {"tracklet_id": 11, "cls": "player", "frames": _frames(range(60, 120))},
+            ]
+        )
+    )
+    (base_dir / "players.json").write_text(json.dumps([]))
+    (oracle_dir / "tracklets.json").write_text(
+        json.dumps([{"tracklet_id": 20, "cls": "player", "frames": _frames(range(0, 120))}])
+    )
+    (oracle_dir / "players.json").write_text(json.dumps([]))
+    # Mark the oracle run's manifest as a pristine oracle-detections run.
+    manifest = json.loads((oracle_dir / "manifest.json").read_text())
+    manifest["config"]["stages"]["detect"] = {"impl": "oracle", "params": {}, "enabled": True}
+    (oracle_dir / "manifest.json").write_text(json.dumps(manifest))
+    # The worker auto-scored both runs at completion (the video already had
+    # GT); drop the oracle run's stale eval.json so the "evaluate it first"
+    # refusal is exercised against the fabricated tracklets above.
+    (oracle_dir / "eval.json").unlink()
+
+    # Oracle run must be evaluated first (its eval.json self-describes).
+    resp = client.post(f"/api/runs/{run_id}/evaluate", params={"oracle_run_id": oracle_id})
+    assert resp.status_code == 422
+    assert "no eval.json" in resp.json()["detail"]
+
+    assert client.post(f"/api/runs/{oracle_id}/evaluate").status_code == 200
+    oracle_eval = json.loads((oracle_dir / "eval.json").read_text())
+    assert oracle_eval["attribution"]["oracle_input"] is True
+
+    resp = client.post(f"/api/runs/{run_id}/evaluate", params={"oracle_run_id": oracle_id})
+    assert resp.status_code == 200, resp.text
+    enriched = json.loads((base_dir / "eval.json").read_text())
+    assert enriched["attribution"]["oracle_comparison"] == {"oracle_run": oracle_id}
+    tracklet_switches = [i for i in enriched["instances"] if i["level"] == "tracklet"]
+    assert tracklet_switches
+    assert all(i["attribution"]["layer"] == "detection" for i in tracklet_switches)
+
+    # Unknown oracle run -> 404.
+    assert (
+        client.post(f"/api/runs/{run_id}/evaluate", params={"oracle_run_id": "nope"}).status_code
+        == 404
+    )

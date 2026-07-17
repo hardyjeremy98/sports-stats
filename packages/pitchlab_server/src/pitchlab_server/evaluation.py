@@ -12,10 +12,17 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from pitchlab_core.attribution import match_instances
+
 from pitchlab_server.models import Run, Video
 
 
-def evaluate_run_against_gt(run: Run, video: Video) -> dict | None:
+def evaluate_run_against_gt(
+    run: Run,
+    video: Video,
+    oracle_eval: dict | None = None,
+    oracle_run_id: str | None = None,
+) -> dict | None:
     """Returns the full eval result dict, or None when the video has no usable
     ground truth or the run produced no tracklets. Raises ImportError when
     motmetrics is missing.
@@ -24,7 +31,12 @@ def evaluate_run_against_gt(run: Run, video: Video) -> dict | None:
     run's manifest.json provenance block: every GT-scored run must carry a
     hash of the exact ground truth it was measured against, so a benchmark
     runner comparing runs months apart can tell whether they used the same
-    evaluation set."""
+    evaluation set.
+
+    `oracle_eval`/`oracle_run_id` (SPO-19): an already-scored eval.json
+    payload from a pristine oracle-detections run of the same video, used to
+    upgrade ambiguous tracklet-level switch attributions via oracle
+    comparison; refusals (`pitchlab_core.attribution`) raise ValueError."""
     from pitchlab_core.evaluation import evaluate_run
     from pitchlab_core.gt import GroundTruth
     from pitchlab_core.provenance import hash_evaluation_set
@@ -48,6 +60,10 @@ def evaluate_run_against_gt(run: Run, video: Video) -> dict | None:
         manifest_path.write_text(manifest.model_dump_json(indent=2))
 
     result = evaluate_run(run_dir, gt)
+    if oracle_eval is not None:
+        from pitchlab_core.attribution import attribute_switches
+
+        attribute_switches(result, oracle_eval=oracle_eval, oracle_run_id=oracle_run_id)
     (run_dir / "eval.json").write_text(json.dumps(result))
     return result
 
@@ -66,10 +82,11 @@ def diff_switch_instances(
     between run A and run B.
 
     Instances are grouped by (level, gt_track_id); within each group, A- and
-    B-instances are greedily matched by nearest `t`, closest pairs first, each
-    instance matched at most once. Matches farther apart than `tol_s` don't
-    count. Returns None when either eval payload is missing or has no
-    `instances` key.
+    B-instances are greedily matched by nearest `t` via
+    `pitchlab_core.attribution.match_instances` (the same matcher the SPO-19
+    layer-attribution pass uses), closest pairs first, each instance matched
+    at most once. Matches farther apart than `tol_s` don't count. Returns
+    None when either eval payload is missing or has no `instances` key.
     """
     if eval_a is None or eval_b is None:
         return None
@@ -93,23 +110,10 @@ def diff_switch_instances(
         a_list = groups_a.get(key, [])
         b_list = groups_b.get(key, [])
 
-        candidates = sorted(
-            (
-                (abs(a_inst["t"] - b_inst["t"]), i, j)
-                for i, a_inst in enumerate(a_list)
-                for j, b_inst in enumerate(b_list)
-                if abs(a_inst["t"] - b_inst["t"]) <= tol_s
-            ),
-            key=lambda c: c[0],
-        )
-        matched_a: set[int] = set()
-        matched_b: set[int] = set()
-        for _dt, i, j in candidates:
-            if i in matched_a or j in matched_b:
-                continue
-            matched_a.add(i)
-            matched_b.add(j)
-            persisted.append({"a": a_list[i], "b": b_list[j]})
+        pairs = match_instances(a_list, b_list, tol_s)
+        matched_a = {i for i, _ in pairs}
+        matched_b = {j for _, j in pairs}
+        persisted.extend({"a": a_list[i], "b": b_list[j]} for i, j in pairs)
 
         fixed.extend(a_inst for i, a_inst in enumerate(a_list) if i not in matched_a)
         introduced.extend(b_inst for j, b_inst in enumerate(b_list) if j not in matched_b)

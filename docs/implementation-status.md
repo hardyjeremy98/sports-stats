@@ -255,6 +255,37 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   - **No benchmark numbers exist for this layer yet — Phase 0 instrumentation**, same as the
     other provenance/exchange work in this document: capability and test coverage only, no
     measured detection-quality figures on real footage.
+- A seventh annotation pass (`eval.json`'s per-instance `attribution` + top-level
+  `attribution` context block, SPO-19, `pitchlab_core/attribution.py`): every per-instance
+  ID-switch record carries an evidence-based layer attribution — `detection`,
+  `online_association`, `refinement` (reserved for the Phase 4 refined-tracklet layer,
+  never emitted today), `offline_association` — or an explicit `ambiguous` tag, with the
+  evidence basis recorded per instance (`oracle_input` / `oracle_comparison` /
+  `tracklet_counterpart` / `entity_only` / `insufficient_evidence`). Rules are
+  deterministic and conservative: a pristine oracle-detections run (detect impl `oracle`,
+  zero dropout/jitter, read from the manifest's resolved config) attributes its tracklet
+  switches to `online_association` by construction; an oracle-run comparison (greedy
+  nearest-`t` one-to-one matching per GT track, the same matcher `diff_switch_instances`
+  now shares from `pitchlab_core.attribution.match_instances`) attributes disappears→
+  `detection` / persists→`online_association`; entity-level switches inherit a matched
+  tracklet counterpart's layer or are `offline_association` when association introduced
+  them; everything else is `ambiguous` — no path silently defaults to a specific layer.
+  Oracle enrichment is explicit, never inferred: the benchmark runner pairs candidates via
+  `PipelineCandidate.oracle_candidate` (validated at expansion: pristine oracle detect,
+  identical resolved track config and stride; rows record `attribution_oracle`
+  enriched/unavailable), and the Lab re-scores via
+  `POST /api/runs/{id}/evaluate?oracle_run_id=<scored oracle run of the same video>`.
+  An oracle payload must self-describe (`attribution.oracle_input == true` in its own
+  eval.json) or enrichment refuses loudly; sequence/stride/IoU mismatches also refuse.
+  The Lab failure browser renders a per-switch layer pill (tooltip = evidence; eval.json
+  files predating SPO-19 show `unattributed`) and a layer filter; `web/src/lib/types.ts`
+  gains `AttributionLayer`/`EvalInstanceAttribution` and `EvalResult.attribution`.
+  **Honest caveat:** oracle comparison is categorization support, not causal proof — a
+  baseline switch matched within tolerance to an oracle-run switch is attributed
+  `online_association` even though the two could in principle have different causes; the
+  matched oracle instance is recorded in the evidence so the claim is inspectable.
+  Tested on handcrafted payloads and run dirs with known causes plus benchmark/API
+  integration (`test_attribution.py`, `test_benchmark_runner.py`, `test_api.py`).
 - SoccerNet tuning/held-out split manifest (`configs/datasets/soccernet.json`,
   `configs/datasets/README.md`): 12 registered sequences — SNMOT-116..123 as `tuning` (already used
   in July-2026 re-ID/threshold work, permanently ineligible for held-out promotion), SNMOT-124..127
@@ -266,6 +297,7 @@ Primary locations:
 
 - `packages/pitchlab_core/src/pitchlab_core/gt.py`
 - `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
+- `packages/pitchlab_core/src/pitchlab_core/attribution.py`
 - `packages/pitchlab_core/src/pitchlab_core/hota.py`
 - `packages/pitchlab_core/src/pitchlab_core/_vendor/trackeval/`
 - `packages/pitchlab_core/src/pitchlab_core/detection_eval.py`
@@ -391,9 +423,11 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   navigation across a player's evidence without closing. Degrades gracefully for older runs
   lacking crop geometry (`box`).
 - Tracklet-versus-entity evaluation metrics.
-- A filterable, sortable identity-failure browser: ID-switch instances filter by level and GT
-  track, sort by time or GT track, and click-to-inspect highlights the tracklet, entity, and GT
-  track together (dual highlighting) in the video overlay.
+- A filterable, sortable identity-failure browser: ID-switch instances filter by level, GT
+  track, and attributed layer (SPO-19), sort by time or GT track, and click-to-inspect
+  highlights the tracklet, entity, and GT track together (dual highlighting) in the video
+  overlay. Every switch row shows its layer-attribution pill (evidence in the tooltip;
+  `unattributed` for eval.json files predating SPO-19).
 - Timeline markers for ID-switch instances, color-coded by level (tracklet vs entity).
 - Re-evaluate a run against ground truth on demand from the run viewer (and from the eval-missing
   empty state, for runs that predate a video's ground truth).
