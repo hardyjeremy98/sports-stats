@@ -1,0 +1,51 @@
+# SPO-21 Phase 0 exit gate -- SoccerNet held-out tier.
+#
+# Scores the CURRENT baseline (pipeline.v1-local-eval.yaml: local YOLOv8x
+# detector + BoT-SORT) against its detector-independent tracker ceiling
+# (pipeline.oracle-botsort-eval.yaml: GT boxes + the same BoT-SORT). The gap
+# between the two answers the Phase 0 stop/go question: how much of the
+# baseline's error is detection vs tracker.
+#
+# HELD-OUT tier: one-shot final reporting numbers only. Do not point iterative
+# tuning at this config (configs/datasets/README.md).
+#
+# The baseline names the oracle as its `oracle_candidate` so every baseline ID
+# switch is re-attributed against the pristine-oracle run (SPO-19) -> Phase 0
+# exit criterion "every switch carries an evidence-based layer attribution or
+# an explicit ambiguous tag".
+#
+# `tolerances` are PRE-REGISTERED (committed before the gate was run): the
+# noise floor below which a metric delta is not meaningful. Same values used
+# by the repeat-stability gate. Ratio metrics 0.005 (0.5 pp), ID-switch counts
+# 1 switch, mixed-identity duration 0.5 s.
+name: benchmark-phase0-soccernet
+task: benchmark
+description: Phase 0 gate -- baseline vs oracle tracker-ceiling on SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: baseline-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      oracle_candidate: oracle-botsort
+    - name: oracle-botsort
+      kind: pipeline
+      config: configs/pipeline.oracle-botsort-eval.yaml
+      comparison_class: matched_data
+  compare:
+    baseline: baseline-botsort
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments

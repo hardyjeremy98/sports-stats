@@ -1,0 +1,43 @@
+# SPO-21 Phase 0 exit gate -- repeat-run stability.
+#
+# The benchmark runner has no built-in repeat mechanism, so three identical
+# candidates (same config + overrides, distinct names) express three repeats
+# of the CURRENT baseline over the SoccerNet held-out subset (capped to 3
+# sequences to bound compute -- stability is a per-config property, not a
+# per-sequence one). `compare.baseline: rep-0` makes the runner report each
+# other repeat's per-metric delta vs rep-0; all deltas must fall within the
+# PRE-REGISTERED `tolerances` (the same noise floor the tier gates use).
+#
+# The yolo-local detector has no detection cache layer, but YOLO inference is
+# deterministic (no inference-time dropout) and BoT-SORT is deterministic
+# given identical detections, so repeats measure the real pipeline's
+# reproducibility end-to-end (incl. any CUDA floating-point non-determinism).
+# Deltas should be ~0; the pre-registered tolerances bound acceptable drift.
+#
+# HELD-OUT tier: one-shot reporting only.
+name: benchmark-phase0-repeat-stability
+task: benchmark
+description: Phase 0 gate -- repeat-run stability of the baseline over cached/deterministic detections.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  max_sequences: 3
+  candidates:
+    - {name: rep-0, kind: pipeline, config: configs/pipeline.v1-local-eval.yaml, comparison_class: matched_data}
+    - {name: rep-1, kind: pipeline, config: configs/pipeline.v1-local-eval.yaml, comparison_class: matched_data}
+    - {name: rep-2, kind: pipeline, config: configs/pipeline.v1-local-eval.yaml, comparison_class: matched_data}
+  compare:
+    baseline: rep-0
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments
