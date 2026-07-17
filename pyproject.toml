@@ -44,7 +44,10 @@ target-version = "py311"
 # Vendored third-party source (unmodified except numpy-2 compat patches,
 # see the file headers) is excluded rather than reformatted to upstream's
 # style -- keeps diffs against upstream minimal and auditable.
-extend-exclude = ["**/_vendor/**"]
+extend-exclude = [
+    "**/_vendor/**",
+    "packages/pitchlab_core/src/pitchlab_core/vendor/**",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
