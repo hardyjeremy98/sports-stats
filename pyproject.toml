@@ -41,9 +41,9 @@ eval = ["pitchlab-core[eval]"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-# Vendored third-party source (unmodified except numpy-2 compat patches,
-# see the file headers) is excluded rather than reformatted to upstream's
-# style -- keeps diffs against upstream minimal and auditable.
+# Vendored third-party code — unmodified except the mechanical edits
+# recorded in each vendor README — excluded rather than reformatted to
+# upstream's style to keep diffs against upstream minimal and auditable.
 extend-exclude = [
     "**/_vendor/**",
     "packages/pitchlab_core/src/pitchlab_core/vendor/**",

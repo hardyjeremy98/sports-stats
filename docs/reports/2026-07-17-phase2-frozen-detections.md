@@ -126,7 +126,7 @@ during this report's verification pass, and via the Task 4 report's full-9-row c
 | SNMOT-124 | held_out | `d4813e1da41ecf5c99e63a0d51ddb2127612a8b13be3962b18e232d5a981b318` | 10565 | 750 | `294b52e65307d1b073aaf64508fd6fbfd0a9b7ea95014c8c53c826ddb9f4a0a5` | `ffb79ff579c60b9dca3fd6a555d1aae01a6e758f7bca0e6148d9b3ca9eb3ff21` |
 | SNMOT-125 | held_out | `ce85090722e4fb81f6101d27bc37c8fa3f8f862ba1f3c6ca33a84d168de492c2` | 8202 | 750 | `e3dcc3a0615621e148ebb59c3b73fe14f6462c04b2184e687b171a533283651b` | `b75bf59879c173b8cd7d58972cda1b551f02544602e00bed60b491b970479472` |
 | SNMOT-126 | held_out | `7ace8b6f220b17cd2d1dd4167ef270e8bbcb8f64ecc57711ab3abfd1dc49af16` | 11206 | 750 | `762fe5940f7a2531596f8bf1e447dd4fed90d1a6a314499b78d132b857a0d1f6` | `089b9096942acb5e3d770e752f5603f1b365b9ecc50e98af38d965a97a9f6d69` |
-| SNMOT-127 | held_out | `988560dbfd3fb0588ad30531e4e460fb374f4c4a38780856db6df51cf9e9f517` | 14122 | 750 | `633437940789516af42d109023bb133d3258130e9a3e479ed503c063936c88789` | `23512186fdd30bcb169416d420be973c4e78b7fde1feb66216f239bffff5a752` |
+| SNMOT-127 | held_out | `988560dbfd3fb0588ad30531e4e460fb374f4c4a38780856db6df51cf9e9f517` | 14122 | 750 | `63343794078916af42d109023bb133d3258130e9a3e479ed503c063936c88789` | `23512186fdd30bcb169416d420be973c4e78b7fde1feb66216f239bffff5a752` |
 
 All 12 `evaluation_set_hash` values are distinct. **Cache identity:** per-sequence
 `detections_cache_hash` values are point-in-time snapshots taken *while the cache was
@@ -227,6 +227,7 @@ was never at zero there).
 
 ## 5. Notes for the SPO-28 gate
 
+- **Phase 5 detector bake-off deferred:** Per the PRD's Phase 2 rescope (docs/prds/tracklet-modernization.md), the production amateur-footage detector question stays open until the Phase 5 bake-off (YOLOX-COCO vs RF-DETR); nothing frozen here is a shipping candidate.
 - **MixSort's model zoo also ships `yolox_soccernet.pth.tar`** (a SoccerNet-fine-tuned
   YOLOX-X, same zoo folder as the SportsMOT checkpoint used here). This is **not adopted**
   for the SoccerNet tier — the locked Phase 0 decision is that the hosted incumbent remains
@@ -263,5 +264,5 @@ was never at zero there).
 
 ## Suite and lint
 
-`uv run python -m pytest packages -q` and `uv run ruff check packages` — results in the
-Task 7 report (`.superpowers/sdd/task-7-report.md`), not duplicated here.
+`uv run python -m pytest packages -q` → **426 passed, 1 skipped** (pre-existing, unrelated).
+`uv run ruff check packages` → **all checks passed.**
