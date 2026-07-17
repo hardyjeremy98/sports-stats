@@ -26,6 +26,9 @@ const METRICS: MetricDef[] = [
   { key: "idsw_entity", label: "IDSW (entity)", higherIsBetter: false, idsw: true },
   { key: "mota_entity", label: "MOTA (entity)", higherIsBetter: true },
   { key: "assoc_idf1_gain", label: "Assoc gain", higherIsBetter: true },
+  // Not backfillable: a null merge_precision means the associator merged
+  // nothing (no pairs to score), not that the run predates the layer.
+  { key: "merge_precision", label: "Merge precision", higherIsBetter: true },
   { key: "identity_coverage", label: "Coverage", higherIsBetter: true },
   // Two different purity metrics at two different layers are selectable here:
   // "Tracklet purity" is SPO-6's (does a tracklet mix two players?), "Cluster

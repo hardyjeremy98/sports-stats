@@ -171,13 +171,17 @@ it "Cluster purity", so this aligns the two surfaces.
 The changed code is display logic over shapes Python already guarantees, so the
 tests worth writing are the ones that would fail on a real mistake:
 
-- **`headline_metrics` contract test** (pytest): asserts the keys the UI now
-  depends on (`hota_*`, `tracklet_purity`, `mixed_track_seconds`) are present,
-  and that `tracklet_purity` reads from `post_filter`. This is the invariant that
-  silently breaks the Lab if Python is refactored — the AC pins it, so pin it.
-- **Purity-abstention test** (pytest): a result whose `mean_purity` is `None`
-  must yield `tracklet_purity: None`, not `0` — guarding the exact
-  null-vs-zero confusion the UI is designed around.
+- **`headline_metrics` contract — already covered, no new test.** The keys the UI
+  depends on (`hota_*`, `tracklet_purity`, `mixed_track_seconds`) are pinned by
+  the exact-key-set assertion in `test_gt_eval.py`, and `tracklet_purity`'s read
+  from `post_filter` is pinned further down the same file. Both predate this
+  ticket; the invariant this AC needs is already held.
+- **Purity-abstention test** (pytest, added here):
+  `test_headline_metrics_preserves_purity_abstention_as_none` — a result whose
+  `mean_purity` is `None` must yield `tracklet_purity: None`, not `0`, guarding
+  the exact null-vs-zero confusion the UI is designed around. Unit-level on
+  purpose, building the result dict directly, since `evaluate_run` is awkward to
+  coax into abstaining.
 - **`npm run build`** (`tsc --noEmit` + vite): the real check on the accessor
   refactor and the types mirror.
 
@@ -189,6 +193,6 @@ introduced for this — out of proportion to a display change.
 | AC | Where |
 | --- | --- |
 | Purity, mixed-identity duration, HOTA/DetA/AssA alongside IDF1/MOTA, labeled by layer | §2 — grouped rows in the Metric × level table |
-| Headline metrics in `runs.metrics`; dashboard + diff deltas work | Already upstream; §5 extends the benchmark; verified by the §Testing contract test |
+| Headline metrics in `runs.metrics`; dashboard + diff deltas work | Already upstream; §5 extends the benchmark; pinned by the existing `test_gt_eval.py` contract assertions (§Testing) |
 | `types.ts` mirrors the extended schema | §1 |
 | `cd web && npm run build` passes | §Testing |

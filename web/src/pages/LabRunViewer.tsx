@@ -1085,7 +1085,7 @@ const fmtCount = (v: number) => String(Math.round(v));
 
 const lvl = (key: keyof EvalLevelMetrics) => (ev: EvalResult, level: EvalLevelKey) =>
   ev.levels[level][key];
-const purityAgg = (ev: EvalResult, level: EvalLevelKey) => ev.purity?.[level].post_filter;
+const purityAgg = (ev: EvalResult, level: EvalLevelKey) => ev.purity?.[level]?.post_filter;
 
 const EVAL_ROW_GROUPS: EvalRowGroup[] = [
   {
@@ -1111,25 +1111,27 @@ const EVAL_ROW_GROUPS: EvalRowGroup[] = [
       {
         label: "HOTA",
         hint: "Geometric mean of detection and association accuracy, averaged over TrackEval's own IoU grid (so it ignores the IoU threshold above).",
-        get: (ev, level) => ev.hota?.[level].hota,
+        get: (ev, level) => ev.hota?.[level]?.hota,
         fmt: fmtRatio,
       },
       {
         label: "DetA",
         hint: "Detection accuracy: how much of the GT was found, independent of identity.",
-        get: (ev, level) => ev.hota?.[level].deta,
+        get: (ev, level) => ev.hota?.[level]?.deta,
         fmt: fmtRatio,
       },
       {
         label: "AssA",
         hint: "Association accuracy: how well found detections are linked into consistent identities. This is the number the tracklet-modernization program is steered by.",
-        get: (ev, level) => ev.hota?.[level].assa,
+        get: (ev, level) => ev.hota?.[level]?.assa,
         fmt: fmtRatio,
       },
     ],
   },
   {
-    title: "Tracklet purity",
+    // Layer-neutral title: this group spans both columns, and the Entity column
+    // reports purity.entity -- not the `tracklet_purity` headline metric.
+    title: "Track composition",
     rows: [
       {
         label: "Mean purity",
@@ -1152,13 +1154,24 @@ const EVAL_ROW_GROUPS: EvalRowGroup[] = [
       {
         label: "Tracklets per GT player (mean)",
         hint: "Per-player fragmentation: how many separate tracklets a single GT player is broken into on average. 1.0 = no fragmentation.",
-        get: (ev, level) => purityAgg(ev, level)?.tracklets_per_gt_player.summary?.mean,
+        // `summary` is null when nothing matched GT — an abstention. Returning
+        // `agg?...summary?.mean` would collapse that null to `undefined` and
+        // mislabel a current run as one that predates the metric.
+        get: (ev, level) => {
+          const agg = purityAgg(ev, level);
+          if (!agg) return undefined;
+          return agg.tracklets_per_gt_player.summary?.mean ?? null;
+        },
         fmt: (v) => v.toFixed(1),
       },
       {
         label: "Tracklets per GT player (max)",
         hint: "The worst-fragmented GT player in this sequence.",
-        get: (ev, level) => purityAgg(ev, level)?.tracklets_per_gt_player.summary?.max,
+        get: (ev, level) => {
+          const agg = purityAgg(ev, level);
+          if (!agg) return undefined;
+          return agg.tracklets_per_gt_player.summary?.max ?? null;
+        },
       },
     ],
     caption: (ev) => {
@@ -1272,6 +1285,9 @@ function EvalTab({
       </div>
     );
   const gain = ev.association.idf1_gain;
+  const captions = EVAL_ROW_GROUPS.map((group) => group.caption?.(ev)).filter(
+    (c): c is string => !!c,
+  );
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -1308,12 +1324,13 @@ function EvalTab({
             <Fragment key={group.title ?? gi}>
               {group.title && (
                 <tr>
-                  <td
+                  <th
                     colSpan={3}
-                    className="pt-3 pb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500"
+                    scope="colgroup"
+                    className="pt-3 pb-1 text-left font-mono text-[10px] font-normal uppercase tracking-[0.18em] text-ink-500"
                   >
                     {group.title}
-                  </td>
+                  </th>
                 </tr>
               )}
               {group.rows.map((row) => (
@@ -1325,17 +1342,19 @@ function EvalTab({
                   <EvalMetricCell ev={ev} level="entity" row={row} />
                 </tr>
               ))}
-              {group.caption?.(ev) && (
-                <tr>
-                  <td colSpan={3} className="pb-1 text-[11px] leading-relaxed text-ink-500">
-                    {group.caption(ev)}
-                  </td>
-                </tr>
-              )}
             </Fragment>
           ))}
         </tbody>
       </table>
+
+      {/* Captions are prose, not tabular data — inside <tbody> the caption row
+          would be the table's real :last-child, so `last:border-0` would stop
+          stripping the final metric row's border whenever a caption rendered. */}
+      {captions.map((caption, i) => (
+        <div key={i} className="text-[11px] leading-relaxed text-ink-500">
+          {caption}
+        </div>
+      ))}
 
       <div
         className={`rounded-lg border px-3 py-2 text-[12px] ${
