@@ -6,6 +6,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useBenchmark } from "../lib/hooks";
 import { signalColor } from "../lib/colors";
+import { fmtDuration } from "../lib/format";
 import type { BenchmarkCell, BenchmarkGroup } from "../lib/types";
 import { Button, Card, EmptyState, Mono, PageTitle, Spinner, ErrorNote } from "../components/ui";
 
@@ -14,24 +15,41 @@ interface MetricDef {
   label: string;
   higherIsBetter: boolean;
   idsw?: boolean;
+  seconds?: boolean;
 }
 
 const METRICS: MetricDef[] = [
   { key: "idf1_entity", label: "IDF1 (entity)", higherIsBetter: true },
   { key: "idf1_tracklet", label: "IDF1 (tracklet)", higherIsBetter: true },
+  { key: "hota_entity", label: "HOTA (entity)", higherIsBetter: true },
+  { key: "hota_tracklet", label: "HOTA (tracklet)", higherIsBetter: true },
   { key: "idsw_entity", label: "IDSW (entity)", higherIsBetter: false, idsw: true },
   { key: "mota_entity", label: "MOTA (entity)", higherIsBetter: true },
   { key: "assoc_idf1_gain", label: "Assoc gain", higherIsBetter: true },
   { key: "identity_coverage", label: "Coverage", higherIsBetter: true },
-  { key: "cluster_purity", label: "Purity", higherIsBetter: true },
+  // Two different purity metrics at two different layers are selectable here:
+  // "Tracklet purity" is SPO-6's (does a tracklet mix two players?), "Cluster
+  // purity" is the semantic identity layer's (ADR 004). Neither may be
+  // labelled a bare "Purity" — the matrix would not say which layer it means.
+  { key: "tracklet_purity", label: "Tracklet purity", higherIsBetter: true },
+  { key: "mixed_track_seconds", label: "Mixed-identity time", higherIsBetter: false, seconds: true },
+  { key: "cluster_purity", label: "Cluster purity", higherIsBetter: true },
 ];
 
-// Missing identity metrics (coverage/purity) usually mean the run predates
-// the semantic identity layer or was never re-evaluated — re-evaluating on
-// the run viewer backfills them.
-const IDENTITY_METRIC_KEYS = new Set(["identity_coverage", "cluster_purity"]);
+// Metrics whose absence means the run predates the layer that computes them
+// (semantic identity — ADR 004; purity/HOTA — SPO-6/SPO-7) rather than a
+// failure. Re-evaluating on the run viewer backfills them.
+const BACKFILLABLE_METRIC_KEYS = new Set([
+  "identity_coverage",
+  "cluster_purity",
+  "hota_entity",
+  "hota_tracklet",
+  "tracklet_purity",
+  "mixed_track_seconds",
+]);
 
 function fmtMetric(def: MetricDef, v: number): string {
+  if (def.seconds) return fmtDuration(v);
   if (def.idsw) {
     const r = Math.round(v * 10) / 10;
     return Number.isInteger(r) ? String(r) : r.toFixed(1);
@@ -210,11 +228,11 @@ function MatrixCell({
   }
   const mean = cell.metrics_mean[metric.key];
   // The cell has run data, but not for this particular metric (e.g. older
-  // runs that predate the identity layer) — still clickable to inspect the
+  // runs that predate the layer computing it) — still clickable to inspect the
   // underlying runs, just no value/color to show.
   if (mean == null) {
-    const title = IDENTITY_METRIC_KEYS.has(metric.key)
-      ? "re-evaluate run(s) to get identity metrics"
+    const title = BACKFILLABLE_METRIC_KEYS.has(metric.key)
+      ? "re-evaluate run(s) to backfill this metric"
       : "no data for this metric";
     return (
       <td className="px-1.5 py-1.5 text-right">

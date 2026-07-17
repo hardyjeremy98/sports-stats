@@ -1,7 +1,7 @@
 // The Lab's forensic run viewer: overlay video, confidence timeline, and an
 // inspector (stages / tracklets / players / events / QA).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
@@ -22,6 +22,7 @@ import type {
   EvalIdentity,
   EvalInstance,
   EvalLevelMetrics,
+  EvalResult,
   QARecord,
   RunDetail,
 } from "../lib/types";
@@ -1056,18 +1057,152 @@ function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () =>
 
 /* ---------- eval vs ground truth ---------- */
 
-const EVAL_ROWS: { key: keyof EvalLevelMetrics; label: string; ratio?: boolean }[] = [
-  { key: "idf1", label: "IDF1", ratio: true },
-  { key: "idp", label: "ID precision", ratio: true },
-  { key: "idr", label: "ID recall", ratio: true },
-  { key: "mota", label: "MOTA", ratio: true },
-  { key: "num_switches", label: "ID switches" },
-  { key: "num_fragmentations", label: "Fragmentations" },
-  { key: "num_false_positives", label: "False positives" },
-  { key: "num_misses", label: "Misses" },
-  { key: "mostly_tracked", label: "Mostly tracked" },
-  { key: "mostly_lost", label: "Mostly lost" },
+type EvalLevelKey = "tracklet" | "entity";
+
+// Rows read the whole EvalResult rather than a `keyof EvalLevelMetrics`, so a
+// row can pull from ev.levels (motmetrics), ev.hota (SPO-7) or ev.purity
+// (SPO-6) -- all three are keyed by the same tracklet/entity levels, which is
+// what lets them share one Metric x level table.
+//
+// `undefined` = the run predates this metric (re-evaluate to backfill);
+// `null` = computed, but the evaluator abstained (nothing matched GT). Both
+// render "—", with different tooltips -- neither is ever a 0.
+interface EvalRow {
+  label: string;
+  hint?: string;
+  get: (ev: EvalResult, level: EvalLevelKey) => number | null | undefined;
+  fmt?: (v: number) => string;
+}
+
+interface EvalRowGroup {
+  title?: string;
+  rows: EvalRow[];
+  caption?: (ev: EvalResult) => string | null;
+}
+
+const fmtRatio = (v: number) => v.toFixed(3);
+const fmtCount = (v: number) => String(Math.round(v));
+
+const lvl = (key: keyof EvalLevelMetrics) => (ev: EvalResult, level: EvalLevelKey) =>
+  ev.levels[level][key];
+const purityAgg = (ev: EvalResult, level: EvalLevelKey) => ev.purity?.[level].post_filter;
+
+const EVAL_ROW_GROUPS: EvalRowGroup[] = [
+  {
+    rows: [
+      { label: "IDF1", get: lvl("idf1"), fmt: fmtRatio },
+      { label: "ID precision", get: lvl("idp"), fmt: fmtRatio },
+      { label: "ID recall", get: lvl("idr"), fmt: fmtRatio },
+      { label: "MOTA", get: lvl("mota"), fmt: fmtRatio },
+      { label: "ID switches", get: lvl("num_switches") },
+      { label: "Fragmentations", get: lvl("num_fragmentations") },
+      { label: "False positives", get: lvl("num_false_positives") },
+      { label: "Misses", get: lvl("num_misses") },
+      { label: "Mostly tracked", get: lvl("mostly_tracked") },
+      { label: "Mostly lost", get: lvl("mostly_lost") },
+    ],
+  },
+  {
+    title: "HOTA family",
+    // LocA is omitted: it measures box tightness, a detection concern the
+    // SPO-9 detection block already covers, and it does not inform the
+    // association decisions this view exists to support.
+    rows: [
+      {
+        label: "HOTA",
+        hint: "Geometric mean of detection and association accuracy, averaged over TrackEval's own IoU grid (so it ignores the IoU threshold above).",
+        get: (ev, level) => ev.hota?.[level].hota,
+        fmt: fmtRatio,
+      },
+      {
+        label: "DetA",
+        hint: "Detection accuracy: how much of the GT was found, independent of identity.",
+        get: (ev, level) => ev.hota?.[level].deta,
+        fmt: fmtRatio,
+      },
+      {
+        label: "AssA",
+        hint: "Association accuracy: how well found detections are linked into consistent identities. This is the number the tracklet-modernization program is steered by.",
+        get: (ev, level) => ev.hota?.[level].assa,
+        fmt: fmtRatio,
+      },
+    ],
+  },
+  {
+    title: "Tracklet purity",
+    rows: [
+      {
+        label: "Mean purity",
+        hint: "Frame-weighted share of each tracklet's matched frames that sit on its majority GT identity. 1.0 = no tracklet ever mixes two players.",
+        get: (ev, level) => purityAgg(ev, level)?.mean_purity,
+        fmt: fmtRatio,
+      },
+      {
+        label: "Impure fraction",
+        hint: "Share of GT-matched tracklets that touch more than one GT identity.",
+        get: (ev, level) => purityAgg(ev, level)?.frac_impure,
+        fmt: fmtRatio,
+      },
+      {
+        label: "Mixed-identity duration",
+        hint: "Total time spent on a GT identity other than the tracklet's majority one — the contamination IDF1/MOTA cannot see.",
+        get: (ev, level) => purityAgg(ev, level)?.total_mixed_seconds,
+        fmt: (v) => fmtDuration(v),
+      },
+      {
+        label: "Tracklets per GT player (mean)",
+        hint: "Per-player fragmentation: how many separate tracklets a single GT player is broken into on average. 1.0 = no fragmentation.",
+        get: (ev, level) => purityAgg(ev, level)?.tracklets_per_gt_player.summary?.mean,
+        fmt: (v) => v.toFixed(1),
+      },
+      {
+        label: "Tracklets per GT player (max)",
+        hint: "The worst-fragmented GT player in this sequence.",
+        get: (ev, level) => purityAgg(ev, level)?.tracklets_per_gt_player.summary?.max,
+      },
+    ],
+    caption: (ev) => {
+      const p = ev.purity?.tracklet;
+      if (!p) return null;
+      if (p.min_track_length === null)
+        return (
+          "Unfiltered — the track stage's min_track_length could not be discovered for " +
+          "this run, so the evaluator abstained from filtering rather than assuming 0."
+        );
+      return (
+        `Tracklets shorter than ${p.min_track_length} frame` +
+        `${p.min_track_length === 1 ? "" : "s"} excluded. Tracklets the track stage ` +
+        `already dropped upstream never reached the evaluator and cannot be recovered here.`
+      );
+    },
+  },
 ];
+
+// The two "—" cases are deliberately distinguished. A run that predates SPO-6/
+// SPO-7 can be fixed by the Re-evaluate button a few pixels away, so say so; an
+// abstention is a real, final answer about this data and must not send anyone
+// hunting for a backfill that will never come.
+function EvalMetricCell({ ev, level, row }: { ev: EvalResult; level: EvalLevelKey; row: EvalRow }) {
+  const v = row.get(ev, level);
+  if (v == null)
+    return (
+      <td
+        className="py-1.5 text-right font-mono text-ink-500"
+        title={
+          v === undefined
+            ? "This run predates the metric — re-evaluate to backfill it."
+            : "No value: nothing matched ground truth at this level, so the evaluator abstained."
+        }
+      >
+        —
+      </td>
+    );
+  return (
+    <td className="py-1.5 text-right font-mono text-ink-100">
+      {(row.fmt ?? fmtCount)(v)}
+    </td>
+  );
+}
 
 type EvalLevelFilter = "all" | "tracklet" | "entity";
 type EvalSortBy = "time" | "gt";
@@ -1137,7 +1272,6 @@ function EvalTab({
       </div>
     );
   const gain = ev.association.idf1_gain;
-  const fmt = (v: number, ratio?: boolean) => (ratio ? v.toFixed(3) : String(Math.round(v)));
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -1170,16 +1304,35 @@ function EvalTab({
           </tr>
         </thead>
         <tbody>
-          {EVAL_ROWS.map((row) => (
-            <tr key={row.key} className="border-b border-white/5 last:border-0">
-              <td className="py-1.5 text-ink-400">{row.label}</td>
-              <td className="py-1.5 text-right font-mono text-ink-100">
-                {fmt(ev.levels.tracklet[row.key], row.ratio)}
-              </td>
-              <td className="py-1.5 text-right font-mono text-ink-100">
-                {fmt(ev.levels.entity[row.key], row.ratio)}
-              </td>
-            </tr>
+          {EVAL_ROW_GROUPS.map((group, gi) => (
+            <Fragment key={group.title ?? gi}>
+              {group.title && (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="pt-3 pb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500"
+                  >
+                    {group.title}
+                  </td>
+                </tr>
+              )}
+              {group.rows.map((row) => (
+                <tr key={row.label} className="border-b border-white/5 last:border-0">
+                  <td className="py-1.5 text-ink-400" title={row.hint}>
+                    {row.label}
+                  </td>
+                  <EvalMetricCell ev={ev} level="tracklet" row={row} />
+                  <EvalMetricCell ev={ev} level="entity" row={row} />
+                </tr>
+              ))}
+              {group.caption?.(ev) && (
+                <tr>
+                  <td colSpan={3} className="pb-1 text-[11px] leading-relaxed text-ink-500">
+                    {group.caption(ev)}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>
