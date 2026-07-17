@@ -28,8 +28,17 @@ BENCHMARK_METRIC_KEYS = (
     "idsw_tracklet",
     "idsw_entity",
     "assoc_idf1_gain",
+    "merge_precision",
     "identity_coverage",
     "cluster_purity",
+    # SPO-20: the decision metrics the tracklet-modernization program is
+    # steered by. `tracklet_purity`/`mixed_track_seconds` are the tracklet
+    # layer (SPO-6) -- not to be confused with `cluster_purity` above, which is
+    # the semantic identity layer (ADR 004).
+    "hota_tracklet",
+    "hota_entity",
+    "tracklet_purity",
+    "mixed_track_seconds",
     "detection_ap",
     "detection_recall",
 )

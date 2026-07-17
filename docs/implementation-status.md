@@ -189,8 +189,10 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   every player but abstains on the referee reports coverage < 1.0, not 1.0.
 - Run-grouping benchmark: `GET /api/benchmark` aggregates completed, GT-scored runs by
   `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
-  mean/range across the eight benchmark metric keys (idf1/mota/idsw at tracklet and entity
-  level, association gain, identity coverage, cluster purity).
+  mean/range across the fifteen benchmark metric keys (idf1 at tracklet and entity level,
+  mota at entity level, idsw at tracklet and entity level, association gain, merge precision,
+  identity coverage, cluster purity, hota at tracklet and entity level, tracklet purity,
+  mixed-track seconds, detection AP and recall).
 - A fourth, orthogonal layer (`eval.json`'s `purity` block, tracklet-modernization SPO-6): direct
   per-tracklet GT-contamination measurement, at both tracklet and post-association entity level —
   where `merge_quality`'s majority-vote already discards exactly this signal. Per tracklet: GT
@@ -467,15 +469,29 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   counts, cluster count, and cluster purity/completeness (`—` when null), shown when the run's
   eval carries the semantic identity layer; a one-line "identity stage not run" note when it's
   `null`.
+- HOTA-family and track-composition row groups in the run viewer's Eval tab's Metric × level
+  table, alongside the existing IDF1/MOTA rows and sharing their tracklet/entity columns:
+  "HOTA family" (HOTA, DetA, AssA — LocA deliberately omitted) reads `eval.json`'s `hota`
+  block; "Track composition" (mean purity, impure fraction, mixed-identity duration,
+  tracklets-per-GT-player mean/max) reads the `purity` block's `post_filter` aggregate at each
+  level. A missing value distinguishes its two causes by tooltip: `undefined` = the run predates
+  the metric (re-evaluate to backfill), `null` = the evaluator abstained because nothing matched
+  GT. Below the table, a caption states the `min_track_length` the purity filter used, or that
+  it could not be discovered and no filtering was applied.
 - Identity coverage and cluster purity rows (A/B/delta, higher-is-better) in the run-diff's
   identity metrics table, shown when either compared run has a non-null identity layer.
 - Benchmark matrix view (`pages/LabBenchmark.tsx`, `/lab/benchmark`): rows are config groups
   (name, short config hash, run count), columns are GT videos plus a trailing per-group mean;
-  a metric-picker (IDF1 entity/tracklet, IDSW entity, MOTA entity, association gain, identity
-  coverage, cluster purity) color-scales every cell through the shared confidence ramp (inverted
-  for IDSW, where lower is better), shows the mean with a `±(range/2)` sub-line when a cell has
-  more than one run, and a missing metric renders as `—` with a hint to re-evaluate for identity
-  metrics; clicking a cell expands an inline row linking to that cell's runs.
+  a metric-picker (IDF1 entity/tracklet, HOTA entity/tracklet, IDSW entity, MOTA entity,
+  association gain, merge precision, identity coverage, tracklet purity, mixed-identity time,
+  cluster purity — the two purity metrics are labeled by layer so the matrix never shows a bare,
+  ambiguous "Purity") color-scales every cell through the shared confidence ramp (inverted for
+  IDSW and mixed-identity time, where lower is better), shows the mean with a `±(range/2)`
+  sub-line when a cell has more than one run, and a missing metric renders as `—` — hinting to
+  re-evaluate only for the metrics whose absence really means the run predates the layer that
+  computes them (identity coverage, cluster purity, HOTA, tracklet purity, mixed-identity time),
+  not for ones a null value is a real answer for; clicking a cell expands an inline row linking
+  to that cell's runs.
 
 ### Limitations
 

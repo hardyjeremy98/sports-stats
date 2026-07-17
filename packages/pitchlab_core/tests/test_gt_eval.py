@@ -799,6 +799,35 @@ def test_evaluate_run_includes_purity_block_both_levels(tmp_path):
     assert heads["mixed_track_seconds"] == purity["tracklet"]["post_filter"]["total_mixed_seconds"]
 
 
+def test_headline_metrics_preserves_purity_abstention_as_none():
+    """`mean_purity is None` (nothing matched GT) must reach `runs.metrics` as
+    None, never coerced to 0. The Lab renders these straight into the run view
+    and the benchmark matrix, where a 0.0 reads as "every tracklet is maximally
+    contaminated" -- the opposite of the abstention it actually represents.
+    Unit-level on purpose: builds the result dict directly, so it pins the
+    contract even for inputs `evaluate_run` is awkward to coax into abstaining.
+    """
+    from pitchlab_core.evaluation import headline_metrics
+
+    result = {
+        "levels": {
+            "tracklet": {"idf1": 0.5, "mota": 0.5, "num_switches": 0},
+            "entity": {"idf1": 0.5, "mota": 0.5, "num_switches": 0},
+        },
+        "hota": {"tracklet": {"hota": 0.5}, "entity": {"hota": 0.5}},
+        "association": {"idf1_gain": 0.0, "merge_precision": None},
+        "purity": {
+            "tracklet": {
+                "post_filter": {"mean_purity": None, "total_mixed_seconds": 0.0},
+            },
+        },
+    }
+
+    heads = headline_metrics(result)
+    assert heads["tracklet_purity"] is None
+    assert heads["mixed_track_seconds"] == 0.0
+
+
 def test_evaluate_run_discovers_min_track_length_from_manifest(tmp_path):
     pytest.importorskip("motmetrics")
     from pitchlab_core.evaluation import evaluate_run

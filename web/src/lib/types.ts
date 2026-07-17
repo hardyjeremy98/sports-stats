@@ -279,6 +279,71 @@ export interface EvalLevelMetrics {
   recall: number;
 }
 
+// HOTA family (SPO-7), computed per evaluation level via vendored TrackEval.
+// Alpha-averaged over TrackEval's own IoU grid, so unlike the motmetrics-backed
+// `EvalLevelMetrics` it does NOT honour EvalResult.iou_threshold.
+export interface EvalHotaMetrics {
+  hota: number;
+  deta: number;
+  assa: number;
+  loca: number;
+}
+
+// min/p25/median/p75/max/mean, numpy linear-interpolation percentiles.
+export interface EvalDistributionSummary {
+  min: number;
+  p25: number;
+  median: number;
+  p75: number;
+  max: number;
+  mean: number;
+}
+
+// SPO-6 per-tracklet GT composition. `purity`/`majority_gt_track_id` are null
+// when the tracklet never matched a GT box above threshold -- no verdict, not a
+// bad one.
+export interface EvalPurityTracklet {
+  tracklet_id: number;
+  length: number;
+  matched_frames: number;
+  unmatched_frames: number;
+  gt_composition: Record<string, number>;
+  majority_gt_track_id: number | null;
+  purity: number | null;
+  mixed_frames: number;
+  mixed_seconds: number;
+}
+
+// Frame-weighted, so one long tracklet outweighs many short ones. `mean_purity`
+// and `frac_impure` are null when no tracklet matched GT; `track_length` and
+// `tracklets_per_gt_player.summary` are null when there is nothing to
+// summarise. Render these as "—", never 0 — an abstention is not a zero score.
+export interface EvalPurityAggregate {
+  n_tracklets: number;
+  n_tracklets_matched: number;
+  mean_purity: number | null;
+  frac_impure: number | null;
+  total_mixed_seconds: number;
+  tracklets_per_gt_player: {
+    counts: Record<string, number>;
+    summary: { mean: number; median: number; max: number } | null;
+  };
+  track_length: EvalDistributionSummary | null;
+}
+
+// `min_track_length` null means the threshold was not discoverable from the
+// manifest, in which case `post_filter` is identical to `pre_filter` rather
+// than assuming an unfiltered 0 -- see `note`, which explains that both views
+// only re-apply the filter to what reached the evaluator and cannot recover
+// tracklets the track stage already dropped upstream.
+export interface EvalPurityLevel {
+  min_track_length: number | null;
+  note: string;
+  tracklets: EvalPurityTracklet[];
+  pre_filter: EvalPurityAggregate;
+  post_filter: EvalPurityAggregate;
+}
+
 // SPO-19: evidence-based layer attribution per ID switch. "refinement" is
 // reserved (Phase 4 refined-tracklet layer) and never emitted today;
 // "ambiguous" is a first-class honest outcome, not a fallback guess.
@@ -400,9 +465,16 @@ export interface EvalResult {
   n_gt_tracks: number;
   n_gt_tracks_excluded: number;
   levels: { tracklet: EvalLevelMetrics; entity: EvalLevelMetrics };
+  // Optional for the same reason as `attribution` below: eval.json files
+  // written before SPO-7 / SPO-6 have no such key, and the server serves old
+  // artifacts as raw JSON without pydantic revalidation. Re-evaluate to
+  // backfill.
+  hota?: { tracklet: EvalHotaMetrics; entity: EvalHotaMetrics };
+  purity?: { tracklet: EvalPurityLevel; entity: EvalPurityLevel };
   association: {
     idf1_gain: number;
     idsw_delta: number;
+    n_entities_merged: number;
     merge_precision: number | null;
     n_pairs: number;
     n_pairs_correct: number;
