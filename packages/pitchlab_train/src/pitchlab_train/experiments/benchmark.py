@@ -561,6 +561,19 @@ def _validate_oracle_candidates(candidates: list[PipelineCandidate | ImportCandi
                 "pristine (dropout_rate/jitter_px must be 0 for attribution)"
             )
         own_config = _load_pipeline_config(c)
+        own_detect = own_config.stages[StageKind.DETECT]
+        own_params = own_detect.params or {}
+        if (
+            own_detect.impl == "oracle"
+            and float(own_params.get("dropout_rate", 0.0) or 0.0) == 0.0
+            and float(own_params.get("jitter_px", 0.0) or 0.0) == 0.0
+        ):
+            raise RuntimeError(
+                f"Candidate '{c.name}' itself consumes pristine oracle detections; its "
+                "switches are already conclusively attributed and comparing oracle to "
+                "oracle is a caller error -- drop its oracle_candidate "
+                f"('{c.oracle_candidate}')"
+            )
         if own_config.stages[StageKind.TRACK] != oracle_config.stages[StageKind.TRACK]:
             raise RuntimeError(
                 f"Candidate '{c.name}' and oracle_candidate '{target.name}' have "

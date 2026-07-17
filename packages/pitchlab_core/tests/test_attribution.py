@@ -478,3 +478,11 @@ def test_end_to_end_enrichment_flips_ambiguous_to_detection(tmp_path):
     tracklet_switches = [i for i in baseline_eval["instances"] if i["level"] == "tracklet"]
     assert tracklet_switches
     assert all(i["attribution"]["layer"] == "detection" for i in tracklet_switches)
+
+
+def test_detect_context_tolerates_explicit_null_config():
+    assert detect_context({"config": None}) == {"detect_impl": None, "oracle_input": False}
+    assert detect_context({"config": {"stages": None}}) == {
+        "detect_impl": None,
+        "oracle_input": False,
+    }

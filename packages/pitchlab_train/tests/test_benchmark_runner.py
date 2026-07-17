@@ -697,3 +697,17 @@ def test_benchmark_oracle_enrichment_end_to_end(tmp_path):
             assert inst["attribution"]["layer"] in ("detection", "online_association")
     orc_eval = json.loads((workdir / by_candidate["orc"]["eval_path"]).read_text())
     assert orc_eval["attribution"]["oracle_input"] is True
+
+
+def test_oracle_candidate_on_pristine_oracle_candidate_refuses_at_expansion():
+    # A pristine-oracle candidate declaring its own oracle_candidate would
+    # only fail post-hoc at enrichment (oracle-to-oracle refusal) after all
+    # pipeline runs completed; the runner's discipline is refuse-at-expansion.
+    with pytest.raises(RuntimeError, match="oracle to oracle"):
+        _expand_candidates(
+            [
+                {"name": "orc", "config": ORACLE_CONFIG, "oracle_candidate": "orc2"},
+                {"name": "orc2", "config": ORACLE_CONFIG},
+            ],
+            [],
+        )

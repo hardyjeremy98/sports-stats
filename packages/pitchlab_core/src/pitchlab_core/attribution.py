@@ -91,7 +91,8 @@ def detect_context(manifest: dict) -> dict:
     oracle_input False -- unknown never upgrades to a claim. Non-zero
     dropout/jitter knobs mean deliberately degraded detections, which is NOT
     oracle input (rule 1 must not fire on a sensitivity-analysis run)."""
-    detect_cfg = manifest.get("config", {}).get("stages", {}).get("detect", {}) or {}
+    stages = (manifest.get("config") or {}).get("stages") or {}
+    detect_cfg = stages.get("detect") or {}
     impl = detect_cfg.get("impl")
     params = detect_cfg.get("params") or {}
     oracle_input = (

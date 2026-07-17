@@ -19,7 +19,7 @@ export const LAYER_LABEL: Record<AttributionLayer, string> = {
 const LAYER_CLASS: Record<AttributionLayer, string> = {
   detection: "bg-team-away/15 text-team-away",
   online_association: "bg-volt-400/15 text-volt-300",
-  refinement: "bg-white/10 text-ink-300",
+  refinement: "bg-white/10 text-ink-400",
   offline_association: "bg-team-ref/15 text-team-ref",
   ambiguous: "bg-turf-800 text-ink-400",
 };

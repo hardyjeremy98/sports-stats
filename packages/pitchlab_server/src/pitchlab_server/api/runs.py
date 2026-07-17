@@ -109,7 +109,10 @@ def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = De
     `oracle_run_id` (optional, SPO-19): a scored run of the SAME video that
     consumed pristine oracle detections; its eval.json upgrades this run's
     ambiguous tracklet-level switch attributions via oracle comparison. The
-    oracle run must already carry an eval.json -- evaluate it first."""
+    oracle run must already carry an eval.json -- evaluate it first. Note:
+    attribution is always recomputed from the evidence given to THIS call, so
+    re-evaluating without `oracle_run_id` discards any previous oracle
+    enrichment (the payload self-describes via `attribution.oracle_comparison`)."""
     from pitchlab_server.evaluation import evaluate_run_against_gt, merged_metrics
 
     run = db.get(Run, run_id)
@@ -131,7 +134,12 @@ def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = De
             raise HTTPException(
                 422, f"Oracle run '{oracle_run_id}' has no eval.json -- evaluate it first"
             )
-        oracle_eval = json.loads(oracle_eval_path.read_text())
+        try:
+            oracle_eval = json.loads(oracle_eval_path.read_text())
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                422, f"Oracle run '{oracle_run_id}' has a malformed eval.json: {exc}"
+            ) from exc
 
     try:
         result = evaluate_run_against_gt(
