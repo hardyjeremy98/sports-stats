@@ -1,0 +1,71 @@
+# SPO-22 Phase 1 gate -- combination candidates.
+#
+# Pre-registration amendment #2 (posted to Linear SPO-22 before running). The
+# OAT sweeps established each axis's individual sensitivity; no single axis
+# moves HOTA more than +0.0075 (barely above the 0.005 noise floor). The
+# hardened baseline is supposed to be the best *configuration*, not the best
+# single tweak, so these candidates combine the axes that each improved
+# metrics on their own, to test whether the gains stack:
+#
+#   lost_track_buffer_s 2.0    (best individual HOTA, +0.0075)
+#   high_conf_det_threshold 0.4 (best purity/idsw: +0.0118 purity, -7 idsw)
+#   confidence 0.4             (+0.0112 purity, -5.2 idsw)
+#   sample_stride 1            (+0.0261 purity, but +64 idsw and 2x compute)
+#
+# combo-a: the three cheap axes (keeps stride 2).
+# combo-b: combo-a + stride 1 (the purity leader; costs 2x compute).
+# combo-c: combo-a minus lost_buffer, to isolate whether the buffer's HOTA
+#          gain survives alongside the others or is redundant with them.
+#
+# Same base, sequences, tolerances and selection rule as the earlier sweeps.
+# Composed from measured per-axis directions only -- no new axis, no new range.
+name: benchmark-phase1-combo
+task: benchmark
+description: Phase 1 gate -- combined-axis hardened-baseline candidates on SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: baseline-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+    - name: combo-a
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.track.params.lost_track_buffer_s: 2.0
+        stages.track.params.high_conf_det_threshold: 0.4
+        stages.detect.params.confidence: 0.4
+    - name: combo-b
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        video.sample_stride: 1
+        stages.track.params.lost_track_buffer_s: 2.0
+        stages.track.params.high_conf_det_threshold: 0.4
+        stages.detect.params.confidence: 0.4
+    - name: combo-c
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.track.params.high_conf_det_threshold: 0.4
+        stages.detect.params.confidence: 0.4
+  compare:
+    baseline: baseline-botsort
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments
