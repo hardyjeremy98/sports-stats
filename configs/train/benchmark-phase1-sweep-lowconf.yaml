@@ -1,0 +1,67 @@
+# SPO-22 Phase 1 gate -- follow-up sweep: the low-score-association axis.
+#
+# Pre-registration AMENDMENT (see Linear SPO-22, posted before this ran). The
+# first sweep proved `track_activation_threshold` is INERT in this pipeline:
+# it only gates spawning new tracks, the detector's confidence floor leaves it
+# nothing to gate below 0.3, and what it does decline at 0.4 is recovered by
+# BoT-SORT's second association / removed by min_length. Evidence: base and
+# act=0.4 produce byte-identical tracklets (64/4739 on SNMOT-124); conf=0.1 and
+# conf0.1+act0.15 are also identical (63/5364) despite 4.1% of detections
+# sitting below that activation.
+#
+# So the original "joint conf x activation" probes tested nothing, and the
+# PRD's ask -- "lowering the pre-tracker threshold so low-score association has
+# material to work with" -- was never exercised. The parameter that actually
+# controls this in `trackers`' BoT-SORT is `high_conf_det_threshold`, which
+# splits detections into high/low bands for first vs second association
+# (`high_mask = confidences >= self.high_conf_det_threshold`). This config
+# sweeps that axis, plus corrected joint probes pairing a low detector floor
+# with the split.
+#
+# Same base, sequences, tolerances and selection rule as the first sweep --
+# only the axis changes. Ranges bracket the library default (0.6) symmetrically
+# and were chosen without reference to any result.
+name: benchmark-phase1-sweep-lowconf
+task: benchmark
+description: Phase 1 gate follow-up -- high_conf_det_threshold (low-score association) sensitivity on SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: baseline-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+    - name: joint-conf0.1-hi0.4
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.confidence: 0.1
+        stages.track.params.high_conf_det_threshold: 0.4
+    - name: joint-conf0.1-hi0.75
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.confidence: 0.1
+        stages.track.params.high_conf_det_threshold: 0.75
+  sweeps:
+    - candidate: baseline-botsort
+      param: stages.track.params.high_conf_det_threshold
+      values: [0.4, 0.5, 0.75]
+  compare:
+    baseline: baseline-botsort
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments

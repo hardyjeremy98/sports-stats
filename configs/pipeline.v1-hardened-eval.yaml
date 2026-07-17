@@ -1,0 +1,111 @@
+# PHASE 1 HARDENED BASELINE (SPO-22) -- the program comparator for every later
+# phase. Selected by the rule pre-registered in Linear SPO-22 before the sweeps
+# ran: best HOTA (tracklet) that does not regress tracklet_purity beyond the
+# 0.005 noise floor, over SoccerNet held-out. Selected candidate: `combo-b`.
+#
+# Measured vs the previous baseline (v1-local-eval), SoccerNet held-out mean
+# (this config's own confirmation run -- the numbers to quote; the combo-b sweep
+# candidate scored 0.5009 HOTA because it also carried the redundant
+# lost_track_buffer_s=2.0, dropped here -- see report section 6):
+#   HOTA (tracklet)  0.4878 -> 0.5019  (+0.0141)
+#   tracklet purity  0.8985 -> 0.9526  (+0.0541)
+#   ID switches      121.2  -> 146.5   (+25.2  <-- stride-1 artifact, see caveat below)
+#   mixed-identity s 32.20  -> 14.01   (-18.19)
+# Report: docs/reports/2026-07-17-phase1-hardening.md
+#
+# Differences from v1-local-eval, and why each (all measured, one axis at a time,
+# then confirmed to stack in the combo sweep):
+#   video.sample_stride 2 -> 1
+#     Best purity axis (+0.0261 alone). Costs 2x compute and raises the raw ID-switch
+#     count (more frames = more opportunities to switch), but mixed-identity seconds
+#     -- the duration-weighted measure of the same failure -- HALVES (32.2 -> 15.8),
+#     so the identity signal genuinely improves despite the higher switch count.
+#   stages.detect.params.confidence 0.3 -> 0.4
+#     Raising the pre-tracker floor helps (+0.0112 purity, -5.2 idsw alone). NOTE this
+#     REFUTES the PRD's Phase 1 hypothesis that lowering the floor would give low-score
+#     association material: every low-floor probe regressed (conf 0.1 -> purity -0.0268).
+#     With this detector, low-confidence detections are noise, not material.
+#   stages.track.params.high_conf_det_threshold 0.6 -> 0.4
+#     The parameter that actually governs low-score association in `trackers`' BoT-SORT
+#     (it splits detections into high/low bands for first vs second association).
+#     Best purity/idsw axis alone (+0.0118 purity, -7.0 idsw).
+#
+# Deliberately NOT changed:
+#   track_activation_threshold: measured INERT -- 0.15/0.25/0.4 give byte-identical
+#     results. It only gates spawning new tracks; the detector's confidence floor
+#     leaves it nothing to gate, second association recovers what it declines, and
+#     min_length removes any short spawns. Left at the wrapper default.
+#   lost_track_buffer_s: best single-axis HOTA (+0.0075) but REDUNDANT once the
+#     other axes are combined -- combo-c (without it) scores HOTA 0.4964 vs combo-a
+#     (with it) 0.4958, i.e. adding the buffer changes nothing within noise. Left at 1.0.
+#   enable_cmc: load-bearing, keep TRUE -- disabling costs -0.0445 HOTA / -0.0479 purity.
+#   min_length: purity is flat across 3/5/10 (0.8984/0.8984/0.8976); it only changes
+#     tracklet count. Left at 5.
+#
+# CAVEAT (see report): this hardened baseline closes only ~3.8% of the gap to the
+# Phase 0 oracle-detection ceiling (HOTA 0.836). Parameter tuning is not the lever;
+# the detector (Phase 2) is.
+#
+# AGPL weights (ultralytics/roboflow-sports) -- LOCAL EVAL ONLY, never shipped.
+name: v1-hardened-eval
+description: >
+  Phase 1 hardened baseline (SPO-22): local YOLOv8x @ conf 0.4 + BoT-SORT with
+  high_conf_det_threshold 0.4, every frame (stride 1). The program comparator.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

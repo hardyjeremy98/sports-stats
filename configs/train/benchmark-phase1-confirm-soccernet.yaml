@@ -1,0 +1,35 @@
+# SPO-22 Phase 1 gate -- hardened-baseline confirmation on the soccernet held-out
+# tier. Confirms the rule-selected hardened config (configs/pipeline.v1-hardened-eval.yaml,
+# = combo-b) against the previous baseline on the sequences the program reports on.
+# Same pre-registered tolerances as the sweeps. Selection already made; this
+# measures the chosen config's headline numbers per tier.
+name: benchmark-phase1-confirm-soccernet
+task: benchmark
+description: Phase 1 -- hardened baseline vs previous baseline on soccernet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: baseline-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-local-eval.yaml
+      comparison_class: matched_data
+    - name: hardened-botsort
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-eval.yaml
+      comparison_class: matched_data
+  compare:
+    baseline: baseline-botsort
+  tolerances:
+    idf1_tracklet: 0.005
+    idf1_entity: 0.005
+    hota_tracklet: 0.005
+    hota_entity: 0.005
+    mota_entity: 0.005
+    tracklet_purity: 0.005
+    idsw_tracklet: 1
+    idsw_entity: 1
+    mixed_track_seconds: 0.5
+  device: cuda
+  iou_threshold: 0.5
+output_dir: data/experiments
