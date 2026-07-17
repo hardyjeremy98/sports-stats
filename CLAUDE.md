@@ -94,7 +94,10 @@ it after completion (`pitchlab_core/evaluation.py`, motmetrics): IDF1/MOTA at tw
 raw tracklets vs post-association entities — plus a third semantic-identity layer (ADR 004:
 cluster purity/completeness against GT via per-entity argmax assignment, plus label coverage
 and abstention) — writes `eval.json` (incl. per-instance ID switches for the Lab's failure
-browser) and folds headline metrics into `runs.metrics`, which is what the dashboard columns,
+browser, each carrying an SPO-19 layer attribution — detection / online / offline
+association or explicit `ambiguous` — upgradeable via oracle comparison: benchmark
+`oracle_candidate` pairing or `POST /api/runs/{id}/evaluate?oracle_run_id=`) and folds
+headline metrics into `runs.metrics`, which is what the dashboard columns,
 the diff view's metric deltas, and `GET /api/benchmark`'s config × GT-video matrix read.
 `POST /api/runs/{id}/evaluate` re-scores on demand. Note: motmetrics 1.4.0 is
 incompatible with numpy 2 (`np.asfarray`), so `evaluation.py` computes its own IoU matrix —
