@@ -1,0 +1,71 @@
+{
+  "created": "2026-07-17",
+  "dataset": "sportsmot",
+  "notes": [
+    "Source: HuggingFace MCG-NJU/SportsMOT, dataset/val.tar (6.59 GB, MOT17-style layout), val split (45 sequences, 15 each basketball/football/volleyball). Downloaded 2026-07-17.",
+    "LICENSE: CC BY-NC 4.0 -- NON-COMMERCIAL / research use only (Cui et al., SportsMOT, ICCV 2023). Usable as an evaluation/benchmark dataset ONLY; must never be used to train shipped models or be redistributed with the product (same research-only boundary class as the insightface buffalo_l packs -- see CLAUDE.md licensing boundaries). The HF page carries a non-commercial-use click-through gate, but the val.tar LFS object is served publicly (X-Xet-Cas-Uid=public), so unattended download succeeded without hitting the gate.",
+    "Subset rationale: SportsMOT's value over the SoccerNet tier is cross-sport motion diversity (fast camera motion, near-identical appearance, crowded scenes), so all three sports are represented; sequences drawn from distinct source videos where possible to avoid correlated held-out.",
+    "held_out (6): 2 per sport -- football v_2QhNRucNC7E_c017, v_G-vNjfx1GGc_c004; basketball v_00HRwkvvjtQ_c001, v_4r8QL_wglzQ_c001; volleyball v_0kUtTtmLaJA_c004, v_4-EmEtrturE_c009. Ingested 2026-07-17 via `pitchlab-train ingest-sportsmot --split val --sequences <names> --role held_out`. Never referenced by any tuning config or experiment prior to ingest.",
+    "tuning (3): 1 per sport -- football v_ITo3sCnpw_k_c007; basketball v_5ekaksddqrc_c001; volleyball v_9MHDmAMxO5I_c002. Ingested via the same command with --role tuning. Reserved for calibration / parameter sweeps (e.g. SPO-22).",
+    "held_out sequences must never be added to a tuning config, experiment YAML, or ablation sweep; if a held-out sequence is ever referenced by one, re-classify it as tuning and draw a fresh held-out set.",
+    "36 remaining val sequences stay inside the upstream dataset/val.tar and are available for future held-out/tuning expansion; extending the subset requires re-extracting from that tarball (the raw per-sequence frames under data/sportsmot/val/ are gitignored)."
+  ],
+  "sequences": [
+    {
+      "gt": "data/videos/sportsmot/v_5ekaksddqrc_c001.gt.json",
+      "name": "v_5ekaksddqrc_c001",
+      "role": "tuning",
+      "video": "data/videos/sportsmot/v_5ekaksddqrc_c001.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_9MHDmAMxO5I_c002.gt.json",
+      "name": "v_9MHDmAMxO5I_c002",
+      "role": "tuning",
+      "video": "data/videos/sportsmot/v_9MHDmAMxO5I_c002.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_ITo3sCnpw_k_c007.gt.json",
+      "name": "v_ITo3sCnpw_k_c007",
+      "role": "tuning",
+      "video": "data/videos/sportsmot/v_ITo3sCnpw_k_c007.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_00HRwkvvjtQ_c001.gt.json",
+      "name": "v_00HRwkvvjtQ_c001",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_00HRwkvvjtQ_c001.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_0kUtTtmLaJA_c004.gt.json",
+      "name": "v_0kUtTtmLaJA_c004",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_0kUtTtmLaJA_c004.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_2QhNRucNC7E_c017.gt.json",
+      "name": "v_2QhNRucNC7E_c017",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_2QhNRucNC7E_c017.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_4-EmEtrturE_c009.gt.json",
+      "name": "v_4-EmEtrturE_c009",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_4-EmEtrturE_c009.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_4r8QL_wglzQ_c001.gt.json",
+      "name": "v_4r8QL_wglzQ_c001",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_4r8QL_wglzQ_c001.mp4"
+    },
+    {
+      "gt": "data/videos/sportsmot/v_G-vNjfx1GGc_c004.gt.json",
+      "name": "v_G-vNjfx1GGc_c004",
+      "role": "held_out",
+      "video": "data/videos/sportsmot/v_G-vNjfx1GGc_c004.mp4"
+    }
+  ],
+  "source_split": "val",
+  "tier": "sportsmot"
+}
