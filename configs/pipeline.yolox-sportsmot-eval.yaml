@@ -1,0 +1,94 @@
+# FROZEN YOLOX SPORTSMOT COMPARATOR (SPO-25) -- Phase 2, rescoped 2026-07-17.
+# The PRD's fine-tuning ladder was skipped in favour of importing a frozen
+# reference detector (MixSort YOLOX-X, fine-tuned on SportsMOT) so tracker
+# selection can proceed against a stronger, but NON-shippable, detection
+# floor. This config exists purely to freeze that detector's output for
+# comparator/tracker-selection experiments over the SportsMOT tier -- it is
+# never a shipping pipeline (see licensing note below) and it is not the
+# Phase 1 hardened baseline (v1-hardened-eval.yaml), which stays the program
+# comparator for SoccerNet.
+#
+# Everything except `detect:` is copied byte-identical from
+# pipeline.v1-hardened-eval.yaml (SPO-22 hardened BoT-SORT + stride 1), so the
+# only variable versus that baseline is the detector. `detect:` params
+# (weights, confidence 0.1, nms_threshold 0.7, 800x1440) are the frozen
+# capture protocol for the whole SportsMOT tier -- do not retune them per-run;
+# any change here invalidates comparability across runs captured under this
+# config.
+#
+# LICENSING (selection-only, do not ship):
+#   - detect: yolox-local vendors MixSort's YOLOX code (Apache-2.0) but the
+#     checkpoint (data/weights/mixsort/yolox_x_sports_train.pth.tar) was
+#     fine-tuned on SportsMOT (CC BY-NC 4.0) -- non-commercial, selection-only,
+#     never redistributed or trained-on for shipped models. This stage was
+#     deliberately chosen because it is NOT ultralytics/AGPL, unlike
+#     v1-hardened-eval's `yolo-local` detect impl.
+#   - calibrate: yolo-pitch-local still needs ultralytics (AGPL) -- carried
+#     over unchanged from v1-hardened-eval / oracle-botsort-eval, both of
+#     which already accept this for LOCAL EVAL ONLY, never shipped.
+name: yolox-sportsmot-eval
+description: >
+  Frozen MixSort YOLOX-X SportsMOT comparator (SPO-25) + the SPO-22 hardened
+  BoT-SORT tracker, every frame (stride 1). Selection-only detector, never
+  shipped.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolox-local
+    params:
+      weights: data/weights/mixsort/yolox_x_sports_train.pth.tar
+      input_height: 800
+      input_width: 1440
+      confidence: 0.1
+      nms_threshold: 0.7
+      fp16: false
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

@@ -27,6 +27,7 @@ project in Linear.
 |---|---|---|---|
 | Player and ball detection | Implemented | Roboflow inference, local YOLO, synthetic detector | `pitchlab_core/stages/detect/` |
 | Oracle (ground-truth) detection | Implemented | Emits a video's GT boxes as detections instead of running a real detector, to isolate tracker/association behavior from detection quality (the "tracker ceiling" experiment); GT resolved from an explicit `gt_path` param or the sibling `<video>.gt.json` convention, loud error if neither exists; optional seed-deterministic dropout/jitter knobs (off by default); metadata-only, no frame decode | `pitchlab_core/stages/detect/oracle.py` (`impl: oracle`), `configs/pipeline.oracle-eval.yaml` |
+| SportsMOT frozen comparator detection (SPO-25) | Prototype | `yolox-local` stage loads a vendored, inference-only MixSort YOLOX-X (`pitchlab_core/vendor/mixsort_yolox/`, fetched from `github.com/MCG-NJU/MixSort` @ pinned commit `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6`, MIT repo / Apache-2.0 upstream YOLOX code) against the frozen checkpoint `data/weights/mixsort/yolox_x_sports_train.pth.tar` (sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`). Same "fail loud on missing weights" / `provenance()` idiom as `yolo-local`. **Selection-only, non-shippable**: the checkpoint was fine-tuned on SportsMOT (CC BY-NC 4.0) — it exists to freeze a stronger detection floor for tracker selection (Phase 2/3), never to ship. Measured: mean detection_ap 0.9844 vs the hardened incumbent's 0.2641 over the same 9 same-protocol SportsMOT sequences; see [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md). | `pitchlab_core/vendor/mixsort_yolox/`, `pitchlab_core/stages/detect/yolox_local.py`, `configs/pipeline.yolox-sportsmot-eval.yaml` |
 | Short-term tracking | Implemented | BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (shipped configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `pitchlab_core/stages/track/botsort.py` |
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `pitchlab_core/stages/team/` |
@@ -103,7 +104,16 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   (`null` when caching is off or the stage doesn't cache), refreshed by the runner both
   after `prepare()` and after the stage finishes executing, so a cold cache warmed during a
   `readwrite` run reflects its actual output rather than the pre-run empty-cache hash.
-  `packages/pitchlab_core/src/pitchlab_core/stages/detect/hosted_cache.py`.
+  `packages/pitchlab_core/src/pitchlab_core/stages/detect/hosted_cache.py`. **Exercised at
+  tier scale (SPO-26, Phase 2):** the SoccerNet tier's incumbent (`roboflow`,
+  `football-players-detection-3zvbc/11`) was captured `readwrite` at confidence 0.1 over all
+  12 tuning/held-out sequences (9000 cache entries, 36 MB), then replayed `cache_mode:
+  replay` with `ROBOFLOW_API_KEY` unset — completed with zero network access and produced a
+  byte-identical exported `det.txt` versus the original capture, confirming the cache is
+  genuinely frozen-and-replayable, not merely off. Per-sequence `detections_cache_hash`
+  values recorded mid-run are warm-up-time snapshots, not the tier's final cache identity —
+  the completed cache directory's own `content_hash()` is the identity to cite. Report:
+  [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md).
 - **External tracklet exchange** (SPO-18): a frozen-detections export and a MOT-tracklet
   importer let an external MOT research tracker consume this repo's detections and have its
   output scored by the existing evaluator, without becoming a registered pipeline stage.
@@ -149,6 +159,16 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
     tracklets`) confirming `evaluation.evaluate_run` scores an imported run's raw tracklets
     against GT and skips the identity layer. No benchmark numbers — Phase 0 instrumentation,
     same as the other provenance work above.
+  - **Frozen-detections `INDEX.json` convention (Phase 2, SPO-25/26):** exporting every
+    sequence of a tier produces `data/exchange/frozen-detections/<tier>/<seq>/{det.txt,
+    detections_provenance.json}` (gitignored data, not a new code artifact); a hand-built
+    per-tier `INDEX.json` (sorted keys) maps sequence name to `det_txt_sha256`, `n_rows`,
+    `frame_count`, the run's `evaluation_set_hash`, and — for hosted tiers — a
+    `detections_cache_hash`. This is a reporting convention over the existing exporter and
+    manifest fields, not a new schema or CLI command; both tiers' index tables are
+    reproduced in [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md)
+    §2. Re-export determinism (same run dir → byte-identical `det.txt`) and one fp32/GPU
+    repeat-inference determinism check (bitwise-identical) are recorded in that report §4.
 
 ## Evaluation
 
@@ -589,6 +609,25 @@ Measured local findings recorded by the repository guidance:
   combined. The +0.0141 HOTA gain is **~4% of the 0.348 gap** to the Phase 0 oracle-detection
   ceiling (0.836), i.e. ~96% of the gap survives tuning — independently corroborating Phase 0's
   detection-first finding. Code revision: `spo-22-phase1-gate` (off `main` `2ab2e18`).
+
+- **Phase 2 frozen reference detections (SPO-25/26): the imported YOLOX closes the SportsMOT
+  detection-attributable gap; SoccerNet incumbent is now frozen and replayable.** Full report:
+  [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md).
+  Same-protocol (stride 1, IoU 0.5, `device=cuda`) comparison over all 9 SportsMOT tuning +
+  held-out sequences: the frozen MixSort YOLOX-X (`yolox-local`, checkpoint sha256
+  `58547880fb73...ed1c`) scores mean detection_ap 0.9844 vs. the Phase 1 hardened incumbent's
+  0.2641 (medians 0.9866 vs. 0.0014); on the 6 cross-sport basketball/volleyball sequences the
+  incumbent is 0.0000–0.0031 AP while YOLOX is 0.9832–0.9978, confirming and closing the Phase 0
+  cross-sport detection failure under same-protocol (stride-1) conditions; on football the
+  incumbent's existing 0.79 mean AP improves to 0.97, narrowing rather than eliminating that
+  gap. Tracker-headline deltas track detection closely (idf1_entity 0.82 vs. 0.17). Determinism:
+  export byte-identical on re-export; one fp32/GPU repeat-inference check bitwise-identical.
+  Separately, the SoccerNet tier's hosted incumbent was frozen via the existing response cache
+  (12 sequences, confidence 0.1, 9000 entries) and proven replayable — zero network, byte-
+  identical `det.txt` — with no code change beyond the existing cache. The YOLOX weights remain
+  **selection-only, non-shippable** (CC BY-NC 4.0 training data); this closes the Phase 0 stop/go
+  decision's Phase 2 scope and hands inputs to the SPO-28 gate (HITL, not yet decided). Code
+  revision: `phase2-frozen-detections` branch off `main` `5c9229a`.
 
 Do not generalize these findings beyond the evaluated data. Link future claims to an experiment
 report, run set, dataset split, and code/model revision.

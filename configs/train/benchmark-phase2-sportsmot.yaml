@@ -1,0 +1,33 @@
+# SPO-25 Phase 2: freeze MixSort YOLOX detections on the SportsMOT tier and
+# score them vs the SPO-22 hardened incumbent (yolo-local BoT-SORT) on the
+# same 9 sequences (3 tuning + 6 held_out), same protocol (stride 1). This is
+# a data-collection run for the SPO-25 detection comparison -- no
+# tolerances/gate here (unlike benchmark-phase0-sportsmot.yaml's Phase 0
+# stop/go), so `compare` records deltas without pass/fail verdicts.
+#
+# Both candidates need ultralytics at runtime: yolox-frozen's shared
+# calibrate slot (yolo-pitch-local) uses it, and incumbent-hardened's detect
+# (yolo-local) uses it too. Run with:
+#   uv run --with ultralytics pitchlab-train run configs/train/benchmark-phase2-sportsmot.yaml
+name: benchmark-phase2-sportsmot
+task: benchmark
+description: >
+  Phase 2 (SPO-25): freeze MixSort YOLOX detections on the SportsMOT tier and
+  score them vs the hardened incumbent on the same sequences, same protocol.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [tuning, held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: yolox-frozen
+      kind: pipeline
+      config: configs/pipeline.yolox-sportsmot-eval.yaml
+      comparison_class: matched_data
+    - name: incumbent-hardened
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-eval.yaml
+      comparison_class: matched_data
+  compare:
+    baseline: incumbent-hardened
+output_dir: data/experiments

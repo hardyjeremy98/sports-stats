@@ -1,0 +1,36 @@
+# SPO-26 Phase 2: freeze the hosted incumbent detector's responses on the
+# SoccerNet tier via the hosted-detection response cache
+# (pitchlab_core/stages/detect/hosted_cache.py), so the SoccerNet tier's
+# reference detections become replayable inputs instead of live network
+# calls. Single candidate, no `compare` block -- this is a data-capture run
+# (freezing the incumbent for the tier), not a comparison between two
+# detectors like Task 4's SportsMOT benchmark. `hosted-frozen` IS the
+# incumbent (roboflow football-players-detection-3zvbc/11, same model id as
+# configs/pipeline.v1.yaml), frozen at capture confidence 0.1 (vs the
+# shipping 0.3) to keep low-score material available for Phase 3 low-score
+# association work -- see pipeline.hosted-frozen-eval.yaml's header for the
+# full rationale.
+#
+# ROBOFLOW_API_KEY must be loaded for the (first, readwrite) run:
+#   set -a && source .env && set +a && \
+#   uv run pitchlab-train run configs/train/benchmark-phase2-soccernet.yaml
+# calibrate (yolo-pitch-local) needs ultralytics at runtime -- LOCAL EVAL
+# ONLY, never shipped (same as every other *-eval.yaml pipeline in this repo).
+name: benchmark-phase2-soccernet
+task: benchmark
+description: >
+  Phase 2 (SPO-26): freeze the hosted incumbent detector's responses on the
+  SoccerNet tier via the hosted-detection response cache. `hosted-frozen` IS
+  the tier's incumbent, frozen at capture confidence 0.1, for Phase 2/3
+  comparator and low-score-association work.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning, held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hosted-frozen
+      kind: pipeline
+      config: configs/pipeline.hosted-frozen-eval.yaml
+      comparison_class: matched_data
+output_dir: data/experiments
