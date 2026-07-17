@@ -543,6 +543,26 @@ Measured local findings recorded by the repository guidance:
   `evaluation.evaluate_run` directly against this run's stored artifacts and GT. Code revision:
   `tracklet-modernization` branch @ `1f759cb` (2026-07-16).
 
+- **Phase 0 exit gate (SPO-21): detection is the dominant error source; the tracker ceiling is
+  high but scene-dependent.** Full report: [`docs/reports/2026-07-17-phase0-exit-gate.md`](reports/2026-07-17-phase0-exit-gate.md).
+  Current baseline (`v1-local-eval`: `yolo-local` `football-player-detection.pt` + BoT-SORT,
+  `sample_stride=2`) vs. its oracle-detection counterpart (`pipeline.oracle-botsort-eval.yaml`:
+  GT boxes + identical BoT-SORT) over **held-out** sequences: SoccerNet SNMOT-124–127 (manifest
+  hash `7dfe09fdc5cc`) and SportsMOT 6-seq subset (`581ecb80614c`), IoU 0.5, `device=cuda`.
+  Mean HOTA (tracklet) baseline→oracle: SoccerNet 0.488→0.836, SportsMOT 0.170→0.857. On
+  SportsMOT basketball/volleyball the football detector yields ~0 tracklets (HOTA ≈ 0) — total
+  cross-sport detection failure. Every ID switch attributed via oracle comparison (SPO-19), 100%
+  coverage: 75% (SoccerNet) / 63% (SportsMOT) attributed to the **detection** layer, remainder to
+  online association — so 63–75% of switches vanish under perfect detection. This **refines** the
+  earlier "remaining ID switches are substantially a tracker-level problem" finding above: with a
+  real detector, they are *substantially a detection-layer problem*; the tracker-level residual is
+  the minority (25–37%). The oracle ceiling is high (HOTA ~0.84–0.86, MOTA ~0.99) but not
+  uniformly near-perfect — HOTA 0.73–0.78 with 77–92 switches on crowded scenes even with GT
+  boxes, vs. 0.97 / 10 switches on easy scenes. Repeat runs of the baseline agreed exactly
+  (max |Δ| 0.0 across all metrics; pre-registered tolerances ratio 0.005 / ID-switch 1 /
+  mixed-identity 0.5 s), so measured deltas are signal not noise. Code revision: `spo-21-phase0-gate`
+  @ `0d2274c`. Stop/go decision recorded in the gate report §6.
+
 Do not generalize these findings beyond the evaluated data. Link future claims to an experiment
 report, run set, dataset split, and code/model revision.
 
