@@ -2,7 +2,9 @@
 
 **Issue:** SPO-22 · **PRD:** [`docs/prds/tracklet-modernization.md`](../prds/tracklet-modernization.md) Phase 1 scope, exit criteria & stop/go · **Date:** 2026-07-17
 
-**Status: DECISION PENDING (HITL).** Evidence and a recommended stop/go below; the call is Jeremy's (§7).
+**Status: DECIDED (HITL, 2026-07-17).** Jeremy's call is recorded in §8: parameter hardening does
+not close the gap — the Phase 0 detection-first decision stands and Phases 2–3 keep their full
+scope. `combo-b` is confirmed as the committed program comparator (pre-registered rule as written).
 
 **Headline:** parameter hardening closes **~4% of the gap** to the Phase 0 oracle-detection ceiling. Tuning is not the lever — the detector (Phase 2) is. Two axes the PRD assumed were meaningful turned out to be inert or backwards.
 
@@ -128,6 +130,27 @@ The hardened baseline gains **+0.0131 HOTA** — **~3.8% of the 0.348 gap** betw
 
 Phase 1 still delivered its intended asset: a reproducible, provenance-stamped hardened comparator (+0.05 purity, −16 s mixed-identity) that every later phase measures against, plus three findings that redirect later work (§2 inert axis, §3 refuted hypothesis, §4 min_length doesn't buy purity).
 
-## 8. Decision (recorded once Jeremy rules)
+## 8. Decision (Jeremy, 2026-07-17)
 
-_Pending._
+**Stop/go: parameter hardening does NOT close the gap. The Phase 0 detection-first decision
+stands; Phases 2–3 keep their full scope and are NOT shrunk.**
+
+The PRD's Phase 1 stop/go ("if parameter hardening alone closes most of the gap to the oracle
+ceiling, later phases shrink accordingly") is answered in the negative: hardening recovers
+~4% of the gap, ~96% survives. Phase 2 (import pretrained YOLOX as the frozen comparator
+detector) and Phase 3 (tracker comparison on frozen detections) proceed as decided at the
+Phase 0 gate.
+
+**Comparator: `combo-b` stands as the committed program comparator** —
+`configs/pipeline.v1-hardened-eval.yaml` (stride 1, detector confidence 0.4,
+`high_conf_det_threshold` 0.4). The pre-registered selection rule is honoured as written
+rather than retrofitted after seeing results. The `combo-c` alternative (§5) — within the
+noise floor on HOTA, fewer raw switches, half the compute — is recorded here as a considered
+and rejected option, not lost: if later phases find the stride-1 compute cost burdensome,
+`combo-c` is the documented fallback and the evidence for it is in §5.
+
+**What Phase 1 delivered:** not a performance win, but (a) a reproducible, provenance-stamped
+hardened comparator (+0.05 purity, mixed-identity time halved, confirmed on both tiers), and
+(b) three findings that redirect later work — the inert activation axis (§2), the refuted
+low-score-association hypothesis (§3, re-test after YOLOX), and min_length not buying purity
+(§4). The gate's main value was showing where the lever *isn't*.
