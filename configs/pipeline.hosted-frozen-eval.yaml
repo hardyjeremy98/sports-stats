@@ -38,6 +38,16 @@
 # license -- see roboflow.py's ModelProvenance). calibrate (yolo-pitch-local)
 # still needs ultralytics (AGPL) at runtime -- LOCAL EVAL ONLY, never shipped,
 # same as every other *-eval.yaml in this repo.
+#
+# Environment requirement for re-capture (cache_mode=readwrite) on this box:
+# DEFAULT_DEVICE=cpu must be set. The `inference` package's model loader
+# (called from roboflow.py's `prepare()`, `get_model()`) auto-selects a CUDA
+# backend when torch reports a GPU present, but this box lacks the
+# pycuda / GPU-onnxruntime extras that backend needs, so an unset
+# DEFAULT_DEVICE causes `prepare()` to fail on this box. Replaying from the
+# already-frozen cache (cache_mode=replay) does NOT need DEFAULT_DEVICE=cpu:
+# `prepare()` returns immediately in replay mode without calling `get_model()`
+# at all, so no model (and no backend selection) is ever loaded.
 name: hosted-frozen-eval
 description: >
   Frozen hosted incumbent (SPO-26): roboflow football-players-detection-3zvbc/11
