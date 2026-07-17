@@ -18,13 +18,14 @@ import {
 import type {
   AssociationEntitySummary,
   AssociationPair,
+  AttributionLayer,
   EvalIdentity,
   EvalInstance,
   EvalLevelMetrics,
   QARecord,
   RunDetail,
 } from "../lib/types";
-import { SwitchInstanceRow } from "../components/EvalBits";
+import { LAYER_LABEL, SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
 import { IdentityQATab } from "../components/IdentityQATab";
 import { PitchCanvas } from "../components/PitchCanvas";
@@ -1089,7 +1090,15 @@ function EvalTab({
   const ev = artifacts.eval;
   const [levelFilter, setLevelFilter] = useState<EvalLevelFilter>("all");
   const [gtFilter, setGtFilter] = useState<number | "all">("all");
+  const [layerFilter, setLayerFilter] = useState<AttributionLayer | "all">("all");
   const [sortBy, setSortBy] = useState<EvalSortBy>("time");
+
+  const layerOptions = useMemo(() => {
+    if (!ev) return [];
+    const layers = new Set<AttributionLayer>();
+    for (const inst of ev.instances) if (inst.attribution) layers.add(inst.attribution.layer);
+    return [...layers].sort();
+  }, [ev]);
 
   const gtOptions = useMemo(() => {
     if (!ev) return [];
@@ -1104,10 +1113,12 @@ function EvalTab({
     let list = ev.instances;
     if (levelFilter !== "all") list = list.filter((inst) => inst.level === levelFilter);
     if (gtFilter !== "all") list = list.filter((inst) => inst.gt_track_id === gtFilter);
+    if (layerFilter !== "all")
+      list = list.filter((inst) => inst.attribution?.layer === layerFilter);
     return [...list].sort((a, b) =>
       sortBy === "time" ? a.t - b.t : a.gt_track_id - b.gt_track_id || a.t - b.t,
     );
-  }, [ev, levelFilter, gtFilter, sortBy]);
+  }, [ev, levelFilter, gtFilter, layerFilter, sortBy]);
 
   if (!ev)
     return (
@@ -1214,6 +1225,23 @@ function EvalTab({
             </button>
           ))}
         </div>
+        {layerOptions.length > 0 && (
+          <div className="flex items-center gap-1">
+            {(["all", ...layerOptions] as (AttributionLayer | "all")[]).map((layer) => (
+              <button
+                key={layer}
+                onClick={() => setLayerFilter(layer)}
+                className={`rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                  layerFilter === layer
+                    ? "bg-turf-800 text-ink-100"
+                    : "text-ink-400 hover:bg-turf-900 hover:text-ink-100"
+                }`}
+              >
+                {layer === "all" ? "all layers" : LAYER_LABEL[layer]}
+              </button>
+            ))}
+          </div>
+        )}
         <select
           value={gtFilter === "all" ? "" : gtFilter}
           onChange={(e) => setGtFilter(e.target.value === "" ? "all" : Number(e.target.value))}
