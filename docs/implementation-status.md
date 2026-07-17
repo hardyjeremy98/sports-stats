@@ -563,6 +563,33 @@ Measured local findings recorded by the repository guidance:
   mixed-identity 0.5 s), so measured deltas are signal not noise. Code revision: `spo-21-phase0-gate`
   @ `0d2274c`. Stop/go decision recorded in the gate report §6.
 
+- **Phase 1 exit gate (SPO-22): parameter hardening closes only ~4% of the gap to the oracle
+  ceiling; two PRD-assumed axes are inert or backwards.** Full report:
+  [`docs/reports/2026-07-17-phase1-hardening.md`](reports/2026-07-17-phase1-hardening.md).
+  Pre-registered OAT sweeps (sample stride, detector confidence, lost-track buffer, activation
+  threshold, min length, CMC, `high_conf_det_threshold`) + combination candidates over SoccerNet
+  held-out (manifest `7dfe09fdc5cc`), 100 rows / 0 failures, IoU 0.5, `device=cuda`. The
+  rule-selected **hardened baseline** is `configs/pipeline.v1-hardened-eval.yaml` (stride 1,
+  detector confidence 0.4, `high_conf_det_threshold` 0.4) — **the program comparator for later
+  phases**. Confirmed on both tiers: SoccerNet HOTA (tracklet) 0.4878→0.5019, purity
+  0.8985→0.9526, mixed-identity 32.2→14.0 s; SportsMOT HOTA 0.1702→0.1881, purity 0.8552→0.8868,
+  mixed-identity 12.3→5.9 s. Raw ID-switch counts *rise* (121→147 SoccerNet) because stride 1
+  doubles the frames and therefore the switch opportunities, while the duration-weighted measure
+  of the same failure halves — do not read the switch count alone. Measured findings:
+  (a) **`track_activation_threshold` is inert** in this pipeline (0.15/0.25/0.4 give
+  byte-identical artifacts — it only gates track *spawning*, the detector's confidence floor
+  leaves nothing to gate, second association recovers what it declines, `min_length` removes
+  short spawns); (b) the PRD's low-score-association hypothesis is **refuted for the current
+  detector** — every low-floor probe regressed (conf 0.1: ΔHOTA −0.0128, Δpurity −0.0268), the
+  pre-tracker floor wants to go *up* (0.4), not down (re-test after Phase 2's YOLOX, whose
+  low-score detections may be better calibrated); (c) `min_length` does **not** buy purity
+  (pre/post-filter identical at every value, purity flat 0.8984→0.8976 across 3/5/10 — impurity
+  lives in long tracklets); (d) camera-motion compensation is **load-bearing** (disabling costs
+  −0.0445 HOTA / −0.0479 purity); (e) `lost_track_buffer_s` is redundant once other axes are
+  combined. The +0.0141 HOTA gain is **~4% of the 0.348 gap** to the Phase 0 oracle-detection
+  ceiling (0.836), i.e. ~96% of the gap survives tuning — independently corroborating Phase 0's
+  detection-first finding. Code revision: `spo-22-phase1-gate` (off `main` `2ab2e18`).
+
 Do not generalize these findings beyond the evaluated data. Link future claims to an experiment
 report, run set, dataset split, and code/model revision.
 
