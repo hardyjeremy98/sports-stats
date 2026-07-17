@@ -3,11 +3,14 @@
 # ran: best HOTA (tracklet) that does not regress tracklet_purity beyond the
 # 0.005 noise floor, over SoccerNet held-out. Selected candidate: `combo-b`.
 #
-# Measured vs the previous baseline (v1-local-eval), SoccerNet held-out mean:
-#   HOTA (tracklet)  0.4878 -> 0.5009  (+0.0131)
-#   tracklet purity  0.8985 -> 0.9492  (+0.0507)
-#   ID switches      121.2  -> 146.2   (+25.0  <-- see caveat below)
-#   mixed-identity s 32.20  -> 15.78   (-16.42)
+# Measured vs the previous baseline (v1-local-eval), SoccerNet held-out mean
+# (this config's own confirmation run -- the numbers to quote; the combo-b sweep
+# candidate scored 0.5009 HOTA because it also carried the redundant
+# lost_track_buffer_s=2.0, dropped here -- see report section 6):
+#   HOTA (tracklet)  0.4878 -> 0.5019  (+0.0141)
+#   tracklet purity  0.8985 -> 0.9526  (+0.0541)
+#   ID switches      121.2  -> 146.5   (+25.2  <-- stride-1 artifact, see caveat below)
+#   mixed-identity s 32.20  -> 14.01   (-18.19)
 # Report: docs/reports/2026-07-17-phase1-hardening.md
 #
 # Differences from v1-local-eval, and why each (all measured, one axis at a time,
