@@ -52,6 +52,11 @@ breaks pydantic-core builds; don't remove the pin.
   (local-eval only, never shipped). Shipping configs use the Roboflow `inference` client.
 - **insightface model packs (buffalo_l) are research-only** — face identity stays behind the
   `face` extra and a config flag.
+- **SportsMOT is CC BY-NC 4.0 (non-commercial) and agreement-gated** — usable as a
+  benchmark/evaluation tier only (`configs/datasets/sportsmot.json`); never train shipped
+  models on it and never redistribute it with the product. Its upstream terms also require a
+  CodaLab agreement not to redistribute; using it commercially needs a recorded licensing
+  sign-off, not just an engineering note. SoccerNet is the unrestricted evaluation tier.
 
 ## Architecture
 
@@ -163,6 +168,7 @@ without runnable code.
 
 `data/` is gitignored: `data/videos/` (uploaded + ingested, with `.gt.json` ground truth),
 `data/runs/<id>/`, `data/clips/`, `data/weights/` (local YOLO weights from roboflow/sports),
-`data/soccernet/tracking/{train,test}/` (MOT sequences), `data/pitchlab.db`.
+`data/soccernet/tracking/{train,test}/` and `data/sportsmot/<split>/` (MOT sequences),
+`data/pitchlab.db`.
 `configs/datasets/<tier>.json` (checked in, not gitignored) declares each dataset tier's tuning
 vs. held-out sequence roles over that gitignored data — see `configs/datasets/README.md`.
