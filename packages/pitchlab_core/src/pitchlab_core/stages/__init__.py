@@ -15,6 +15,7 @@ from pitchlab_core.stages.calibrate import (  # noqa: F401
 from pitchlab_core.stages.detect import (  # noqa: F401
     frozen,
     oracle,
+    rfdetr,
     roboflow,
     synthetic,
     yolo_local,
