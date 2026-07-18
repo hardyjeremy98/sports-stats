@@ -25,8 +25,19 @@ from pitchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
-    det_path: str
+    # Either an explicit det.txt, or an exchange_dir under which the stage
+    # resolves `<exchange_dir>/<video-stem>/det.txt` per sequence (so one
+    # benchmark candidate can cover every held-out sequence of a tier).
+    det_path: str | None = None
+    exchange_dir: str | None = None
     cls: str = "player"  # det.txt has no class; replayed as this single class
+
+    def model_post_init(self, __context) -> None:
+        if self.det_path is None and self.exchange_dir is None:
+            raise ValueError(
+                "Frozen detector: set either params.det_path (one file) or "
+                "params.exchange_dir (per-sequence <dir>/<video-stem>/det.txt)."
+            )
 
 
 def _parse_det_txt(path: Path) -> dict[int, list[tuple[Box, float]]]:
@@ -51,24 +62,41 @@ class FrozenDetector(Detector):
     def __init__(self, **params):
         self.params = Params(**params)
         self._by_frame: dict[int, list[tuple[Box, float]]] | None = None
+        self._resolved_path: Path | None = None
+
+    def _resolve_path(self, ctx: StageContext) -> Path:
+        if self.params.det_path is not None:
+            return Path(self.params.det_path)
+        stem = Path(ctx.video.path).stem
+        return Path(self.params.exchange_dir) / stem / "det.txt"
 
     def prepare(self, ctx: StageContext) -> None:
-        path = Path(self.params.det_path)
+        path = self._resolve_path(ctx)
         if not path.exists():
             raise RuntimeError(
                 f"Frozen detector: det.txt not found at {path}. Export it with "
                 "`pitchlab-train export-detections` first."
             )
+        self._resolved_path = path
         self._by_frame = _parse_det_txt(path)
 
     def provenance(self) -> list[ModelProvenance]:
-        p = self.params.det_path
+        # An explicit det_path is resolvable without ctx, so it hashes even
+        # before prepare(). An exchange_dir path is per-sequence: honest null
+        # until prepare() resolves it against the video.
+        resolved = self._resolved_path
+        if resolved is None and self.params.det_path is not None:
+            resolved = Path(self.params.det_path)
+        p = str(resolved) if resolved is not None else (
+            f"{self.params.exchange_dir}/<video-stem>/det.txt"
+        )
+        has_file = resolved is not None and resolved.exists()
         return [
             ModelProvenance(
                 architecture="frozen-detections",
                 revision="frozen-detections/v1",
                 weights_path=p,
-                weights_sha256=sha256_file(p) if Path(p).exists() else None,
+                weights_sha256=sha256_file(str(resolved)) if has_file else None,
                 lineage=f"replayed exported det.txt: {p}",
                 license=LicenseAxes(
                     code="n/a (file replay)",
