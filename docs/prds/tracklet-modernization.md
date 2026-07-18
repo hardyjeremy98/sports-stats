@@ -7,6 +7,10 @@ rescope note). Amended 2026-07-18 — CAMELTrack moved from Phase 4 / research-w
 Phase 3 runnable as-published reference row, per the Phase 3 pre-registration
 ([`docs/reports/2026-07-18-phase3-preregistration.md`](../reports/2026-07-18-phase3-preregistration.md),
 SPO-29; issue SPO-35). See the Phase 3 candidate list and the Phase 4 / research-watch notes.
+Amended 2026-07-19 — **Phases 4 and 5 are SUPERSEDED** by
+[`shippable-multi-cue-tracklet-system.md`](shippable-multi-cue-tracklet-system.md), which
+carries the forward build/ship program (core Phase 4 purity policies folded in; SAM2 parked;
+phone-footage/domain acceptance deferred pending owned data). Phases 0–3 stand.
 **Date:** 2026-07-16
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
@@ -294,6 +298,12 @@ online-ReID line stops and the program leans on Phase 4 policies instead.
 
 ### Phase 4 — Tracklet purity as the control policy
 
+> **SUPERSEDED (2026-07-19)** by
+> [`shippable-multi-cue-tracklet-system.md`](shippable-multi-cue-tracklet-system.md). Its core
+> policies (terminate-over-force, GTA-style split/reconnect) are folded into that PRD as a
+> refined-tracklet layer; SAM2-class correction is parked to research-watch. Retained below for
+> historical context.
+
 **Gate question:** Can one policy detect ambiguity before it creates mixed tracklets,
 across sports, without dataset-specific threshold overfitting?
 
@@ -331,6 +341,11 @@ tracklet metrics are reported unchanged alongside, as the immutable comparator.
 evaluation; SAM2-class correction additionally must justify its runtime per match.
 
 ### Phase 5 — Transfer to amateur, handheld, and phone footage
+
+> **SUPERSEDED (2026-07-19)** by
+> [`shippable-multi-cue-tracklet-system.md`](shippable-multi-cue-tracklet-system.md). Product-domain
+> (phone-footage) validation is deferred there as an explicit accepted risk pending owned data;
+> the detector question is reframed as adopt-and-measure. Retained below for historical context.
 
 **Gate question:** Which gains survive the move from labelled broadcast benchmarks to the
 product domain?
