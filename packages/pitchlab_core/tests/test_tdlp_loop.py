@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-
 from pitchlab_core.schemas.geometry import Box
 from pitchlab_core.stages.track.tdlp.loop import (
     FeatureSpec,

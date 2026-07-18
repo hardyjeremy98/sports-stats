@@ -9,7 +9,6 @@ multi-modal similarity model the same way the upstream modalities do.
 from __future__ import annotations
 
 import torch
-
 from pitchlab_core._vendor.tdlp import build_mm_tdsp_model
 from pitchlab_core._vendor.tdlp.feature_encoders import (
     FEATURE_ENCODER_CATALOG,

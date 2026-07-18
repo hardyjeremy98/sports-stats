@@ -34,7 +34,6 @@ import torch
 from scipy.optimize import linear_sum_assignment
 
 from pitchlab_core.schemas import DetectionClass, Tracklet, TrackletFrame
-from pitchlab_core.schemas.geometry import Box
 
 # A detection's per-frame feature payload. Keys present depend on the enabled
 # modalities; values are the raw (pre-tensor) feature arrays plus the source
