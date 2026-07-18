@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pitchlab_core.licensing import LicenseCertificationError
 from pitchlab_train.experiments.benchmark import (
     LOWER_IS_BETTER,
     Compare,
@@ -21,10 +22,12 @@ from pitchlab_train.experiments.benchmark import (
     _aggregate_candidate_rows,
     _build_tables,
     _check_evaluation_set_consistency,
+    _check_license_certification,
     _check_missing_provenance,
     _check_provenance_consistency,
     _compute_comparison,
     _expand_candidates,
+    _provenance_summary_from_dict,
 )
 from pydantic import ValidationError
 
@@ -677,3 +680,75 @@ def test_compute_comparison_baseline_unknown_refuses():
     tables = {"matched_data": {"cand": _table_agg(0.5)}, "as_published": {}}
     with pytest.raises(RuntimeError, match="nope"):
         _compute_comparison(Compare(baseline="nope"), {"idf1_entity": 0.02}, tables)
+
+
+# --- SPO-41: per-axis licensing certification gate ----------------------
+
+
+def _prov_dict_with_license(stage: str, arch: str, axes: dict) -> dict:
+    return {
+        "git_revision": "abc",
+        "evaluation_set_hash": "h",
+        "stages": {
+            stage: {
+                "impl": arch,
+                "models": [{"architecture": arch, "revision": "v1", "license": axes}],
+            }
+        },
+    }
+
+
+def _shipping_row(candidate: str, seq: str, prov: dict) -> dict:
+    return {
+        "candidate": candidate,
+        "comparison_class": "matched_data",
+        "sequence": seq,
+        "role": "held_out",
+        "run_id": f"{candidate}-{seq}",
+        "status": "completed",
+        "provenance_summary": _provenance_summary_from_dict(prov),
+    }
+
+
+def test_provenance_summary_carries_stage_and_license_per_model():
+    axes = {"code": "Apache-2.0", "weights": "Apache-2.0", "training_data": "synthetic"}
+    summary = _provenance_summary_from_dict(_prov_dict_with_license("track", "tdlp-head", axes))
+    (m,) = summary["model_identities"]
+    assert m["stage"] == "track"
+    assert m["license"] == axes
+
+
+def test_check_license_certification_passes_clean_shipping_stack():
+    axes = {"code": "Apache-2.0", "weights": "MIT", "training_data": "synthetic (RandPerson)"}
+    prov = _prov_dict_with_license("track", "tdlp-head", axes)
+    rows = [_shipping_row("in-house", "s1", prov), _shipping_row("in-house", "s2", prov)]
+    _check_license_certification(rows, ["in-house"])  # must not raise
+
+
+def test_check_license_certification_refuses_non_permissive_axis():
+    axes = {"code": "Apache-2.0", "weights": "CC BY-NC 4.0 (SportsMOT)", "training_data": "MIT"}
+    rows = [_shipping_row("in-house", "s1", _prov_dict_with_license("track", "tdlp-head", axes))]
+    with pytest.raises(LicenseCertificationError) as exc:
+        _check_license_certification(rows, ["in-house"])
+    msg = str(exc.value)
+    assert "in-house" in msg and "track" in msg and "weights" in msg
+
+
+def test_check_license_certification_ignores_unnamed_reference_candidates():
+    """A non-shipping reference (e.g. the NC SOTA row) sitting in the same
+    benchmark is never certified -- only candidates explicitly named as
+    shippable are gated, so its NC axes do not fail the run."""
+    clean = {"code": "Apache-2.0", "weights": "MIT", "training_data": "synthetic"}
+    nc = {"code": "unknown", "weights": "CC BY-NC 4.0", "training_data": "CC BY-NC 4.0"}
+    rows = [
+        _shipping_row("in-house", "s1", _prov_dict_with_license("track", "tdlp-head", clean)),
+        _shipping_row("cameltrack-ref", "s1", _prov_dict_with_license("track", "camel", nc)),
+    ]
+    _check_license_certification(rows, ["in-house"])  # reference not named -> no raise
+
+
+def test_check_license_certification_refuses_named_candidate_with_no_rows():
+    """Certifying a shippable candidate that produced no completed rows is a
+    refusal -- you cannot certify nothing."""
+    with pytest.raises(LicenseCertificationError, match="in-house"):
+        _check_license_certification([], ["in-house"])
