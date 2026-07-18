@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from trackers.core.botsort._cmc_xyxy import _xyxy_corner_min_max
 from trackers.utils.base_tracklet import BaseTracklet
 from trackers.utils.converters import xyxy_to_xywh
@@ -60,6 +59,9 @@ class BoTSORTReidTracklet(BaseTracklet):
         # Count initial bbox as first successful update so that
         # number_of_successful_updates starts at 1.
         self.number_of_successful_updates = 1
+        # SPO-31: EMA of L2-normalized body-appearance embeddings for this
+        # track. None until the first quality-gated observation feeds one.
+        self.smooth_feat: np.ndarray | None = None
 
     def _configure_initial_noise(self, bbox: np.ndarray) -> None:
         """Set initial P, Q, R based on the first detection's size."""
@@ -183,19 +185,41 @@ class BoTSORTReidTracklet(BaseTracklet):
         elif isinstance(self.state_estimator, XCYCSRStateEstimator):
             self._clamp_xcycsr_state(kf_x)
 
-    def update(self, bbox: np.ndarray) -> None:
+    def update(self, bbox: np.ndarray, feat: np.ndarray | None = None,
+               feat_momentum: float = 0.9) -> None:
         """Update tracklet with a new observation.
 
         In the BoT-SORT flow **only matched tracks** call ``update(bbox)``
         with an actual bounding box.  Unmatched tracks simply skip
         ``update`` (their ``time_since_update`` is incremented in
         ``predict`` instead).
+
+        SPO-31: ``feat`` is the matched detection's L2-normalized body
+        embedding, folded into the track's appearance EMA. ``None`` (the
+        default, and the bbox-only path) leaves appearance untouched.
         """
         self._refresh_noise_from_state()
         self.state_estimator.update(bbox)
         self._clamp_state_bbox()
         self.time_since_update = 0
         self.number_of_successful_updates += 1
+        if feat is not None:
+            self.update_features(feat, feat_momentum)
+
+    def update_features(self, feat: np.ndarray, momentum: float = 0.9) -> None:
+        """Fold a new (L2-normalized) embedding into the appearance EMA:
+        ``smooth_feat <- normalize(momentum*smooth_feat + (1-momentum)*feat)``.
+        The first observation sets ``smooth_feat`` directly."""
+        feat = np.asarray(feat, dtype=np.float32)
+        n = float(np.linalg.norm(feat))
+        if n > 0.0:
+            feat = feat / n
+        if self.smooth_feat is None:
+            self.smooth_feat = feat
+            return
+        smoothed = momentum * self.smooth_feat + (1.0 - momentum) * feat
+        sn = float(np.linalg.norm(smoothed))
+        self.smooth_feat = smoothed / sn if sn > 0.0 else smoothed
 
     def predict(self) -> np.ndarray:
         """Predict the next bounding-box position.
