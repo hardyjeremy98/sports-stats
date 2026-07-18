@@ -837,12 +837,27 @@ def _check_missing_provenance(rows: list[dict]) -> None:
             )
 
 
+# Replay-style detectors whose "weights" hash is a per-sequence INPUT file, not
+# a model: their hash legitimately differs across a candidate's sequences, so it
+# is excluded from the cross-sequence identity comparison (same rationale as
+# detections_cache_hash). The frozen det-replay stage (SPO-30) is the case.
+_PER_SEQUENCE_INPUT_ARCHITECTURES = frozenset({"frozen-detections"})
+
+
 def _model_identity_set(model_identities: list[dict]) -> frozenset[tuple[str, str, str | None]]:
     """(architecture, revision, weights_sha256) per model -- deliberately
     excludes detections_cache_hash: a cache-hit/miss difference across
-    sequences is not a model identity change."""
+    sequences is not a model identity change. For per-sequence-input
+    architectures (a frozen det.txt replay) the weights hash is likewise
+    per-sequence input, so it too is excluded (identity is arch+revision)."""
     return frozenset(
-        (m["architecture"], m["revision"], m.get("weights_sha256")) for m in model_identities
+        (
+            m["architecture"],
+            m["revision"],
+            None if m["architecture"] in _PER_SEQUENCE_INPUT_ARCHITECTURES
+            else m.get("weights_sha256"),
+        )
+        for m in model_identities
     )
 
 

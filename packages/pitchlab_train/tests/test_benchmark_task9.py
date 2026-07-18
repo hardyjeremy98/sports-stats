@@ -330,6 +330,47 @@ def test_check_provenance_consistency_ignores_detections_cache_hash_diff():
     _check_provenance_consistency([row_a, row_b])  # must not raise
 
 
+def _frozen_row(run_id, sequence, det_hash):
+    """A frozen-detection comparator row: the replayed det.txt hash legitimately
+    differs per sequence (per-sequence input, not a model change)."""
+    row = _completed_row(run_id=run_id, sequence=sequence)
+    row["provenance_summary"]["stage_impls"] = {"detect": "frozen", "track": "botsort"}
+    row["provenance_summary"]["model_identities"] = [
+        {
+            "architecture": "frozen-detections",
+            "revision": "frozen-detections/v1",
+            "weights_sha256": det_hash,
+            "detections_cache_hash": None,
+        }
+    ]
+    return row
+
+
+def test_check_provenance_consistency_ignores_frozen_det_hash_diff_per_sequence():
+    """A frozen-detection replay stage feeds a different det.txt per sequence,
+    so its weights_sha256 legitimately differs across a candidate's runs --
+    the identity is the replay source (architecture+revision), not the
+    per-sequence file hash. Same rationale as detections_cache_hash."""
+    row_a = _frozen_row("cand-a-seq-1", "seq-1", det_hash="hash-124")
+    row_b = _frozen_row("cand-a-seq-2", "seq-2", det_hash="hash-125")
+    _check_provenance_consistency([row_a, row_b])  # must not raise
+
+
+def test_check_provenance_consistency_still_catches_real_model_drift():
+    """The frozen exclusion must not disable the check for real models: a
+    yolo weights_sha256 change across sequences must still raise."""
+    row_a = _completed_row(run_id="cand-a-seq-1", sequence="seq-1")
+    row_b = _completed_row(run_id="cand-a-seq-2", sequence="seq-2")
+    row_a["provenance_summary"]["model_identities"] = [
+        {"architecture": "yolo", "revision": "v1", "weights_sha256": "aaa", "detections_cache_hash": None}
+    ]
+    row_b["provenance_summary"]["model_identities"] = [
+        {"architecture": "yolo", "revision": "v1", "weights_sha256": "bbb", "detections_cache_hash": None}
+    ]
+    with pytest.raises(RuntimeError):
+        _check_provenance_consistency([row_a, row_b])
+
+
 def test_check_provenance_consistency_ignores_different_candidates():
     row_a = _completed_row(candidate="cand-a", run_id="cand-a-seq-1", sequence="seq-1")
     row_b = _completed_row(candidate="cand-b", run_id="cand-b-seq-1", sequence="seq-1")
