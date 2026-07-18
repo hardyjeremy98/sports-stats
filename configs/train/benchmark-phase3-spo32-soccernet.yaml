@@ -1,0 +1,33 @@
+# SPO-32 -- TDLP bbox-only via the SPO-18 import adapter, SoccerNet held-out.
+# Transfer row: no SoccerNet TDLP checkpoint exists, so the SportsMOT-trained
+# weights are applied to SoccerNet (matches TDLP's own published SoccerNet
+# config, which loads the SportsMOT checkpoint). TDLP consumed the IDENTICAL
+# frozen hosted-incumbent detections the comparator/SPO-31 consume.
+# Run: uv run --with ultralytics pitchlab-train run \
+#   configs/train/benchmark-phase3-spo32-soccernet.yaml
+name: benchmark-phase3-spo32-soccernet
+task: benchmark
+description: SPO-32 TDLP bbox-only (import adapter, transfer) vs comparator -- SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/soccernet
+    - name: tdlp-bbox
+      kind: import
+      comparison_class: matched_data
+      runs:
+        SNMOT-124: data/exchange/external-runs/tdlp-bbox/soccernet/SNMOT-124
+        SNMOT-125: data/exchange/external-runs/tdlp-bbox/soccernet/SNMOT-125
+        SNMOT-126: data/exchange/external-runs/tdlp-bbox/soccernet/SNMOT-126
+        SNMOT-127: data/exchange/external-runs/tdlp-bbox/soccernet/SNMOT-127
+  compare:
+    baseline: hardened-frozen
+output_dir: data/experiments
