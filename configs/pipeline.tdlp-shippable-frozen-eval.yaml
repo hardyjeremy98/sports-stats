@@ -1,0 +1,61 @@
+# SPO-44 Bar A: the assembled licensing-clean TDLP tracker scored over FROZEN
+# reference detections (same detections the SOTA reference used), so the number
+# isolates the shippable head+appearance cost from detector differences. The
+# track stage runs DINOv2 appearance over the frozen-det crops at eval time and
+# feeds the vendored TDLP head.
+#
+# `checkpoint` + `exchange_dir` are overridden per candidate/tier by the
+# benchmark experiment YAML. With the PRELIMINARY (NC-tuning-trained) checkpoint
+# this is a non-shippable first data point; the shippable head (SPO-40) swaps in
+# via the same interface once permissive-data training lands.
+name: tdlp-shippable-frozen-eval
+description: >
+  Assembled TDLP tracker (bbox + DINOv2 appearance + vendored head) over frozen
+  reference detections — Bar A cost-of-shippability measurement (SPO-44).
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: frozen
+    params:
+      exchange_dir: data/exchange/frozen-detections/soccernet  # overridden per tier
+  track:
+    impl: tdlp-shippable
+    params:
+      checkpoint: data/experiments/tdlp-head-prelim/head.pt  # overridden per candidate
+      use_appearance: true
+      use_keypoints: false      # preliminary: appearance+bbox only (pose omitted)
+      embedder: dinov2
+      min_length: 5
+      remember_threshold: 30
+      sim_threshold: 0.5
+      new_tracklet_detection_threshold: 0.5
+      hidden_dim: 128
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: per-tracklet
+    params: {}
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params: {}
+  events:
+    impl: possession-heuristic
+    params: {}
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false
