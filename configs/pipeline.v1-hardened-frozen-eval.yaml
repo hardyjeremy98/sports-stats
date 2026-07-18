@@ -1,0 +1,77 @@
+# PHASE 3 COMPARATOR (SPO-30) -- the SPO-22 hardened baseline (combo-b), with
+# its detector replaced by the `frozen` det-replay stage so it consumes the
+# Phase 2 frozen reference detections (identical input every Phase 3 candidate
+# eats). Track + downstream stages are BYTE-IDENTICAL to
+# configs/pipeline.v1-hardened-eval.yaml; only `stages.detect` changed.
+#
+# LAYER NOTE: raw-tracklet metrics from this config are the Phase 3 comparator.
+# They do NOT replace the Phase 1 hardened-baseline rows, which used the live
+# incumbent detector (yolo-local). Different detector -> different layer.
+#
+# The `exchange_dir` below is a placeholder; the benchmark config overrides it
+# per tier (data/exchange/frozen-detections/{soccernet,sportsmot}). The frozen
+# stage resolves <exchange_dir>/<video-stem>/det.txt per sequence.
+#
+# The calibrate slot (yolo-pitch-local) still needs ultralytics at runtime
+# (AGPL, local-eval only) even though detect no longer does. Run with:
+#   uv run --with ultralytics pitchlab-train run <benchmark config>
+name: v1-hardened-frozen-eval
+description: >
+  Phase 3 comparator (SPO-30): SPO-22 hardened BoT-SORT over frozen reference
+  detections (det-replay). Track params identical to v1-hardened-eval.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: frozen
+    params:
+      exchange_dir: data/exchange/frozen-detections/soccernet  # overridden per tier
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

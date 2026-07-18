@@ -3,7 +3,10 @@
 **Status:** Draft for decomposition; amended 2026-07-17 — Phase 2 rescoped from a
 matched-data detector fine-tuning ladder to adoption of frozen reference detectors,
 consistent with the Phase 0 exit-gate decision (SPO-21, detection-first; see Phase 2
-rescope note).
+rescope note). Amended 2026-07-18 — CAMELTrack moved from Phase 4 / research-watch to a
+Phase 3 runnable as-published reference row, per the Phase 3 pre-registration
+([`docs/reports/2026-07-18-phase3-preregistration.md`](../reports/2026-07-18-phase3-preregistration.md),
+SPO-29; issue SPO-35). See the Phase 3 candidate list and the Phase 4 / research-watch notes.
 **Date:** 2026-07-16
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
@@ -265,6 +268,13 @@ detector a swappable input.
   noted) unless licensing is clarified; if a runnable reference is genuinely needed, its
   ideas (ExpansionIoU, iterative matching) are clean-room reimplemented instead of
   executing the unlicensed code.
+- CAMELTrack as a **runnable, clearly-labeled as-published reference row** (added
+  2026-07-18, SPO-29 pre-registration / SPO-35). Apache-2.0 code (runnable via the import
+  adapter, unlike Deep-EIoU); SportsMOT-trained weights → selection-only, non-shippable. Its
+  SOTA checkpoint consumes pose keypoints, breaking frozen-detection input parity, so it is a
+  reference row (SportsMOT native + SoccerNet transfer), **not** a promotion candidate under
+  the primary-delta gate. Native multi-cue appearance — does not bear on the "marginal value
+  of appearance" question, which stays scoped to the BoT-SORT+body-ReID pair.
 
 **Body-ReID integration experiment (explicitly separate):** the offline `global-reid`
 associator is frozen during this phase. Moving the same embedder into online tracking is a
@@ -305,10 +315,12 @@ across sports, without dataset-specific threshold overfitting?
   evidence (appearance similarity, team/role consistency, formation and positional
   tendencies, manual same/different verdicts). Hard constraints may veto; soft evidence may
   only re-rank.
-- CAMELTrack (second-wave learned association) and selective SAM2 correction enter here
-  only against measured hard windows — ambiguous crowded intervals identified by margin
-  logs — not as whole-pipeline replacements. Both are compute-gated on the single-GPU
-  budget.
+- Selective SAM2 correction enters here only against measured hard windows — ambiguous
+  crowded intervals identified by margin logs — not as a whole-pipeline replacement,
+  compute-gated on the single-GPU budget. *(Amended 2026-07-18: CAMELTrack, previously
+  listed here as a selective hard-window corrector, was moved to Phase 3 as a runnable
+  as-published reference row — SPO-29 pre-registration / SPO-35. A Phase 4 selective-window
+  use remains possible but is no longer the primary way CAMELTrack enters the program.)*
 
 **Exit criteria:** refined-tracklet mixed-track duration falls on at least two sports
 without per-dataset threshold tuning, and entity-level metrics remain non-inferior
@@ -377,8 +389,9 @@ comparator, provenance-limited, frozen via the hosted-response cache).
 **Research watch (re-evaluate when code/weights/licenses mature):** D-FINE and RT-DETRv2
 (re-enter only via the Phase 2 revisit trigger); SAMIDARE, HyperSSM, NOOUGAT; SAM2-class
 mask tracking as a whole-pipeline approach (selective correction on hard windows is the
-only sanctioned entry point, in Phase 4); CAMELTrack starts as watch and enters Phase 4
-only if margin logs show learned association is the binding constraint.
+only sanctioned entry point, in Phase 4). *(CAMELTrack was on research-watch here; promoted
+2026-07-18 to a Phase 3 runnable as-published reference row — SPO-29 pre-registration /
+SPO-35 — its Apache-2.0 code making it executable via the import adapter.)*
 
 ## User Stories
 

@@ -1,0 +1,31 @@
+# Phase 3 tracker ladder -- SportsMOT held-out tier. Companion to the SoccerNet
+# ladder; every candidate consumes IDENTICAL frozen MixSort YOLOX detections.
+#   SPO-30 hardened-frozen (comparator, baseline)
+#   SPO-33 ocsort-frozen
+# Data-collection (no auto tolerances); the SPO-34 gate applies pre-registered
+# deltas. Run: uv run --with ultralytics pitchlab-train run \
+#   configs/train/benchmark-phase3-ladder-sportsmot.yaml
+name: benchmark-phase3-ladder-sportsmot
+task: benchmark
+description: Phase 3 tracker ladder over frozen detections -- SportsMOT held-out.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+    - name: ocsort-frozen
+      kind: pipeline
+      config: configs/pipeline.ocsort-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+  compare:
+    baseline: hardened-frozen
+output_dir: data/experiments

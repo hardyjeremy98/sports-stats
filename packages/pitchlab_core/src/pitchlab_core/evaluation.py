@@ -217,6 +217,12 @@ def evaluate_run(
         ),
     }
 
+    from pitchlab_core.crop_yield import crop_yield
+
+    result["crop_yield"] = crop_yield(
+        tracklets_by_id, gt_by_frame, eval_frames, iou_threshold
+    )
+
     det_by_frame = _load_detections(run_dir, eval_frames)
     if det_by_frame is None:
         result["detection"] = None
@@ -638,6 +644,9 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         heads["detection_ap"] = detection["ap"]
         heads["detection_recall"] = detection["recall"]
         heads["detection_miss_burst_p95"] = detection["miss_bursts"]["overall"]["p95"]
+    cy = result.get("crop_yield")
+    if cy is not None:
+        heads["crop_yield_per_player"] = cy["approved_per_gt_player_mean"]
     return heads
 
 

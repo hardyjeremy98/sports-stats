@@ -222,6 +222,8 @@ def test_golden_row_shape_uniform_across_native_and_import(probe_result):
         "metrics",
         "eval_path",
         "provenance_summary",
+        "runtime_s",
+        "peak_vram_mb",
     }
     for row in probe_result["rows"]:
         assert set(row) == expected_keys
