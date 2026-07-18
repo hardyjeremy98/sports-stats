@@ -1,0 +1,33 @@
+# Phase 3 tracker ladder -- SoccerNet held-out tier. Every candidate consumes
+# IDENTICAL frozen detections (frozen det-replay). Grows as candidates land:
+#   SPO-30 hardened-frozen (comparator, baseline)
+#   SPO-33 ocsort-frozen
+# The SPO-34 gate applies the pre-registered deltas
+# (docs/reports/2026-07-18-phase3-preregistration.md) to these rows; this config
+# is data-collection (no auto pass/fail tolerances), `compare` records deltas.
+# Run: uv run --with ultralytics pitchlab-train run \
+#   configs/train/benchmark-phase3-ladder-soccernet.yaml
+name: benchmark-phase3-ladder-soccernet
+task: benchmark
+description: Phase 3 tracker ladder over frozen detections -- SoccerNet held-out.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/soccernet
+    - name: ocsort-frozen
+      kind: pipeline
+      config: configs/pipeline.ocsort-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/soccernet
+  compare:
+    baseline: hardened-frozen
+output_dir: data/experiments
