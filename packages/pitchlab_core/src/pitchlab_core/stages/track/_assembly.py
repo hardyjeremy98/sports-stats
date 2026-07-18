@@ -33,6 +33,22 @@ def trackers_version() -> str:
         return "unknown (package not found)"
 
 
+# Maps a YAML-safe state_estimator string -> the trackers.utils
+# .state_representations class the tracker constructors accept (they take a
+# class object, not a string). Shared by every trackers-package stage.
+_STATE_ESTIMATOR_CLASS_NAMES = {
+    "xcycwh": "XCYCWHStateEstimator",
+    "xcycsr": "XCYCSRStateEstimator",
+    "xyxy": "XYXYStateEstimator",
+}
+
+
+def resolve_state_estimator_class(name: str):
+    import trackers.utils.state_representations as state_representations
+
+    return getattr(state_representations, _STATE_ESTIMATOR_CLASS_NAMES[name])
+
+
 def construct_tracker(tracker_cls, kwargs: dict):
     """Construct `tracker_cls(**kwargs)`, failing loudly on signature drift.
 

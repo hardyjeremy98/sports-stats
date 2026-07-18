@@ -24,4 +24,4 @@ from pitchlab_core.stages.events import possession, spotting_stub  # noqa: F401
 from pitchlab_core.stages.fuse import minimap  # noqa: F401
 from pitchlab_core.stages.identity import face, none  # noqa: F401
 from pitchlab_core.stages.team import kit_color, siglip  # noqa: F401
-from pitchlab_core.stages.track import botsort, iou, learned_stub  # noqa: F401
+from pitchlab_core.stages.track import botsort, iou, learned_stub, ocsort  # noqa: F401

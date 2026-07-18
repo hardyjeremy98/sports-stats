@@ -24,6 +24,7 @@ from pitchlab_core.stages.track._assembly import (
     SOURCE_IDX_KEY,
     assemble_tracklets,
     construct_tracker,
+    resolve_state_estimator_class,
     trackers_version,
 )
 
@@ -32,6 +33,7 @@ from pitchlab_core.stages.track._assembly import (
 _SOURCE_IDX_KEY = SOURCE_IDX_KEY
 _construct_tracker = construct_tracker
 _trackers_version = trackers_version
+_resolve_state_estimator_class = resolve_state_estimator_class
 
 
 class Params(BaseModel):
@@ -75,23 +77,6 @@ class Params(BaseModel):
     # object, not a string, so this is a YAML-safe stand-in for the same
     # accepted kwarg, not an invented parameter.
     state_estimator: Literal["xcycwh", "xcycsr", "xyxy"] = "xcycwh"
-
-
-# Maps Params.state_estimator -> the trackers.utils.state_representations
-# class name accepted by BoTSORTTracker's `state_estimator_class` kwarg.
-# Resolved lazily in `track()` (import deferred like the rest of `trackers`).
-_STATE_ESTIMATOR_CLASS_NAMES = {
-    "xcycwh": "XCYCWHStateEstimator",
-    "xcycsr": "XCYCSRStateEstimator",
-    "xyxy": "XYXYStateEstimator",
-}
-
-
-def _resolve_state_estimator_class(name: str):
-    import trackers.utils.state_representations as state_representations
-
-    class_name = _STATE_ESTIMATOR_CLASS_NAMES[name]
-    return getattr(state_representations, class_name)
 
 
 @register(StageKind.TRACK, "botsort")
