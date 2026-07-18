@@ -2,10 +2,13 @@
 
 **Issue:** SPO-34 · **PRD:** [`docs/prds/tracklet-modernization.md`](../prds/tracklet-modernization.md) Phase 3 · **Pre-registration:** [`2026-07-18-phase3-preregistration.md`](2026-07-18-phase3-preregistration.md) · **Date:** 2026-07-19
 
-**Status: DECIDED (HITL gate).** Two outcomes: (1) no frozen-detection parity candidate clears
-the promotion bar — the hardened baseline remains the interim shippable tracker; (2) for the
-shippable build ([`shippable-multi-cue-tracklet-system.md`](../prds/shippable-multi-cue-tracklet-system.md)),
-the **TDLP link-prediction association head is the selected architecture**, on measured evidence.
+**Status: DECIDED — CONFIRMED (Jeremy, 2026-07-19); gate closed.** Two outcomes: (1) no
+frozen-detection parity candidate clears the promotion bar — the hardened baseline remains the
+interim shippable tracker; (2) for the shippable build
+([`shippable-multi-cue-tracklet-system.md`](../prds/shippable-multi-cue-tracklet-system.md)),
+the **TDLP link-prediction association head is the selected architecture** — confirmed as
+definitive (TDLP wins on benchmarks, reproduced here on our purity metric on identical features,
+and is offline, matching the product). SPO-40/42 point at the TDLP head.
 
 ## 1. Frozen-detection parity candidates (promotion-eligible, SPO-29 primary bar)
 
