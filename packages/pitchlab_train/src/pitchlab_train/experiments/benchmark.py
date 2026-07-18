@@ -37,7 +37,13 @@ from pitchlab_core.config import PipelineConfig
 from pitchlab_core.evaluation import evaluate_run, headline_metrics
 from pitchlab_core.exchange import ExternalProvenance
 from pitchlab_core.gt import GroundTruth
+from pitchlab_core.licensing import (
+    AxisVerdict,
+    LicenseCertificationError,
+    certify_license_axes,
+)
 from pitchlab_core.provenance import (
+    LicenseAxes,
     check_evaluation_set,
     hash_dataset_manifest,
     hash_evaluation_set,
@@ -145,6 +151,11 @@ class Params(BaseModel):
     # improved/regressed/within_tolerance verdicts against `compare.baseline`.
     tolerances: dict[str, float] = Field(default_factory=dict)
     compare: Compare | None = None
+    # SPO-41 Bar A: candidate names that MUST pass per-axis licensing
+    # certification (code/weights/training-data all permissive). Empty ->
+    # gate is a no-op (existing benchmarks score non-shippable references).
+    # The Bar A acceptance config lists its in-house shippable stack here.
+    certify_shippable: list[str] = Field(default_factory=list)
 
     @field_validator("roles")
     @classmethod
@@ -293,6 +304,7 @@ class BenchmarkExperiment(Experiment):
         _check_missing_provenance(rows)
         _check_provenance_consistency(rows)
         _check_evaluation_set_consistency(rows)
+        _check_license_certification(rows, p.certify_shippable)
 
         tables = _build_tables(candidates, rows)
         comparison = _compute_comparison(p.compare, p.tolerances, tables)
@@ -715,12 +727,17 @@ def _provenance_summary_from_dict(prov: dict) -> dict:
     stage_impls = {stage: sp.get("impl", "unknown") for stage, sp in stages.items()}
     model_identities = [
         {
+            "stage": stage,
             "architecture": m.get("architecture", "unknown"),
             "revision": m.get("revision", "unknown"),
             "weights_sha256": m.get("weights_sha256"),
             "detections_cache_hash": m.get("detections_cache_hash"),
+            # Per-axis license (SPO-41): carried so the shippable-certification
+            # gate can vet code/weights/training-data without re-reading the
+            # manifest. Absent -> all-"unknown", which fails closed.
+            "license": m.get("license", {}),
         }
-        for sp in stages.values()
+        for stage, sp in stages.items()
         for m in sp.get("models", [])
     ]
     return {
@@ -893,6 +910,48 @@ def _check_provenance_consistency(rows: list[dict]) -> None:
                     f"run '{other['run_id']}' has {sorted(other_models)} -- runs of one "
                     "candidate must share identical model identities"
                 )
+
+
+def _check_license_certification(rows: list[dict], certify_shippable: list[str]) -> None:
+    """SPO-41 per-axis licensing certification gate, wired into the Bar A
+    acceptance step. For each candidate named in `certify_shippable` (the
+    shipping-path stacks -- never the NC/AGPL reference rows, which are left
+    unnamed and so untouched), certify that every model on every completed row
+    is permissive on all three axes (code / weights / training data). Refuse
+    loudly (`LicenseCertificationError`) naming the offending candidate /
+    stage / model / axis / value. A named candidate with no completed rows is
+    itself a refusal -- you cannot certify nothing. No-op when the list is
+    empty, so existing benchmarks (which score non-shippable references) are
+    unaffected. Mirrors the other provenance gates + `assert_stack_shippable`."""
+    if not certify_shippable:
+        return
+    completed_by_candidate: dict[str, list[dict]] = {}
+    for row in rows:
+        if row["status"] == "completed":
+            completed_by_candidate.setdefault(row["candidate"], []).append(row)
+
+    for candidate_name in certify_shippable:
+        crows = completed_by_candidate.get(candidate_name, [])
+        if not crows:
+            raise LicenseCertificationError(
+                f"Shippable certification requested for candidate "
+                f"'{candidate_name}' but it produced no completed rows -- "
+                "cannot certify nothing."
+            )
+        for row in crows:
+            for m in row["provenance_summary"]["model_identities"]:
+                axes = LicenseAxes(**m.get("license", {}))
+                cert = certify_license_axes(axes)
+                bad = [a for a in cert.axes if a.verdict != AxisVerdict.PERMISSIVE]
+                if bad:
+                    findings = "; ".join(
+                        f"{a.axis}={a.value!r} ({a.verdict.value})" for a in bad
+                    )
+                    raise LicenseCertificationError(
+                        f"License certification failed for shippable candidate "
+                        f"'{candidate_name}' (run '{row['run_id']}'): stage "
+                        f"'{m['stage']}' model '{m['architecture']}' -- {findings}"
+                    )
 
 
 def _check_evaluation_set_consistency(rows: list[dict]) -> None:
