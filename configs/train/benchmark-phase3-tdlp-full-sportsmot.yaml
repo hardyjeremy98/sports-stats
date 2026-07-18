@@ -1,0 +1,36 @@
+# SPO-34 evidence: full TDLP (bbox+kps+appearance) vs TDLP-bbox on IDENTICAL
+# CAMELTrack-derived detections+pose+appearance (as-published reference rows).
+# Answers (a) SOTA-vs-SOTA TDLP-full vs CAMELTrack and (b) marginal value of
+# appearance WITHIN TDLP (bbox vs full on the same input). Both reference_only /
+# as_published (CAMELTrack's own detector+pose+reid; SportsMOT-trained weights =
+# selection-only, non-shippable). Run: uv run pitchlab-train run <this>
+name: benchmark-phase3-tdlp-full-sportsmot
+task: benchmark
+description: SPO-34 evidence -- full TDLP vs TDLP-bbox on identical CAMELTrack features (SportsMOT held-out).
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: tdlp-full-aspub
+      kind: import
+      comparison_class: as_published
+      runs:
+        v_00HRwkvvjtQ_c001: data/exchange/external-runs/tdlp-full/sportsmot/v_00HRwkvvjtQ_c001
+        v_0kUtTtmLaJA_c004: data/exchange/external-runs/tdlp-full/sportsmot/v_0kUtTtmLaJA_c004
+        v_2QhNRucNC7E_c017: data/exchange/external-runs/tdlp-full/sportsmot/v_2QhNRucNC7E_c017
+        v_4-EmEtrturE_c009: data/exchange/external-runs/tdlp-full/sportsmot/v_4-EmEtrturE_c009
+        v_4r8QL_wglzQ_c001: data/exchange/external-runs/tdlp-full/sportsmot/v_4r8QL_wglzQ_c001
+        v_G-vNjfx1GGc_c004: data/exchange/external-runs/tdlp-full/sportsmot/v_G-vNjfx1GGc_c004
+    - name: tdlp-bbox-cameldets-aspub
+      kind: import
+      comparison_class: as_published
+      runs:
+        v_00HRwkvvjtQ_c001: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_00HRwkvvjtQ_c001
+        v_0kUtTtmLaJA_c004: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_0kUtTtmLaJA_c004
+        v_2QhNRucNC7E_c017: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_2QhNRucNC7E_c017
+        v_4-EmEtrturE_c009: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_4-EmEtrturE_c009
+        v_4r8QL_wglzQ_c001: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_4r8QL_wglzQ_c001
+        v_G-vNjfx1GGc_c004: data/exchange/external-runs/tdlp-bbox-cameldets/sportsmot/v_G-vNjfx1GGc_c004
+output_dir: data/experiments
