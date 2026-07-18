@@ -1,0 +1,38 @@
+# SPO-32 -- TDLP bbox-only via the SPO-18 import adapter, SportsMOT held-out.
+# TDLP consumed IDENTICAL frozen MixSort YOLOX detections (same det.txt the
+# comparator/SPO-31 consume), synthesized into TDLP's ExtraFeatures format and
+# run through TDLP's offline tracker (MIT; HF weights Robotmurlock/
+# tdlp_sportsmot_bboxes; SportsMOT-trained -> selection-only, non-shippable).
+# The MOT output is imported (per-seq ExternalProvenance sidecar carrying the
+# frozen det.txt sha for a parity cross-check) and scored with the full stack.
+# Comparator = SPO-30 hardened BoT-SORT on the same frozen dets.
+# Run: uv run --with ultralytics pitchlab-train run \
+#   configs/train/benchmark-phase3-spo32-sportsmot.yaml
+name: benchmark-phase3-spo32-sportsmot
+task: benchmark
+description: SPO-32 TDLP bbox-only (import adapter) vs comparator -- SportsMOT held-out.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+    - name: tdlp-bbox
+      kind: import
+      comparison_class: matched_data
+      runs:
+        v_00HRwkvvjtQ_c001: data/exchange/external-runs/tdlp-bbox/sportsmot/v_00HRwkvvjtQ_c001
+        v_0kUtTtmLaJA_c004: data/exchange/external-runs/tdlp-bbox/sportsmot/v_0kUtTtmLaJA_c004
+        v_2QhNRucNC7E_c017: data/exchange/external-runs/tdlp-bbox/sportsmot/v_2QhNRucNC7E_c017
+        v_4-EmEtrturE_c009: data/exchange/external-runs/tdlp-bbox/sportsmot/v_4-EmEtrturE_c009
+        v_4r8QL_wglzQ_c001: data/exchange/external-runs/tdlp-bbox/sportsmot/v_4r8QL_wglzQ_c001
+        v_G-vNjfx1GGc_c004: data/exchange/external-runs/tdlp-bbox/sportsmot/v_G-vNjfx1GGc_c004
+  compare:
+    baseline: hardened-frozen
+output_dir: data/experiments
