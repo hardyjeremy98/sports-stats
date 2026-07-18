@@ -219,4 +219,26 @@ class TdlpShippableTracker(Tracker):
         )
         if self._pose is not None:
             provs.append(self._pose.provenance())
+        if p.use_appearance:
+            # Record the appearance embedder so the SPO-41 gate vets its axes
+            # too (an embedder is a shipping-path component). Cheap to construct
+            # (weights load only in prepare()); falls back to "unknown" axes if
+            # the embedder declares none.
+            emb = self._embedder
+            if emb is None:
+                try:
+                    emb = get_embedder(p.embedder)
+                except Exception:
+                    emb = None
+            emb_license = getattr(emb, "license", None) or LicenseAxes(
+                code="unknown", weights="unknown", training_data="unknown"
+            )
+            provs.append(
+                ModelProvenance(
+                    architecture=f"appearance-embedder:{p.embedder}",
+                    revision=getattr(emb, "model_name", p.embedder),
+                    lineage=getattr(emb, "lineage", "appearance embedding cue"),
+                    license=emb_license,
+                )
+            )
         return provs

@@ -93,6 +93,9 @@ def _preprocess(
 @register_embedder("dinov2")
 class DinoV2Embedder(BodyEmbedder):
     dim = _DIM
+    # Per-axis license for the assembled-stack certification gate (SPO-41).
+    license = LICENSE
+    lineage = LINEAGE
 
     def __init__(self, batch_size: int = 32, model_name: str = _MODEL_NAME):
         self.batch_size = batch_size
