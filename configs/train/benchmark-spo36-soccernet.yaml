@@ -9,7 +9,7 @@ description: >
   SPO-36 RF-DETR base detection-quality measurement on the soccernet tier.
 params:
   dataset_manifest: configs/datasets/soccernet.json
-  roles: [tuning, held_out]
+  roles: [held_out]
   device: cuda
   iou_threshold: 0.5
   candidates:

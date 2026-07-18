@@ -65,6 +65,7 @@ class Params(BaseModel):
     # verified empirically at export time.
     person_class_id: int = 1
     resolution: int = 0  # 0 -> model default
+    optimize_fp16: bool = True  # fp16 inference optimization on CUDA (~5-8x)
 
 
 @register(StageKind.DETECT, "rfdetr-local")
@@ -94,6 +95,16 @@ class RfDetrDetector(Detector):
         if self.params.resolution:
             kwargs["resolution"] = self.params.resolution
         self._model = cls(**kwargs)
+        if self.params.optimize_fp16:
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    self._model.optimize_for_inference(dtype=torch.float16)
+            except Exception:
+                # Optimization is best-effort; fall back to eager inference
+                # rather than failing the run.
+                pass
 
     def provenance(self) -> list[ModelProvenance]:
         w = self.params.weights
