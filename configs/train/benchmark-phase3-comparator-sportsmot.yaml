@@ -1,0 +1,30 @@
+# SPO-30 Phase 3 comparator -- hardened baseline over FROZEN detections on the
+# SportsMOT held-out tier (6 sequences). Companion to the SoccerNet comparator
+# config. Data-collection run: no tolerances/gate (SPO-34 applies the
+# pre-registered deltas).
+#
+# Frozen detections here are MixSort YOLOX (SPO-25), so the SportsMOT sequences
+# that were detector-floored in Phase 0/1 (football detector -> ~0 detections
+# on basketball/volleyball) now fire. The frozen stage resolves
+# data/exchange/frozen-detections/sportsmot/<seq>/det.txt per sequence.
+# Calibrate needs ultralytics at runtime:
+#   uv run --with ultralytics pitchlab-train run \
+#     configs/train/benchmark-phase3-comparator-sportsmot.yaml
+name: benchmark-phase3-comparator-sportsmot
+task: benchmark
+description: >
+  Phase 3 comparator (SPO-30): SPO-22 hardened BoT-SORT over frozen SportsMOT
+  reference detections (MixSort YOLOX), held-out tier.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+output_dir: data/experiments

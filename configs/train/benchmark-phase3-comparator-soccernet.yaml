@@ -1,0 +1,28 @@
+# SPO-30 Phase 3 comparator -- hardened baseline over FROZEN detections on the
+# SoccerNet held-out tier (SNMOT-124..127). Establishes the comparator rows
+# every Phase 3 candidate is judged against (pre-registration
+# docs/reports/2026-07-18-phase3-preregistration.md). Data-collection run: no
+# tolerances/gate here -- the SPO-34 gate applies the pre-registered deltas.
+#
+# The frozen stage resolves data/exchange/frozen-detections/soccernet/<seq>/det.txt
+# per sequence. Calibrate (yolo-pitch-local) needs ultralytics at runtime:
+#   uv run --with ultralytics pitchlab-train run \
+#     configs/train/benchmark-phase3-comparator-soccernet.yaml
+name: benchmark-phase3-comparator-soccernet
+task: benchmark
+description: >
+  Phase 3 comparator (SPO-30): SPO-22 hardened BoT-SORT over frozen SoccerNet
+  reference detections, held-out tier.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: hardened-frozen
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/soccernet
+output_dir: data/experiments
