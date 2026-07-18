@@ -77,12 +77,18 @@ def assemble_tracklets(
     tracker,
     frame_provider: Callable[[int], np.ndarray | None],
     min_length: int,
+    embed_provider: Callable[[np.ndarray | None, list], tuple] | None = None,
 ) -> list[Tracklet]:
     """Run every frame's detections through `tracker.update()` and assemble the
     tracked output into length-filtered `Tracklet`s.
 
     `frame_provider(frame_idx)` returns the BGR image for that frame (for
     trackers that use camera-motion compensation) or None (OC-SORT et al.).
+
+    `embed_provider(frame_image, dets) -> (embedding, embed_ok)` optionally
+    supplies per-detection body embeddings (aligned to `dets`); when given and
+    non-None they ride through `update()` on `sv.Detections.data` for an
+    appearance-aware tracker (SPO-31). Absent → the bbox-only path.
     """
     import supervision as sv
 
@@ -91,6 +97,7 @@ def assemble_tracklets(
 
     for fd in detections:
         dets = [d for d in fd.detections if d.cls != DetectionClass.BALL]
+        image = frame_provider(fd.frame_idx)
         sv_dets = sv.Detections(
             xyxy=np.array(
                 [[d.box.x1, d.box.y1, d.box.x2, d.box.y2] for d in dets],
@@ -102,7 +109,12 @@ def assemble_tracklets(
             class_id=np.zeros(len(dets), dtype=int),
             data={SOURCE_IDX_KEY: np.arange(len(dets), dtype=int)},
         )
-        tracked = tracker.update(sv_dets, frame=frame_provider(fd.frame_idx))
+        if embed_provider is not None:
+            emb, embed_ok = embed_provider(image, dets)
+            if emb is not None and embed_ok is not None:
+                sv_dets.data["embedding"] = emb
+                sv_dets.data["embed_ok"] = embed_ok
+        tracked = tracker.update(sv_dets, frame=image)
         if tracked.tracker_id is None:
             continue
         # Empty-result short-circuits return a fresh sv.Detections.empty(), so
