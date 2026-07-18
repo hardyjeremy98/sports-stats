@@ -17,11 +17,9 @@ from typing import ClassVar, cast
 import numpy as np
 import supervision as sv
 from scipy.optimize import linear_sum_assignment
-
 from trackers.core.base import BaseTracker
 from trackers.core.botsort._cmc_xyxy import _xyxy_corner_min_max
 from trackers.core.botsort.cmc import CMC, CMCConfig, CMCTMethod
-from pitchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet
 from trackers.core.botsort.utils import _fuse_score, get_alive_tracklets
 from trackers.core.sort.utils import _get_iou_matrix
 from trackers.utils.state_representations import (
@@ -29,6 +27,8 @@ from trackers.utils.state_representations import (
     XCYCWHStateEstimator,
     XYXYStateEstimator,
 )
+
+from pitchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet
 
 
 class BoTSORTReidTracker(BaseTracker):
@@ -128,7 +128,20 @@ class BoTSORTReidTracker(BaseTracker):
         cmc_downscale: int = 2,
         instant_first_frame_activation: bool = True,
         state_estimator_class: type[BaseStateEstimator] = XCYCWHStateEstimator,
+        appearance_weight: float = 0.0,
+        max_embed_distance: float = 0.25,
+        feat_momentum: float = 0.9,
     ) -> None:
+        # SPO-31 body-ReID: appearance_weight=0.0 reproduces plain BoT-SORT
+        # exactly (the bbox-only twin). >0 blends a boost-only appearance term
+        # into the FIRST association among IoU-feasible pairs. max_embed_distance
+        # gates the cosine distance; feat_momentum drives the per-track EMA.
+        self._appearance_weight = appearance_weight
+        self._max_embed_distance = max_embed_distance
+        self._feat_momentum = feat_momentum
+        # Per-frame embedding arrays, set at the top of update().
+        self._cur_emb: np.ndarray | None = None
+        self._cur_embed_ok: np.ndarray | None = None
         # Calculate maximum frames without update based on lost_track_buffer and
         # frame_rate. This scales the buffer based on the frame rate to ensure
         # consistent time-based tracking across different frame rates.
@@ -200,6 +213,13 @@ class BoTSORTReidTracker(BaseTracker):
             else np.ones(len(detections))
         )
 
+        # SPO-31: per-detection body embeddings + quality-ok mask ride through
+        # sv.Detections.data (the same mechanism as source_idx). Absent -> the
+        # bbox-only path (blend is a no-op).
+        data = detections.data or {}
+        self._cur_emb = data.get("embedding")
+        self._cur_embed_ok = data.get("embed_ok")
+
         # Split indices into high / low / discarded by confidence
         high_mask = confidences >= self.high_conf_det_threshold
         low_mask = (confidences > 0.1) & (~high_mask)
@@ -238,13 +258,17 @@ class BoTSORTReidTracker(BaseTracker):
         strack_pool = confirmed_tracks + lost_tracks
         iou_matrix = _get_iou_matrix(strack_pool, high_boxes)
         iou_matrix = _fuse_score(iou_matrix, high_scores)
+        similarity = self._blend_appearance(
+            iou_matrix, strack_pool, high_indices, self._cur_emb, self._cur_embed_ok
+        )
         matched, unmatched_pool, unmatched_high = self._get_associated_indices(
-            iou_matrix, self.minimum_iou_threshold_first_assoc
+            similarity, self.minimum_iou_threshold_first_assoc
         )
 
         for row, col in matched:
             track = strack_pool[row]
-            track.update(high_boxes[col])
+            track.update(high_boxes[col], feat=self._det_feat(int(high_indices[col])),
+                         feat_momentum=self._feat_momentum)
             if (
                 track.number_of_successful_updates >= self.minimum_consecutive_frames
                 and track.tracker_id == -1
@@ -268,7 +292,8 @@ class BoTSORTReidTracker(BaseTracker):
 
         for row, col in matched:
             track = remaining_tracked[row]
-            track.update(low_boxes[col])
+            track.update(low_boxes[col], feat=self._det_feat(int(low_indices[col])),
+                         feat_momentum=self._feat_momentum)
             if (
                 track.number_of_successful_updates >= self.minimum_consecutive_frames
                 and track.tracker_id == -1
@@ -303,7 +328,9 @@ class BoTSORTReidTracker(BaseTracker):
             for row, col in matched_uc:
                 track = unconfirmed_tracks[row]
                 orig_high_idx = unmatched_high_list[col]
-                track.update(high_boxes[orig_high_idx])
+                track.update(high_boxes[orig_high_idx],
+                             feat=self._det_feat(int(high_indices[orig_high_idx])),
+                             feat_momentum=self._feat_momentum)
                 if (
                     track.number_of_successful_updates
                     >= self.minimum_consecutive_frames
@@ -350,6 +377,60 @@ class BoTSORTReidTracker(BaseTracker):
         result = cast(sv.Detections, detections[idx])
         result.tracker_id = np.array(out_tracker_ids, dtype=int)
         return result
+
+    def _det_feat(self, global_idx: int) -> np.ndarray | None:
+        """The quality-gated body embedding for a detection (input-indexed), or
+        None if no embeddings were provided or the crop failed the quality gate
+        (`embed_ok` False). Fed into a matched track's appearance EMA."""
+        emb, ok = self._cur_emb, self._cur_embed_ok
+        if emb is None or ok is None or not bool(ok[global_idx]):
+            return None
+        return np.asarray(emb[global_idx], dtype=np.float32)
+
+    def _blend_appearance(
+        self,
+        iou_matrix: np.ndarray,
+        strack_pool: list,
+        high_indices: np.ndarray,
+        emb: np.ndarray | None,
+        embed_ok: np.ndarray | None,
+    ) -> np.ndarray:
+        """Boost-only body-appearance blend into the first-association fused-IoU
+        similarity (SPO-31). The appearance term is ADDED to IoU-feasible pairs
+        only, so it re-ranks among feasible matches but can never force an
+        infeasible match, nor push a feasible one below the gate.
+        ``appearance_weight == 0`` (or absent embeddings) returns the fused
+        matrix unchanged — the exact bbox-only twin.
+        """
+        if self._appearance_weight <= 0.0 or emb is None or embed_ok is None:
+            return iou_matrix
+        n_tracks, n_dets = iou_matrix.shape
+        if n_tracks == 0 or n_dets == 0:
+            return iou_matrix
+        has_feat = np.array([t.smooth_feat is not None for t in strack_pool])
+        if not has_feat.any():
+            return iou_matrix
+
+        dim = next(t.smooth_feat.shape[0] for t in strack_pool if t.smooth_feat is not None)
+        track_feats = np.zeros((n_tracks, dim), dtype=np.float32)
+        for i, track in enumerate(strack_pool):
+            if track.smooth_feat is not None:
+                track_feats[i] = track.smooth_feat
+
+        col_idx = np.asarray(high_indices, dtype=int)
+        det_feats = np.asarray(emb, dtype=np.float32)[col_idx]      # (n_dets, D)
+        det_ok = np.asarray(embed_ok, dtype=bool)[col_idx]         # (n_dets,)
+        cos = track_feats @ det_feats.T                            # both L2-normalized
+        valid = (
+            has_feat[:, None]
+            & det_ok[None, :]
+            & ((1.0 - cos) <= self._max_embed_distance)
+        )
+        boost = self._appearance_weight * np.where(valid, np.maximum(cos, 0.0), 0.0)
+        # Zero the boost on IoU-infeasible pairs: appearance never lifts a pair
+        # over the gate (no force) and never reduces a feasible pair (no veto).
+        boost[iou_matrix < self.minimum_iou_threshold_first_assoc] = 0.0
+        return (iou_matrix + boost).astype(iou_matrix.dtype)
 
     def apply_cmc_batch(self, H: np.ndarray | None) -> None:
         """Apply a 2x3 affine camera-motion transform to all tracklets at once.
@@ -496,6 +577,9 @@ class BoTSORTReidTracker(BaseTracker):
                     initial_bbox=detection_boxes[global_idx],
                     state_estimator_class=self.state_estimator_class,
                 )
+                feat = self._det_feat(global_idx)
+                if feat is not None:
+                    tracklet.update_features(feat, self._feat_momentum)
                 if is_first_frame and self.instant_first_frame_activation:
                     tracklet.tracker_id = BoTSORTReidTracklet.get_next_tracker_id()
                 self.tracks.append(tracklet)
