@@ -5,8 +5,9 @@
 — blocker) · **PRD:** [`shippable-multi-cue-tracklet-system.md`](../prds/shippable-multi-cue-tracklet-system.md) ·
 **Date:** 2026-07-19 · **Branch:** `spo-42-assemble-shippable-tdlp` (off main, unpushed, not merged)
 
-**Status: RUNNABLE END-TO-END on arbitrary video. First Bar A number pending a trained head
-(preliminary training in progress; shippable training BLOCKED on SPO-39 — see §5).**
+**Status: RUNNABLE END-TO-END on arbitrary video; first Bar A number MEASURED with a
+preliminary head (SportsMOT purity 0.827 / SoccerNet 0.823 — ~0.10–0.14 below reference, §4a).
+Shippable head training BLOCKED on SPO-39 (§5).**
 
 ## 1. What was built
 
@@ -71,8 +72,36 @@ tuning) — a **NON-SHIPPABLE** checkpoint whose only purpose is to de-risk the 
 a first Bar A data point. Eval configs (`benchmark-spo44-{soccernet,sportsmot}.yaml`) score it
 over frozen reference detections (held-out) so the number isolates the head+appearance cost,
 compared to the already-measured **SOTA TDLP reference (SportsMOT held-out purity ≈ 0.95–0.97,
-HOTA ≈ 0.90)** and the SPO-30 comparator (SoccerNet 0.9257 / SportsMOT 0.9455 purity). Numbers
-land in this report's addendum when the run completes.
+HOTA ≈ 0.90)** and the SPO-30 comparator (SoccerNet 0.9257 / SportsMOT 0.9455 purity).
+
+### 4a. First Bar A numbers (PRELIMINARY head — 2026-07-19)
+
+Preliminary head: bbox + DINOv2-global appearance (no pose), 12 epochs corrupt-and-recover
+over 11 NC tuning sequences (SoccerNet 116–123 + SportsMOT tuning), train loss 0.64→0.12.
+Scored over frozen reference detections on the held-out tiers.
+
+| tier (held-out) | tracklet purity | mixed-track s | HOTA(t) | IDF1(t) | IDsw(t) | det recall/AP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **SportsMOT** (6 seq) | **0.827** | 52.5 | 0.503 | 0.451 | 362 | 0.994 / 0.988 |
+| **SoccerNet** (4 seq) | **0.823** | 58.1 | 0.320 | 0.310 | 829 | 0.846 / 0.811 |
+| _reference: SOTA TDLP (SportsMOT)_ | _0.95–0.97_ | _10–13_ | _0.90_ | _0.94_ | _~5_ | — |
+| _reference: SPO-30 comparator_ | _SN 0.926 / SM 0.946_ | _SN 23 / SM 18_ | — | — | — | — |
+
+**Reading:** the assembled shippable-feature TDLP with this preliminary head lands **~0.12–0.14
+below** the SOTA TDLP reference on SportsMOT purity and **~0.10 below** the comparator on
+SoccerNet — it does **not** reach parity, and mixed-track / HOTA / IDsw are much worse
+(heavy fragmentation: very high IDsw with only moderate purity means short, frequently-broken
+tracklets). Detection recall/AP ~0.99 (SportsMOT) confirms the gap is the **head + appearance
+cue**, not detection. This is an honest cost-of-shippability *lower bound*, not a parity claim.
+
+**Likely causes & next levers** (in rough priority): (1) **untuned association thresholds** —
+`sim_threshold`/`new_tracklet_detection_threshold` vs the head's logit scale (the high IDsw
+smells partly like over-gating → constant respawn; a threshold/`appearance_weight`-style sweep
+is the cheapest first lever); (2) **no pose cue** (RTMPose omitted for CPU-speed — add it back);
+(3) **DINOv2 global** appearance is weaker for ReID than KPR part-based — fine-tune or add parts;
+(4) **more/broader training data** (11 NC tuning seqs is thin; the real shippable data is
+SPO-39); (5) re-enable the **motion (FoD) encoder**. None of these change the shipping-path
+licensing story — they are quality levers on top of the runnable stack.
 
 ## 5. BLOCKER — shippable association training data (SPO-39, HITL)
 
