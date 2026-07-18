@@ -1,0 +1,20 @@
+# SPO-36: measure permissive RF-DETR base detection quality on the soccernet
+# held-out + tuning sequences (stride 1). Shippable detector-adopt-and-measure.
+# No promotion/tolerances -- a data-collection run for the detection evaluator
+# (P/R/AP by height bin, miss-burst). Run with:
+#   uv run --with rfdetr pitchlab-train run configs/train/benchmark-spo36-soccernet.yaml
+name: benchmark-spo36-soccernet
+task: benchmark
+description: >
+  SPO-36 RF-DETR base detection-quality measurement on the soccernet tier.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning, held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: rfdetr-base
+      kind: pipeline
+      config: configs/pipeline.rfdetr-eval.yaml
+      comparison_class: matched_data
+output_dir: data/experiments
