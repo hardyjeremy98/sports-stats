@@ -1,0 +1,34 @@
+# SPO-31 controlled experiment -- BoT-SORT + online body ReID vs its own
+# bbox-only twin, over frozen detections on the sportsmot held-out tier. The two
+# candidates differ ONLY in appearance_weight (0.0 twin vs 0.3), so the delta
+# isolates the marginal value of online appearance. Data-collection run; the
+# SPO-34 gate applies the pre-registered success metric (within-team switch
+# reduction on SoccerNet + total switch/mixed-track reduction). Run:
+#   uv run --with ultralytics pitchlab-train run \
+#     configs/train/benchmark-phase3-spo31-sportsmot.yaml
+name: benchmark-phase3-spo31-sportsmot
+task: benchmark
+description: SPO-31 BoT-SORT+ReID vs bbox-only twin over frozen detections -- sportsmot held-out.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: botsort-reid-bbox
+      kind: pipeline
+      config: configs/pipeline.botsort-reid-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+        stages.track.params.appearance_weight: 0.0
+    - name: botsort-reid-app
+      kind: pipeline
+      config: configs/pipeline.botsort-reid-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+        stages.track.params.appearance_weight: 0.3
+  compare:
+    baseline: botsort-reid-bbox
+output_dir: data/experiments
