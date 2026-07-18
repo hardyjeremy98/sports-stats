@@ -536,6 +536,21 @@ Measured local findings recorded by the repository guidance:
 - Kit-colour association is ineffective for player-level identity.
 - Remaining ID switches are substantially a tracker-level problem that simple post-association
   cannot repair.
+- **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
+  off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
+  directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
+  the hardened BoT-SORT baseline stands as the interim shippable tracker. As-published references
+  (CAMELTrack, full TDLP) run via the import adapter establish the SOTA ceiling: on **identical
+  CAMELTrack multi-cue features** (only the association head differs), full **TDLP's
+  link-prediction head beat CAMELTrack's transformer head on every metric** (SportsMOT held-out,
+  5-seq: purity 0.968 vs 0.941, mixed-track 10.1 vs 18.3 s, HOTA 0.910 vs 0.893), and
+  **appearance+pose is decisive within TDLP** (bbox-only 0.868 → full 0.953 purity; the SPO-32
+  "TDLP over-connects" result was a missing-appearance artifact). SPO-34 selected the **TDLP
+  link-prediction head** as the architecture for the shippable build
+  (`docs/prds/shippable-multi-cue-tracklet-system.md`). All SOTA weights are non-shippable
+  (CC BY-NC SportsMOT training data + research-only ReID); the build retrains on permissive data.
+  Reports: `docs/reports/2026-07-19-{spo34-phase3-exit-gate,tdlp-full-spike}.md`,
+  `docs/reports/2026-07-18-spo3{0,1,2,3,5}-*.md`.
 - **Offline association currently adds GT contamination relative to raw tracklets, on one
   measured sequence.** Run `06a067a478f2` (video SNMOT-116, `configs/datasets/soccernet.json`
   `tuning`-role sequence, config `v1-local-eval`: local YOLO detection (`yolo-local`,
