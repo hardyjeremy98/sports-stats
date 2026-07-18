@@ -319,6 +319,31 @@ def test_row_from_run_completed_row_shape():
     assert "error" not in row
 
 
+def test_row_carries_runtime_and_vram_guardrail_columns():
+    candidate = PipelineCandidate(name="cand-a", config=STUB_CONFIG)
+    seq = ManifestSequence(name="seq-1", role="held_out", video="v.mp4", gt="v.gt.json")
+    manifest = _fake_manifest(StageStatus.COMPLETED, metrics={"n_tracklets": 4})
+
+    row = _row_from_run(
+        candidate, seq, "cand-a-seq-1", manifest, _fake_eval_result(),
+        "runs/cand-a-seq-1/eval.json", runtime_s=1.5, peak_vram_mb=2048.0,
+    )
+    assert row["runtime_s"] == 1.5
+    assert row["peak_vram_mb"] == 2048.0
+
+
+def test_row_runtime_and_vram_default_none():
+    candidate = PipelineCandidate(name="cand-a", config=STUB_CONFIG)
+    seq = ManifestSequence(name="seq-1", role="held_out", video="v.mp4", gt="v.gt.json")
+    manifest = _fake_manifest(StageStatus.COMPLETED, metrics={"n_tracklets": 4})
+
+    row = _row_from_run(
+        candidate, seq, "cand-a-seq-1", manifest, _fake_eval_result(), "e.json"
+    )
+    assert row["runtime_s"] is None
+    assert row["peak_vram_mb"] is None
+
+
 def test_row_from_run_failed_row_has_no_metrics():
     candidate = PipelineCandidate(name="cand-a", config=STUB_CONFIG)
     seq = ManifestSequence(name="seq-1", role="tuning", video="v.mp4", gt="v.gt.json")

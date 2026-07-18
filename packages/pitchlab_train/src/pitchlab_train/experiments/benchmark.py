@@ -247,7 +247,13 @@ class BenchmarkExperiment(Experiment):
                     run_dir=run_dir,
                     device=p.device,
                 )
+                import time
+
+                _peak_reset = _reset_cuda_peak(p.device)
+                _t0 = time.perf_counter()
                 manifest = runner.run()
+                runtime_s = round(time.perf_counter() - _t0, 3)
+                peak_vram_mb = _read_cuda_peak(p.device) if _peak_reset else None
 
                 full_eval: dict | None = None
                 eval_path: str | None = None
@@ -268,7 +274,10 @@ class BenchmarkExperiment(Experiment):
                     eval_file.write_text(json.dumps(full_eval))
                     eval_path = str(eval_file.relative_to(workdir))
 
-                row = _row_from_run(candidate, seq, run_id, manifest, full_eval, eval_path)
+                row = _row_from_run(
+                    candidate, seq, run_id, manifest, full_eval, eval_path,
+                    runtime_s=runtime_s, peak_vram_mb=peak_vram_mb,
+                )
                 rows.append(row)
                 if row["status"] == "failed":
                     failed_rows.append({"run_id": run_id, "error": row["error"]})
@@ -783,6 +792,10 @@ def _row_from_import(
         "metrics": headline_metrics(full_eval),
         "eval_path": eval_path,
         "provenance_summary": _import_provenance_summary(raw_manifest, ext_prov, evaluation_set_hash),
+        # External runs are measured in their own environment, not here; the
+        # keys stay present (None) so native/import rows keep a uniform shape.
+        "runtime_s": None,
+        "peak_vram_mb": None,
     }
 
 
@@ -1050,6 +1063,8 @@ def _row_from_run(
     manifest: RunManifest,
     full_eval: dict | None,
     eval_path: str | None,
+    runtime_s: float | None = None,
+    peak_vram_mb: float | None = None,
 ) -> dict:
     """Build one per-sequence row -- the unit Task 9 aggregates -- from an
     already-produced RunManifest (+ eval result, when scored). Pure: takes
@@ -1071,7 +1086,35 @@ def _row_from_run(
         row["metrics"] = headline_metrics(full_eval)
         row["eval_path"] = eval_path
         row["provenance_summary"] = _provenance_summary(manifest)
+        row["runtime_s"] = runtime_s
+        row["peak_vram_mb"] = peak_vram_mb
     else:
         row["status"] = "failed"
         row["error"] = (manifest.error or "")[:500]
     return row
+
+
+def _reset_cuda_peak(device: str) -> bool:
+    """Reset the CUDA peak-memory counter; return True if a CUDA device is
+    actually in use (so the later read is meaningful)."""
+    if not str(device).startswith("cuda"):
+        return False
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _read_cuda_peak(device: str) -> float | None:
+    """Peak CUDA memory (MB) since the last reset, or None if unavailable."""
+    try:
+        import torch
+
+        return round(torch.cuda.max_memory_allocated() / 1e6, 1)
+    except Exception:
+        return None
