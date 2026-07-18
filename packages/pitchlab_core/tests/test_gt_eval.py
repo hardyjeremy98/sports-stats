@@ -136,7 +136,12 @@ def test_evaluate_run_association_gain(tmp_path):
         "idsw_tracklet", "idsw_entity", "hota_tracklet", "hota_entity",
         "assoc_idf1_gain", "merge_precision",
         "tracklet_purity", "mixed_track_seconds",
+        "crop_yield_per_player",
     }
+    # Crop-yield guardrail (SPO-30): every scored run reports approved crops
+    # per GT player from its output boxes; present and non-negative here.
+    assert result["crop_yield"]["approved_per_gt_player_mean"] >= 0.0
+    assert heads["crop_yield_per_player"] >= 0.0
     # Perfect tracking at both levels (association repairs the one
     # fragmentation, see the switches assertions above) -> HOTA should be at
     # or near 1.0 for both levels; not asserting the exact value here since
