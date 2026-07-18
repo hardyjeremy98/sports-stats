@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 from pydantic import BaseModel
 
 from pitchlab_core.interfaces import Detector, DetectOutput, StageContext
@@ -124,7 +125,11 @@ class RfDetrDetector(Detector):
         total = ctx.video.frame_count / ctx.config.video.sample_stride or 1
 
         for i, frame in enumerate(ctx.frames()):
-            det = self._model.predict(frame.image, threshold=p.confidence)
+            # ctx frames are BGR (cv2 convention); RF-DETR wants a contiguous
+            # RGB array (its predict() rejects the negative strides a bare
+            # `[:, :, ::-1]` view produces).
+            rgb = np.ascontiguousarray(frame.image[:, :, ::-1])
+            det = self._model.predict(rgb, threshold=p.confidence)
             frames_out.append(
                 FrameDetections(
                     frame_idx=frame.frame_idx,
