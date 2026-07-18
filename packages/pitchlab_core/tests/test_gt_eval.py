@@ -1018,3 +1018,43 @@ def test_evaluate_run_detection_malformed_row_raises_loudly(tmp_path):
 
     with pytest.raises(ValueError, match=r"detections\.jsonl:1"):
         evaluate_run(run_dir, gt)
+
+
+def test_offline_association_change_leaves_raw_tracklet_metrics_identical(tmp_path):
+    """SPO-31 harness invariant: an offline-layer (associate stage) change must
+    never move RAW-TRACKLET metrics. The raw-tracklet layer is computed from
+    tracklets.json alone; players.json (the associator's output) feeds only the
+    entity layer. Two different associations over identical tracklets must yield
+    bit-identical tracklet-level metrics — else a harness bug lets an
+    offline-layer change masquerade as a tracking result."""
+    pytest.importorskip("motmetrics")
+    from pitchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 5)]),
+        _tracklet(11, [(f, 100, 100) for f in range(5, 10)]),
+        _tracklet(12, [(f, 500, 200) for f in range(0, 10)]),
+    ]
+    # A merges the two fragments; B keeps every tracklet its own entity.
+    players_a = [
+        {"player_id": 1, "tracklet_ids": [10, 11], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [12], "team": "away"},
+    ]
+    players_b = [
+        {"player_id": 1, "tracklet_ids": [10]},
+        {"player_id": 2, "tracklet_ids": [11]},
+        {"player_id": 3, "tracklet_ids": [12]},
+    ]
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    ra = evaluate_run(_write_run_dir(tmp_path / "a", tracklets, players_a), gt)
+    rb = evaluate_run(_write_run_dir(tmp_path / "b", tracklets, players_b), gt)
+
+    # Raw-tracklet layer: bit-identical across the two associations.
+    assert ra["levels"]["tracklet"] == rb["levels"]["tracklet"]
+    assert ra["purity"]["tracklet"] == rb["purity"]["tracklet"]
+    assert ra["hota"]["tracklet"] == rb["hota"]["tracklet"]
+    assert ra["crop_yield"] == rb["crop_yield"]
+    # Sanity: the two associations genuinely differ, so the entity layer moved.
+    assert ra["levels"]["entity"] != rb["levels"]["entity"]
