@@ -1,0 +1,77 @@
+# PHASE 3 CANDIDATE (SPO-31) -- BoT-SORT + online body ReID over frozen
+# detections. Track params are BYTE-IDENTICAL to the hardened comparator
+# (configs/pipeline.v1-hardened-frozen-eval.yaml); the ONLY differences are the
+# `botsort-reid` impl and its appearance controls. appearance_weight is
+# overridden per candidate (0.0 = the bbox-only twin, 0.3 = appearance on), so
+# the delta isolates the marginal value of online appearance.
+#
+# The OSNet embedder auto-downloads its checkpoint on first use. exchange_dir is
+# overridden per tier. Calibrate needs ultralytics at runtime.
+name: botsort-reid-frozen-eval
+description: >
+  Phase 3 candidate (SPO-31): BoT-SORT + quality-gated online body ReID over
+  frozen reference detections. Controlled twin vs bbox-only (appearance_weight).
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: frozen
+    params:
+      exchange_dir: data/exchange/frozen-detections/soccernet  # overridden per tier
+  track:
+    impl: botsort-reid
+    params:
+      # --- identical to the hardened comparator ---
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+      # --- SPO-31 appearance controls (appearance_weight overridden per candidate) ---
+      embedder: osnet
+      appearance_weight: 0.3
+      max_embed_distance: 0.25
+      min_box_height_px: 60
+      min_crop_confidence: 0.3
+      feat_momentum: 0.9
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
