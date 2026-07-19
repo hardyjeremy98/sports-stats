@@ -87,6 +87,20 @@ def main() -> int:
         help="Split-manifest role to record for newly ingested sequences",
     )
 
+    sb_p = sub.add_parser(
+        "ingest-soccernet-ball",
+        help="Register SoccerNet Ball Action Spotting matches as Lab videos with "
+        "action-event ground truth",
+    )
+    sb_p.add_argument("--root", default="data/soccernet/ball", help="Dataset root")
+    sb_p.add_argument("--split", default="test", choices=["train", "valid", "test", "challenge"])
+    sb_p.add_argument("--limit", type=int, default=None, help="Max matches to ingest")
+    sb_p.add_argument("--sequences", nargs="*", default=None, help="Specific match names")
+    sb_p.add_argument(
+        "--role", default="tuning", choices=["tuning", "held_out"],
+        help="Split-manifest role to record for newly ingested matches",
+    )
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -178,6 +192,21 @@ def main() -> int:
             Path(args.root), limit=args.limit, sequences=args.sequences, role=args.role
         )
         print(f"ingested {len(registered)} sequences")
+        return 0
+
+    if args.command == "ingest-soccernet-ball":
+        from pathlib import Path
+
+        from pitchlab_train.datasets.soccernet_ball import ingest_soccernet_ball
+
+        registered = ingest_soccernet_ball(
+            Path(args.root),
+            split=args.split,
+            limit=args.limit,
+            sequences=args.sequences,
+            role=args.role,
+        )
+        print(f"ingested {len(registered)} matches")
         return 0
 
     config = ExperimentConfig.from_yaml(args.config)
