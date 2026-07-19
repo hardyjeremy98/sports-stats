@@ -1,0 +1,56 @@
+name: baseline-observe-oracle
+description: "Hardened BoT-SORT on ORACLE (GT) detections \u2014 tracker ceiling /\
+  \ detector isolation vs baseline-observe."
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
