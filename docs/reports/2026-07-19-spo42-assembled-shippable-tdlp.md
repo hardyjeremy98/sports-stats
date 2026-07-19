@@ -5,10 +5,13 @@
 — blocker) · **PRD:** [`shippable-multi-cue-tracklet-system.md`](../prds/shippable-multi-cue-tracklet-system.md) ·
 **Date:** 2026-07-19 · **Branch:** `spo-42-assemble-shippable-tdlp` (off main, unpushed, not merged)
 
-**Status: RUNNABLE END-TO-END on arbitrary video. IDsw-focused iteration cut SportsMOT ID
-switches 362 → 75 (−79%) and HOTA 0.50 → 0.69 with a stronger preliminary head + tuned
-thresholds (§4c) — a large part of the cost-of-shippability gap on the association metric that
-matters. Shippable head training still BLOCKED on SPO-39 (§5).**
+**Status: PAUSED (2026-07-19). RUNNABLE END-TO-END on arbitrary video; IDsw-focused iteration
+cut SportsMOT ID switches 362 → 51 and HOTA 0.50 → 0.74 (§4c/§4d). VERDICT: with a preliminary
+(non-shippable) head the assembled TDLP is competitive with — but not a clean win over — the
+hardened BoT-SORT baseline, which remains the DEFAULT tracklet system
+([`implementation-status.md`](../implementation-status.md) callout). The program is bottlenecked
+on permissive ReID-grade appearance + association data (SPO-39, HITL), not on engineering —
+paused pending that decision. Shippable head training BLOCKED on SPO-39 (§5).**
 
 ## 1. What was built
 
