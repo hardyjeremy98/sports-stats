@@ -58,10 +58,13 @@ def run_spotter(
     frames_dir: str | Path | None = None,
     clip_path: str | Path | None = None,
     frame_count: int | None = None,
+    timeout_s: float = 1800.0,
 ) -> list[SpottedEvent]:
     """Write the job manifest, run `command --job <manifest_path>` as a
     subprocess, and return the parsed+validated `out_path` contents on
-    success. Raises `SpottingBridgeError` on any contract violation.
+    success. Raises `SpottingBridgeError` on any contract violation,
+    including the subprocess exceeding `timeout_s` (default 30 minutes — a
+    hung or wedged external spotter must not block the worker indefinitely).
 
     Exactly one of `frames_dir`/`clip_path` must be given, matching the
     contract's job-manifest requirement (checked here rather than deferred
@@ -100,10 +103,15 @@ def run_spotter(
             [*command, "--job", str(manifest_path)],
             capture_output=True,
             text=True,
+            timeout=timeout_s,
         )
     except OSError as exc:
         raise SpottingBridgeError(
             f"failed to launch spotter command {command!r}: {exc}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SpottingBridgeError(
+            f"spotter command {command!r} timed out after {timeout_s}s"
         ) from exc
 
     if result.returncode != 0:

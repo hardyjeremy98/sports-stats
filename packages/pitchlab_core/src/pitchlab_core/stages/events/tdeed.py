@@ -45,6 +45,7 @@ class Params(BaseModel):
     merge_window_s: float = 1.0
     device: str = "cpu"
     frames_ext: str = "jpg"
+    timeout_s: float = 1800.0
 
 
 @register(StageKind.SPOTTING, "tdeed")
@@ -82,6 +83,7 @@ class TDeedSpotter(EventSpotter):
                     device=self.params.device,
                 ),
                 frames_dir=frames_dir,
+                timeout_s=self.params.timeout_s,
             )
             ctx.store.write_json(ArtifactName.SPOTTING, events)
         finally:

@@ -109,6 +109,23 @@ def test_bridge_raises_typed_error_on_stale_out_path_not_rewritten(tmp_path):
         )
 
 
+def test_bridge_raises_typed_error_on_timeout(tmp_path):
+    hanging_command = [sys.executable, "-c", "import time; time.sleep(5)"]
+
+    with pytest.raises(SpottingBridgeError) as exc_info:
+        run_spotter(
+            hanging_command,
+            manifest_path=tmp_path / "job.json",
+            out_path=tmp_path / "out.json",
+            fps=25.0,
+            params=_PARAMS,
+            frames_dir=_make_frames_dir(tmp_path, [0, 1, 2]),
+            timeout_s=0.5,
+        )
+
+    assert "timed out" in str(exc_info.value)
+
+
 def test_bridge_rejects_both_frames_dir_and_clip_path(tmp_path):
     with pytest.raises(ValueError):
         run_spotter(

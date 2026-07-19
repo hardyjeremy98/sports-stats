@@ -118,7 +118,11 @@ def _evaluate_against_gt(db, run: Run) -> None:
         return
     if result is not None:
         run.metrics = merged_metrics(run, result)
-        print(f"[worker {WORKER_ID}] gt eval: idf1_entity={run.metrics.get('idf1_entity')}", flush=True)
+        if result.get("kind") == "action_spotting":
+            metric = run.metrics.get("spotting_map_at_1")
+            print(f"[worker {WORKER_ID}] gt eval: spotting_map_at_1={metric}", flush=True)
+        else:
+            print(f"[worker {WORKER_ID}] gt eval: idf1_entity={run.metrics.get('idf1_entity')}", flush=True)
 
 
 def _import_qa_items(db, run: Run) -> None:
