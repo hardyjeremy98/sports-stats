@@ -94,6 +94,33 @@ SoccerNet — it does **not** reach parity, and mixed-track / HOTA / IDsw are mu
 tracklets). Detection recall/AP ~0.99 (SportsMOT) confirms the gap is the **head + appearance
 cue**, not detection. This is an honest cost-of-shippability *lower bound*, not a parity claim.
 
+### 4b. IDsw-focused iteration (Jeremy: ID switches matter more than purity)
+
+Reprioritized to minimize **ID switches / maximize association completeness** (see
+[[idsw-over-purity]]). Built a fast tuning loop: `tdlp_head_eval.py extract-holdout` caches
+DINOv2 features over the held-out frozen detections **once**, then `sweep` runs only the cheap
+association loop + `evaluate_run` at many settings (no re-embedding), ranked by IDsw.
+
+**Round 1 — threshold sweep on the preliminary head (SportsMOT, 6 held-out seq):**
+
+| config | IDsw ↓ | HOTA ↑ | IDF1 ↑ | purity | note |
+| --- | ---: | ---: | ---: | ---: | --- |
+| sim 0.5 / newtrk 0.5 / rem 20 (≈ original) | 300 | 0.521 | 0.465 | 0.834 | over-gated |
+| **sim 0.95 / newtrk 0.9 / rem 20** | **190** | **0.586** | **0.563** | 0.758 | best IDsw |
+
+Tuning alone cut IDsw **~37%** (300→190; and ~48% vs the original full-run 362) and lifted HOTA
++0.065 / IDF1 +0.10, trading purity down (0.83→0.76) — the right trade under the new priority.
+IDsw improved **monotonically as `sim_threshold`→1**, i.e. the head is *under-confident* (its
+match logits rarely clear a strict gate) — a symptom of an **under-powered head** (128-d / 2
+layers vs the reference's ~256-d / 6 layers), not just a threshold artifact. Still far from the
+reference (~5 IDsw).
+
+**Round 2 — stronger head + IDsw-targeted training (in progress):** retrain at reference-scale
+capacity (256-d / 4 layers / 8 heads, 5.8M params) with **gap augmentation** (`max_gap`: end the
+observed window several frames before the current detection → train re-association of a track
+last seen N frames ago, the exact lost-tracklet-respawn case) + `history_dropout`, `remember`
+30, 25 epochs — then re-sweep sim∈{0.9,0.95,0.99}×remember∈{20,30,40}. Results in §4c.
+
 **Likely causes & next levers** (in rough priority): (1) **untuned association thresholds** —
 `sim_threshold`/`new_tracklet_detection_threshold` vs the head's logit scale (the high IDsw
 smells partly like over-gating → constant respawn; a threshold/`appearance_weight`-style sweep
