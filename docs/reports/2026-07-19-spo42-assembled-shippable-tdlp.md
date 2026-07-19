@@ -184,16 +184,24 @@ crutch.
 | **+ gate (base 0.04)** | **51.5** | **0.731** | 0.734 | 0.906 |
 | + gate (per-frame 0.03) | 52.8 | **0.744** | 0.746 | 0.915 |
 
-**Full trajectory: SportsMOT IDsw 362 → 190 → 79 → 51.5 (−86%); HOTA 0.50 → 0.74; purity →
-0.91.** Now approaching the BoT-SORT baseline (31). The residual gap to BoT-SORT is the
-difference between a fixed distance-ball gate and a real Kalman velocity predictor + CMC; the
-gap to the reference (~5) is head quality (ReID appearance + pose + capacity + real data).
+Best gate (`base=0.04`, `per_frame=0`, a tight fixed radius) won on **both** tiers — gap-scaling
+loosened the gate and hurt. Both-tier summary vs the baseline:
 
-**Honest standing:** the shippable TDLP is a **runnable, licensing-clean tracker with a clear,
-measured improvement path**, but with the preliminary (non-shippable) head it does **not yet
-beat the existing BoT-SORT baseline** — which remains the interim shippable tracker. Closing
-the last gap needs the pose cue, a Kalman/velocity motion model (or a stronger head so the gate
-isn't load-bearing), and permissive training data (SPO-39).
+| tier | v3 no-gate IDsw | **v3 + gate IDsw** | BoT-SORT IDsw | v3+gate purity | BoT-SORT purity |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SportsMOT | 79 | **51.5** | 31 | 0.906 | 0.945 |
+| SoccerNet | 220 | **71.7** | 144 | **0.964** | 0.926 |
+
+**Full trajectory: SportsMOT IDsw 362 → 190 → 79 → 51.5 (−86%); HOTA 0.50 → 0.74.**
+
+**Honest standing:** with the motion gate the preliminary TDLP is now **competitive with the
+BoT-SORT baseline** — on SoccerNet it **beats** it (IDsw 72 vs 144, purity 0.96 vs 0.93); on
+SportsMOT it is close (IDsw 51 vs 31) and still trails on HOTA. This is a runnable,
+licensing-clean tracker with a large, measured improvement and a clear remaining path. It is
+not yet a clear win over the baseline on every tier/metric, and the head is still
+non-shippable (NC data). Closing the rest needs: the pose cue (omitted for CPU speed), a
+Kalman/velocity motion model or CMC (vs the current fixed distance ball), and permissive
+training data (SPO-39). Reference TDLP (~5 IDsw) needs the full SOTA head quality.
 
 **Likely causes & next levers** (superseded by §4c/§4d above; original analysis): (1) **untuned association thresholds** —
 `sim_threshold`/`new_tracklet_detection_threshold` vs the head's logit scale (the high IDsw

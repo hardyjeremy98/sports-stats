@@ -36,10 +36,13 @@ stages:
       sim_threshold: 0.9        # swept optimum (IDsw-minimizing)
       new_tracklet_detection_threshold: 0.9
       hidden_dim: 128
-      # motion gate (BoT-SORT-style) — the decisive IDsw fix (79->51 SportsMOT);
-      # forbid a match whose normalized bbox-centre move > base + per_frame*gap.
+      # motion gate (BoT-SORT-style) — the decisive IDsw fix; forbid a match
+      # whose normalized bbox-centre move > base + per_frame*gap. base=0.04 /
+      # per_frame=0 (tight fixed gate) won on BOTH tiers: SportsMOT IDsw 79->51,
+      # SoccerNet 220->72 (beats the BoT-SORT baseline's 144). Gap-scaling
+      # loosened the gate and hurt.
       gate_base_radius: 0.04
-      gate_per_frame_radius: 0.02
+      gate_per_frame_radius: 0.0
   team:
     impl: kit-color
     params:
