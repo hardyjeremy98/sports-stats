@@ -150,6 +150,7 @@ export default function LabRunViewer() {
             <TimelineStrip
               timeline={artifacts.timeline}
               events={artifacts.events}
+              spotting={artifacts.spotting}
               duration={duration}
               signal={signal}
               onSeek={seek}

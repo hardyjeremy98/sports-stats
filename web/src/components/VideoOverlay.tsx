@@ -15,6 +15,7 @@ export interface LayerState {
   identity: boolean;
   keypoints: boolean;
   events: boolean;
+  spotting: boolean;
   gt: boolean;
 }
 
@@ -26,6 +27,7 @@ export const DEFAULT_LAYERS: LayerState = {
   identity: true,
   keypoints: false,
   events: true,
+  spotting: true,
   gt: true,
 };
 
@@ -41,6 +43,7 @@ const LAYER_DEFS: {
   { id: "identity", label: "Identity", needs: (a) => !!a.tracklets && !!a.players },
   { id: "keypoints", label: "Pitch keypoints", needs: (a) => !!a.calibration },
   { id: "events", label: "Events", needs: (a) => !!a.events },
+  { id: "spotting", label: "Spotting", needs: (a) => !!a.spotting?.length },
   { id: "gt", label: "Ground truth", needs: (_a, gt) => !!gt },
 ];
 
@@ -92,6 +95,10 @@ export const VideoOverlay = forwardRef<
   const eventsSorted = useMemo(
     () => (artifacts.events ? [...artifacts.events].sort((a, b) => a.t - b.t) : null),
     [artifacts.events],
+  );
+  const spottingSorted = useMemo(
+    () => (artifacts.spotting ? [...artifacts.spotting].sort((a, b) => a.t - b.t) : null),
+    [artifacts.spotting],
   );
 
   useEffect(() => {
@@ -247,6 +254,24 @@ export const VideoOverlay = forwardRef<
           ctx.font = `${Math.round(11 * px)}px ui-monospace, monospace`;
         });
       }
+
+      if (layers.spotting && spottingSorted) {
+        // Mirrors the events caption stack, but anchored to the right edge so
+        // both layers can be on at once without overlapping.
+        const recent = spottingSorted.filter((e) => e.t <= t && t - e.t < 1.2);
+        recent.slice(-3).forEach((e, i) => {
+          const text = `${e.class.toUpperCase()} — ${(e.confidence * 100).toFixed(0)}%`;
+          ctx.font = `bold ${Math.round(13 * px)}px ui-monospace, monospace`;
+          const tw = ctx.measureText(text).width;
+          const y = (14 + i * 24) * px;
+          const x = canvas.width - tw - 22 * px;
+          ctx.fillStyle = "rgba(11,15,13,0.8)";
+          ctx.fillRect(x, y, tw + 12 * px, 20 * px);
+          ctx.fillStyle = "#2C91FF";
+          ctx.fillText(text, x + 6 * px, y + 14 * px);
+          ctx.font = `${Math.round(11 * px)}px ui-monospace, monospace`;
+        });
+      }
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -256,6 +281,7 @@ export const VideoOverlay = forwardRef<
     gt,
     fps,
     eventsSorted,
+    spottingSorted,
     highlightTrackletId,
     highlightTrackletIds,
     highlightPlayerId,
