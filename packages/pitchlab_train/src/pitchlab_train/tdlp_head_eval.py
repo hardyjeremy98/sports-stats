@@ -115,7 +115,13 @@ def sweep(cache_dir, manifest_path, checkpoint, out_dir, *, device="cuda",
     appearance_dim = cfg_d["appearance_dim"]
     modality = ModalityConfig(use_keypoints=False, use_appearance=True,
                               appearance_dim=appearance_dim)
-    model = build_head(modality, hidden_dim=cfg_d["hidden_dim"], mm_dim=cfg_d["hidden_dim"])
+    model = build_head(
+        modality, hidden_dim=cfg_d["hidden_dim"], mm_dim=cfg_d["hidden_dim"],
+        track_encoder_n_heads=cfg_d.get("n_heads", 4),
+        track_encoder_n_layers=cfg_d.get("n_layers", 2),
+        track_encoder_ffn_dim=cfg_d.get("ffn_dim", 256),
+        sph_hidden_dim=cfg_d["hidden_dim"],
+    )
     model.load_state_dict(payload["model"])
     model.to(device).eval()
     specs = feature_specs(modality)
@@ -205,8 +211,17 @@ def _cmd_extract(args):
 
 
 def _cmd_sweep(args):
+    grid = None
+    if args.sim_thresholds or args.remembers or args.new_track_thresholds or args.min_lengths:
+        grid = {
+            "sim_threshold": [float(x) for x in (args.sim_thresholds or "0.5,0.7,0.85,0.95").split(",")],
+            "remember_threshold": [int(x) for x in (args.remembers or "20").split(",")],
+            "new_tracklet_detection_threshold": [
+                float(x) for x in (args.new_track_thresholds or "0.5,0.9").split(",")],
+            "min_length": [int(x) for x in (args.min_lengths or "5").split(",")],
+        }
     sweep(args.cache_dir, args.tier_manifest, args.checkpoint, args.out_dir,
-          device=args.device, iou_threshold=args.iou_threshold, max_seqs=args.max_seqs)
+          device=args.device, iou_threshold=args.iou_threshold, max_seqs=args.max_seqs, grid=grid)
 
 
 def main():
@@ -228,6 +243,10 @@ def main():
     sw.add_argument("--device", default="cuda")
     sw.add_argument("--iou-threshold", type=float, default=0.5)
     sw.add_argument("--max-seqs", type=int, default=None)
+    sw.add_argument("--sim-thresholds", default="", help="comma list, e.g. 0.9,0.95,0.99")
+    sw.add_argument("--remembers", default="", help="comma list, e.g. 20,30,40")
+    sw.add_argument("--new-track-thresholds", default="", help="comma list, e.g. 0.5,0.9")
+    sw.add_argument("--min-lengths", default="", help="comma list, e.g. 5")
     sw.set_defaults(func=_cmd_sweep)
 
     args = ap.parse_args()

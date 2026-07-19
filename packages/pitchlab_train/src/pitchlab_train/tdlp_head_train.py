@@ -222,6 +222,9 @@ def train(
     remember: int = 20,
     lr: float = 3e-4,
     hidden_dim: int = 128,
+    n_layers: int = 2,
+    n_heads: int = 4,
+    ffn_dim: int = 256,
     seed: int = 0,
     max_gap: int = 0,
     history_dropout: float = 0.0,
@@ -241,7 +244,11 @@ def train(
         raise RuntimeError("no usable sequences in state_paths")
 
     cfg = ModalityConfig(use_keypoints=False, use_appearance=True, appearance_dim=appearance_dim)
-    model = build_head(cfg, hidden_dim=hidden_dim, mm_dim=hidden_dim).to(device)
+    model = build_head(
+        cfg, hidden_dim=hidden_dim, mm_dim=hidden_dim,
+        track_encoder_n_heads=n_heads, track_encoder_n_layers=n_layers,
+        track_encoder_ffn_dim=ffn_dim, sph_hidden_dim=hidden_dim,
+    ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     bce = nn.BCEWithLogitsLoss(reduction="none")
 
@@ -290,6 +297,9 @@ def train(
             "use_appearance": True,
             "appearance_dim": appearance_dim,
             "hidden_dim": hidden_dim,
+            "n_layers": n_layers,
+            "n_heads": n_heads,
+            "ffn_dim": ffn_dim,
             "remember": remember,
             "max_gap": max_gap,
             "history_dropout": history_dropout,
@@ -335,7 +345,8 @@ def _cmd_train(args):
     cfg = train(
         paths, args.out_ckpt, device=args.device, epochs=args.epochs,
         clips_per_epoch=args.clips_per_epoch, remember=args.remember,
-        hidden_dim=args.hidden_dim, seed=args.seed,
+        hidden_dim=args.hidden_dim, n_layers=args.n_layers, n_heads=args.n_heads,
+        ffn_dim=args.ffn_dim, seed=args.seed,
         max_gap=args.max_gap, history_dropout=args.history_dropout,
         meta={"states_dir": args.states_dir, "sequences": [Path(p).stem for p in paths],
               "note": "PRELIMINARY non-shippable: trained on NC eval-tier tuning data"},
@@ -366,6 +377,9 @@ def main():
     tr.add_argument("--clips-per-epoch", type=int, default=2000)
     tr.add_argument("--remember", type=int, default=20)
     tr.add_argument("--hidden-dim", type=int, default=128)
+    tr.add_argument("--n-layers", type=int, default=2)
+    tr.add_argument("--n-heads", type=int, default=4)
+    tr.add_argument("--ffn-dim", type=int, default=256)
     tr.add_argument("--seed", type=int, default=0)
     tr.add_argument("--max-gap", type=int, default=0,
                     help="train re-linking across gaps of up to N sampled frames (cuts IDsw)")

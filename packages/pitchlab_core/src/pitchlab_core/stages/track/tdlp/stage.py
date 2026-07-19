@@ -89,17 +89,30 @@ class TdlpShippableTracker(Tracker):
             self._pose = RTMPoseEstimator(**kwargs)
             self._pose.prepare(ctx.device)
 
-        self._model = build_head(
-            self._modality,
-            hidden_dim=p.hidden_dim,
-            mm_dim=p.mm_dim,
+        # Head hyperparameters: a checkpoint's own recorded config wins (so a
+        # checkpoint trained with a different capacity loads without a config
+        # mismatch); otherwise fall back to the stage Params.
+        hp = dict(
+            hidden_dim=p.hidden_dim, mm_dim=p.mm_dim,
             track_encoder_n_heads=p.track_encoder_n_heads,
             track_encoder_n_layers=p.track_encoder_n_layers,
             track_encoder_ffn_dim=p.track_encoder_ffn_dim,
         )
+        ckpt_payload = None
         if p.checkpoint:
-            state = torch.load(p.checkpoint, map_location=ctx.device)
-            state = state.get("model", state) if isinstance(state, dict) else state
+            ckpt_payload = torch.load(p.checkpoint, map_location=ctx.device)
+            cfg_d = ckpt_payload.get("config", {}) if isinstance(ckpt_payload, dict) else {}
+            if cfg_d:
+                hp.update(
+                    hidden_dim=cfg_d.get("hidden_dim", hp["hidden_dim"]),
+                    mm_dim=cfg_d.get("hidden_dim", hp["mm_dim"]),
+                    track_encoder_n_heads=cfg_d.get("n_heads", hp["track_encoder_n_heads"]),
+                    track_encoder_n_layers=cfg_d.get("n_layers", hp["track_encoder_n_layers"]),
+                    track_encoder_ffn_dim=cfg_d.get("ffn_dim", hp["track_encoder_ffn_dim"]),
+                )
+        self._model = build_head(self._modality, sph_hidden_dim=hp["hidden_dim"], **hp)
+        if p.checkpoint:
+            state = ckpt_payload.get("model", ckpt_payload) if isinstance(ckpt_payload, dict) else ckpt_payload
             self._model.load_state_dict(state)
             logger.info("tdlp-shippable: loaded head checkpoint %s", p.checkpoint)
         else:

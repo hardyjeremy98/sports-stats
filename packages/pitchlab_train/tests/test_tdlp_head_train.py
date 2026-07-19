@@ -95,6 +95,6 @@ def test_training_drives_loss_down_and_checkpoint_loads(tmp_path):
 
     model = build_head(
         ModalityConfig(use_keypoints=False, use_appearance=True, appearance_dim=APP_DIM),
-        hidden_dim=32, mm_dim=32,
+        hidden_dim=32, mm_dim=32, sph_hidden_dim=32,
     )
     model.load_state_dict(payload["model"])

@@ -56,7 +56,7 @@ def _write_synthetic_case(tmp_path):
 
     # tiny random head checkpoint matching the cache's appearance dim
     modality = ModalityConfig(use_keypoints=False, use_appearance=True, appearance_dim=APP_DIM)
-    model = build_head(modality, hidden_dim=16, mm_dim=16)
+    model = build_head(modality, hidden_dim=16, mm_dim=16, sph_hidden_dim=16)
     ckpt = tmp_path / "head.pt"
     torch.save({"model": model.state_dict(),
                 "config": {"use_keypoints": False, "use_appearance": True,
