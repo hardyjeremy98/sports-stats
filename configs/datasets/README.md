@@ -6,6 +6,31 @@ those tiers are ingested). A later provenance-recording task hashes this file as
 identity of "which sequences an evaluation run used" — content must therefore be
 deterministic and every path in it must be verified to exist before commit.
 
+## `soccernet-ball` — action-spotting tier (different shape, read this first)
+
+`soccernet-ball.json` (SPO-47) covers **SoccerNet Ball Action Spotting**, a different task
+from every other tier in this directory: those score box/track ground truth (IDF1/HOTA/purity
+etc. via `pitchlab_core.gt.GroundTruth`); this one scores timed events
+(`pitchlab_core.event_gt.EventGroundTruth`) with the field-standard **avg-mAP@1** metric
+(`pitchlab_core/action_spotting_eval.py`) — tolerance-window matching around each event's true
+time, not spatial overlap. Ingested via `pitchlab-train ingest-soccernet-ball` (mirrors
+`ingest-sportsmot`/`ingest-soccertrack`'s register-as-Lab-video pattern, but writes event GT
+instead of box GT). Same `sequences`/`role`/determinism rules below apply once matches are
+actually ingested; the manifest currently ships with an empty `sequences: []` because data
+acquisition is out-of-band (see next paragraph) and nothing has been downloaded yet.
+
+**Evaluation benchmark only, non-commercial, out-of-band acquisition.** Like `sportsmot.json`,
+this tier trains nothing shippable and is never redistributed with the product (CLAUDE.md →
+Licensing boundaries carries the one-liner). Unlike SportsMOT, the non-commercial reading here
+is an *inference*, not a directly-confirmed term for ball-action data specifically — see the
+caveat recorded in `docs/implementation-status.md` and get a human licensing sign-off before
+any use beyond internal benchmarking. The raw videos and `Labels-ball.json` files are **not**
+fetched by any command in this repo — obtain them per SoccerNet's own access process and place
+them under `data/soccernet/ball/<split>/<match>/` before running `ingest-soccernet-ball`.
+**Open, unverified concern:** the ingest adapter assumes one video per match; the real release
+is understood to ship two half-videos per match sharing one `Labels-ball.json` — verify against
+an actual download before relying on this tier at scale (see the adapter's module docstring).
+
 ## Format
 
 ```json

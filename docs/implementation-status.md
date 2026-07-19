@@ -1,7 +1,7 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-17  
+**Last verified:** 2026-07-19  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
@@ -46,7 +46,7 @@ project in Linear.
 | Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `pitchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `pitchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
-| Learned action spotting | Stub | Registered no-op implementation | `stages/events/spotting_stub.py` |
+| Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained non-commercial weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) and is **reference/internal only, never shipped** — mirrors the `ultralytics`/`external-trackers/` posture. A permissive in-repo reference CLI (`pitchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
 
 Paths in this table are relative to `packages/pitchlab_core/src/pitchlab_core/` unless otherwise
 stated.
@@ -325,6 +325,32 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   distribution is also CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the
   gate was not clicked through — **commercial use needs an explicit recorded licensing sign-off,
   which is still open** (raised at SPO-16, deferred to the owner of product licensing risk).
+- Action-spotting scoring (SPO-47/49): a timestamped-event ground-truth representation
+  (`EventGroundTruth`, `pitchlab_core/event_gt.py`) distinct from the box/track
+  `GroundTruth` used everywhere else, an `ingest-soccernet-ball` CLI that registers SoccerNet
+  Ball Action Spotting matches as Lab videos with event GT, and a `soccernet-ball` eval tier
+  manifest (`configs/datasets/soccernet-ball.json`). Scored by a dedicated avg-mAP@1 metric
+  (tolerance-window matching, per-class AP, mean; `pitchlab_core/action_spotting_eval.py`),
+  wired into `eval.json` (its own action-spotting result shape, not the MOT suite),
+  `runs.metrics` (`spotting_map_at_1`), and `GET /api/benchmark`'s metric keys — the server's
+  GT auto-scoring hook (`pitchlab_server/evaluation.py::evaluate_run_against_gt`) picks this
+  path automatically whenever a run's video GT is event-shaped
+  (`event_gt.is_event_ground_truth`), the same way it already auto-picks the MOT path for
+  track GT. **No benchmark number has been measured yet.** Running the real T-DEED weights
+  against SoccerNet Ball Action Spotting (the GPU pass that would produce a real `avg-mAP@1`)
+  is a pending human-gated step (SPO-50) — nothing in this repo invents or estimates that
+  number. Two open caveats, unverified against real downloaded data:
+  - The `ingest-soccernet-ball` adapter assumes **one video per match**; the real dataset
+    release is understood to package each match as **two half-video files** sharing one
+    `Labels-ball.json` — unverified since no real copy has been downloaded to check against
+    (see the adapter's module docstring and `configs/datasets/soccernet-ball.json`'s notes).
+    The adapter will need extending before a real ingest if this holds.
+  - The `soccernet-ball` tier's non-commercial/eval-only licensing note is an **inference**,
+    not a confirmed reading of SoccerNet's ball-action-specific terms — CLAUDE.md's existing
+    licensing-boundaries section classifies SportsMOT and SoccerNet-tracking, not ball-action
+    data specifically. Treat it as provisional and get an explicit human licensing sign-off
+    before any use beyond internal benchmarking (mirrors the still-open SportsMOT sign-off
+    above).
 
 Primary locations:
 
@@ -338,6 +364,10 @@ Primary locations:
 - `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
 - `packages/pitchlab_server/src/pitchlab_server/api/benchmark.py`
 - `configs/datasets/soccernet.json`
+- `packages/pitchlab_core/src/pitchlab_core/event_gt.py`
+- `packages/pitchlab_core/src/pitchlab_core/action_spotting_eval.py`
+- `packages/pitchlab_train/src/pitchlab_train/datasets/soccernet_ball.py`
+- `configs/datasets/soccernet-ball.json`
 
 ### Not implemented
 
@@ -654,6 +684,13 @@ report, run set, dataset split, and code/model revision.
 3. Add identity-label comparison against GT jersey/roster records, and abstention/coverage
    curves (currently only single-run snapshot numbers exist, not trends across frames or a
    run set).
+4. Run the pending SPO-50 human-gated benchmark pass (real T-DEED weights, GPU, the
+   `external-spotters/` env) to get the first measured `avg-mAP@1` number, then design and
+   scope the follow-up **shippable clean-room T-DEED-equivalent spotter** — a permissively
+   licensed, permissively trained retrain of the ball-action-spotting capability, the same
+   reference→shippable sequence the tracklet program followed (SPO-32/35 → the shippable
+   multi-cue tracklet system, `docs/prds/shippable-multi-cue-tracklet-system.md`) — per the
+   Out of Scope section of `docs/prds/reference-action-spotting-tdeed.md`.
 
 ## Maintenance checklist
 
