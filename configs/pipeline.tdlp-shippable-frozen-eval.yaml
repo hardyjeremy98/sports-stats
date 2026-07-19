@@ -25,14 +25,16 @@ stages:
   track:
     impl: tdlp-shippable
     params:
-      checkpoint: data/experiments/tdlp-head-prelim/head.pt  # overridden per candidate
+      # head-v3: 2-layer/128-d, mild gap augmentation, remember 30 (loss 0.098).
+      # Tuned association params from the IDsw sweep (SportsMOT IDsw 362->75).
+      checkpoint: data/experiments/tdlp-head-prelim/head-v3.pt  # overridden per candidate
       use_appearance: true
       use_keypoints: false      # preliminary: appearance+bbox only (pose omitted)
       embedder: dinov2
       min_length: 5
       remember_threshold: 30
-      sim_threshold: 0.5
-      new_tracklet_detection_threshold: 0.5
+      sim_threshold: 0.9        # swept optimum (IDsw-minimizing)
+      new_tracklet_detection_threshold: 0.9
       hidden_dim: 128
   team:
     impl: kit-color

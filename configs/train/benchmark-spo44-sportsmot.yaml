@@ -22,5 +22,5 @@ params:
       comparison_class: matched_data
       overrides:
         stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
-        stages.track.params.checkpoint: data/experiments/tdlp-head-prelim/head.pt
+        stages.track.params.checkpoint: data/experiments/tdlp-head-prelim/head-v3.pt
 output_dir: data/experiments

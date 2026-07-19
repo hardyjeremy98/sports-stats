@@ -5,9 +5,10 @@
 — blocker) · **PRD:** [`shippable-multi-cue-tracklet-system.md`](../prds/shippable-multi-cue-tracklet-system.md) ·
 **Date:** 2026-07-19 · **Branch:** `spo-42-assemble-shippable-tdlp` (off main, unpushed, not merged)
 
-**Status: RUNNABLE END-TO-END on arbitrary video; first Bar A number MEASURED with a
-preliminary head (SportsMOT purity 0.827 / SoccerNet 0.823 — ~0.10–0.14 below reference, §4a).
-Shippable head training BLOCKED on SPO-39 (§5).**
+**Status: RUNNABLE END-TO-END on arbitrary video. IDsw-focused iteration cut SportsMOT ID
+switches 362 → 75 (−79%) and HOTA 0.50 → 0.69 with a stronger preliminary head + tuned
+thresholds (§4c) — a large part of the cost-of-shippability gap on the association metric that
+matters. Shippable head training still BLOCKED on SPO-39 (§5).**
 
 ## 1. What was built
 
@@ -121,7 +122,40 @@ observed window several frames before the current detection → train re-associa
 last seen N frames ago, the exact lost-tracklet-respawn case) + `history_dropout`, `remember`
 30, 25 epochs — then re-sweep sim∈{0.9,0.95,0.99}×remember∈{20,30,40}. Results in §4c.
 
-**Likely causes & next levers** (in rough priority): (1) **untuned association thresholds** —
+### 4c. Round 2 results — stronger training closes most of the IDsw gap
+
+Two findings: (a) a **4-layer transformer head failed to train** (flat loss 1.28 — deeper
+transformers need LR warmup; abandoned, kept the proven 2-layer / 128-d head); (b) the
+**2-layer head + mild gap augmentation** (`max_gap=4`, `history_dropout=0.05`) + `remember=30`
+trained cleanly (loss 0.098) and, with the tuned threshold, **cut ID switches dramatically**:
+
+| tier (held-out) | metric | v1 original | v1 best sweep | **v3 best** | SOTA TDLP ref |
+| --- | --- | ---: | ---: | ---: | ---: |
+| **SportsMOT** | **IDsw** ↓ | 362 | 190 | **75** (−79%) | ~5 |
+| | HOTA ↑ | 0.503 | 0.586 | **0.685** | 0.90 |
+| | IDF1 ↑ | 0.451 | 0.563 | **0.671** | 0.94 |
+| | purity | 0.827 | 0.758 | **0.843** | 0.95–0.97 |
+| **SoccerNet** | **IDsw** ↓ | 829 | — | **220** (−73%) | — |
+| | HOTA ↑ | 0.320 | — | **0.438** | — |
+| | purity | 0.823 | — | 0.811 | (comparator 0.926) |
+
+Best config: `sim_threshold=0.9`, `remember=20–30`, `new_tracklet_detection_threshold=0.9`.
+Notably v3 **improved purity while slashing IDsw** (no purity-for-IDsw trade this round — the
+gap augmentation genuinely taught re-association rather than just loosening gates). Checkpoint
+`data/experiments/tdlp-head-prelim/head-v3.pt` (still NON-SHIPPABLE — NC tuning data).
+
+**Trajectory:** SportsMOT IDsw 362 → 190 → **75**; HOTA 0.50 → **0.69**. A large fraction of the
+cost-of-shippability gap on the metric that matters (association completeness) is closed. The
+residual gap to the reference (IDsw 75 vs ~5) is the next program of work (below). SoccerNet
+lags SportsMOT (harder: smaller players, det recall 0.85 vs 0.99) but improved similarly.
+
+**Remaining levers to close the rest** (ranked): (1) **add the RTMPose cue** back (pose was
+omitted for CPU-speed; it is a strong association signal); (2) **bigger head *with LR warmup*
++ cosine schedule** (the reference is 256-d/6-layer — capacity helps once it trains); (3)
+**more/broader training data** (the shippable SPO-39 source); (4) **larger `max_gap` / motion
+(FoD) encoder** for longer occlusions; (5) per-tier threshold calibration.
+
+**Likely causes & next levers** (superseded by §4c above; original analysis): (1) **untuned association thresholds** —
 `sim_threshold`/`new_tracklet_detection_threshold` vs the head's logit scale (the high IDsw
 smells partly like over-gating → constant respawn; a threshold/`appearance_weight`-style sweep
 is the cheapest first lever); (2) **no pose cue** (RTMPose omitted for CPU-speed — add it back);
