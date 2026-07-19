@@ -174,6 +174,8 @@ class TDLPTracker:
         sim_threshold: float = 0.5,
         initialization_threshold: int = 1,
         new_tracklet_detection_threshold: float = 0.9,
+        gate_base_radius: float = 0.0,
+        gate_per_frame_radius: float = 0.0,
     ) -> None:
         self._model = model
         self._specs = feature_specs
@@ -183,7 +185,38 @@ class TDLPTracker:
         self._sim_threshold = sim_threshold
         self._initialization_threshold = initialization_threshold
         self._new_tracklet_detection_threshold = new_tracklet_detection_threshold
+        # Motion gate (BoT-SORT-style): forbid a track->detection match whose
+        # normalized bbox-centre move exceeds base + per_frame*gap. gap = frames
+        # since the track was last seen, so a longer-lost track may move further.
+        # 0/0 disables it (pure learned-head association).
+        self._gate_base_radius = gate_base_radius
+        self._gate_per_frame_radius = gate_per_frame_radius
         self._next_id = 0
+
+    @staticmethod
+    def _center(bbox: list[float]) -> tuple[float, float]:
+        # bbox = [x, y, w, h, conf] normalized -> centre (normalized)
+        return (bbox[0] + bbox[2] / 2.0, bbox[1] + bbox[3] / 2.0)
+
+    def _motion_gate(
+        self, tracklets: list[_Tracklet], objects_data: list[ObjectData], frame_index: int
+    ) -> np.ndarray:
+        """Boolean (n_tracks, n_dets) mask of motion-plausible pairs. All True
+        when the gate is disabled."""
+        nt, nd = len(tracklets), len(objects_data)
+        allowed = np.ones((nt, nd), dtype=bool)
+        if self._gate_base_radius <= 0 and self._gate_per_frame_radius <= 0:
+            return allowed
+        det_centers = [self._center(d["bbox"]) for d in objects_data]
+        for i, tk in enumerate(tracklets):
+            last = tk.history[-1]
+            tc = self._center(last.data["bbox"])
+            gap = max(1, frame_index - last.frame_index)
+            radius = self._gate_base_radius + self._gate_per_frame_radius * gap
+            for j, (dx, dy) in enumerate(det_centers):
+                if ((tc[0] - dx) ** 2 + (tc[1] - dy) ** 2) ** 0.5 > radius:
+                    allowed[i, j] = False
+        return allowed
 
     # -- tensor assembly -------------------------------------------------
     def _convert(
@@ -246,6 +279,10 @@ class TDLPTracker:
             matches, unmatched_tracks, unmatched_dets = [], [], list(range(len(objects_data)))
         else:
             cost = self._cost_matrix(tracklets, objects_data, frame_index)
+            # Motion gate: forbid physically-implausible matches (cost -> inf so
+            # they can never be assigned), the crutch a weak learned head needs.
+            allowed = self._motion_gate(tracklets, objects_data, frame_index)
+            cost = np.where(allowed, cost, 1e6)
             matches, unmatched_tracks, unmatched_dets = _hungarian_match(
                 cost, self._sim_threshold
             )

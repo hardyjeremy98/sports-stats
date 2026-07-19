@@ -50,6 +50,9 @@ class Params(BaseModel):
     initialization_threshold: int = 1
     new_tracklet_detection_threshold: float = 0.9
     min_length: int = 3
+    # motion gate (normalized bbox-centre): forbid implausible matches
+    gate_base_radius: float = 0.0
+    gate_per_frame_radius: float = 0.0
     # head hyperparameters (must match a loaded checkpoint's training config)
     hidden_dim: int = 128
     mm_dim: int = 128
@@ -200,6 +203,8 @@ class TdlpShippableTracker(Tracker):
             sim_threshold=p.sim_threshold,
             initialization_threshold=p.initialization_threshold,
             new_tracklet_detection_threshold=p.new_tracklet_detection_threshold,
+            gate_base_radius=p.gate_base_radius,
+            gate_per_frame_radius=p.gate_per_frame_radius,
         )
         return tracker.track_clip(frames, min_length=p.min_length)
 

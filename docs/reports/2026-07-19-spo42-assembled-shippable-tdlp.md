@@ -155,7 +155,47 @@ omitted for CPU-speed; it is a strong association signal); (2) **bigger head *wi
 **more/broader training data** (the shippable SPO-39 source); (4) **larger `max_gap` / motion
 (FoD) encoder** for longer occlusions; (5) per-tier threshold calibration.
 
-**Likely causes & next levers** (superseded by §4c above; original analysis): (1) **untuned association thresholds** —
+### 4d. Diagnosis (why it was bad) + motion gate — the decisive fix
+
+The honest comparison I was missing: **on the same frozen detections, the assembled TDLP was
+worse than the BoT-SORT baseline we already ship.**
+
+| tracker (same frozen dets) | SportsMOT IDsw | HOTA | SoccerNet IDsw | HOTA |
+| --- | ---: | ---: | ---: | ---: |
+| Hardened BoT-SORT (SPO-30 baseline) | **31** | 0.785 | **144** | 0.519 |
+| BoT-SORT + body-ReID (SPO-31) | 30 | 0.79 | 142 | 0.522 |
+| TDLP v3 (no gate) | 79 | 0.685 | 220 | 0.438 |
+| Reference TDLP-full | ~5 | 0.90 | — | — |
+
+**Root cause:** BoT-SORT carries a Kalman motion model + IoU gating + camera-motion
+compensation, so it only ever considers motion-plausible matches and uses appearance as a
+tiebreaker. My loop did pure Hungarian on a *weak learned head* with **no motion prior at all**,
+so in crowded/occluded frames it confidently matched a track to the wrong (or far) player →
+switches. The reference TDLP survives a pure learned head only because its head is genuinely
+SOTA (KPR ReID + pose + a large, properly-trained model); a preliminary head needs the motion
+crutch.
+
+**Fix — motion gate** (forbid matches whose normalized bbox-centre move exceeds
+`base + per_frame·gap`; `gap` = frames since the track was last seen):
+
+| v3 SportsMOT | IDsw | HOTA | IDF1 | purity |
+| --- | ---: | ---: | ---: | ---: |
+| no gate | 79 | 0.685 | 0.671 | 0.843 |
+| **+ gate (base 0.04)** | **51.5** | **0.731** | 0.734 | 0.906 |
+| + gate (per-frame 0.03) | 52.8 | **0.744** | 0.746 | 0.915 |
+
+**Full trajectory: SportsMOT IDsw 362 → 190 → 79 → 51.5 (−86%); HOTA 0.50 → 0.74; purity →
+0.91.** Now approaching the BoT-SORT baseline (31). The residual gap to BoT-SORT is the
+difference between a fixed distance-ball gate and a real Kalman velocity predictor + CMC; the
+gap to the reference (~5) is head quality (ReID appearance + pose + capacity + real data).
+
+**Honest standing:** the shippable TDLP is a **runnable, licensing-clean tracker with a clear,
+measured improvement path**, but with the preliminary (non-shippable) head it does **not yet
+beat the existing BoT-SORT baseline** — which remains the interim shippable tracker. Closing
+the last gap needs the pose cue, a Kalman/velocity motion model (or a stronger head so the gate
+isn't load-bearing), and permissive training data (SPO-39).
+
+**Likely causes & next levers** (superseded by §4c/§4d above; original analysis): (1) **untuned association thresholds** —
 `sim_threshold`/`new_tracklet_detection_threshold` vs the head's logit scale (the high IDsw
 smells partly like over-gating → constant respawn; a threshold/`appearance_weight`-style sweep
 is the cheapest first lever); (2) **no pose cue** (RTMPose omitted for CPU-speed — add it back);

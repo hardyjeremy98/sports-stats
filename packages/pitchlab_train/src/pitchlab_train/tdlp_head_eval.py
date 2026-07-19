@@ -148,7 +148,11 @@ def sweep(cache_dir, manifest_path, checkpoint, out_dir, *, device="cuda",
         "remember_threshold": [cfg_d.get("remember", 20)],
         "new_tracklet_detection_threshold": [0.5, 0.9],
         "min_length": [5],
+        "gate_base_radius": [0.0],
+        "gate_per_frame_radius": [0.0],
     }
+    grid.setdefault("gate_base_radius", [0.0])
+    grid.setdefault("gate_per_frame_radius", [0.0])
     keys = list(grid)
     combos = list(itertools.product(*(grid[k] for k in keys)))
     results = []
@@ -163,6 +167,8 @@ def sweep(cache_dir, manifest_path, checkpoint, out_dir, *, device="cuda",
                 detection_threshold=0.4, sim_threshold=params["sim_threshold"],
                 initialization_threshold=1,
                 new_tracklet_detection_threshold=params["new_tracklet_detection_threshold"],
+                gate_base_radius=params["gate_base_radius"],
+                gate_per_frame_radius=params["gate_per_frame_radius"],
             )
             tracklets = tracker.track_clip(frames, min_length=params["min_length"])
             rd = Path(out_dir) / f"{'_'.join(f'{k}{v}' for k, v in params.items())}" / name
@@ -212,13 +218,17 @@ def _cmd_extract(args):
 
 def _cmd_sweep(args):
     grid = None
-    if args.sim_thresholds or args.remembers or args.new_track_thresholds or args.min_lengths:
+    if (args.sim_thresholds or args.remembers or args.new_track_thresholds or args.min_lengths
+            or args.gate_base_radii or args.gate_per_frame_radii):
         grid = {
             "sim_threshold": [float(x) for x in (args.sim_thresholds or "0.5,0.7,0.85,0.95").split(",")],
             "remember_threshold": [int(x) for x in (args.remembers or "20").split(",")],
             "new_tracklet_detection_threshold": [
                 float(x) for x in (args.new_track_thresholds or "0.5,0.9").split(",")],
             "min_length": [int(x) for x in (args.min_lengths or "5").split(",")],
+            "gate_base_radius": [float(x) for x in (args.gate_base_radii or "0.0").split(",")],
+            "gate_per_frame_radius": [
+                float(x) for x in (args.gate_per_frame_radii or "0.0").split(",")],
         }
     sweep(args.cache_dir, args.tier_manifest, args.checkpoint, args.out_dir,
           device=args.device, iou_threshold=args.iou_threshold, max_seqs=args.max_seqs, grid=grid)
@@ -247,6 +257,9 @@ def main():
     sw.add_argument("--remembers", default="", help="comma list, e.g. 20,30,40")
     sw.add_argument("--new-track-thresholds", default="", help="comma list, e.g. 0.5,0.9")
     sw.add_argument("--min-lengths", default="", help="comma list, e.g. 5")
+    sw.add_argument("--gate-base-radii", default="", help="motion-gate base radius, e.g. 0.03,0.05")
+    sw.add_argument("--gate-per-frame-radii", default="",
+                    help="motion-gate per-frame radius, e.g. 0.01,0.02")
     sw.set_defaults(func=_cmd_sweep)
 
     args = ap.parse_args()

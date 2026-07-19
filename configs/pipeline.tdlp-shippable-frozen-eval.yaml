@@ -36,6 +36,10 @@ stages:
       sim_threshold: 0.9        # swept optimum (IDsw-minimizing)
       new_tracklet_detection_threshold: 0.9
       hidden_dim: 128
+      # motion gate (BoT-SORT-style) — the decisive IDsw fix (79->51 SportsMOT);
+      # forbid a match whose normalized bbox-centre move > base + per_frame*gap.
+      gate_base_radius: 0.04
+      gate_per_frame_radius: 0.02
   team:
     impl: kit-color
     params:
