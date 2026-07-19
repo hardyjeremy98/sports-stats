@@ -143,14 +143,25 @@ def sample_clip(
     remember: int,
     appearance_dim: int,
     rng: random.Random,
+    max_gap: int = 0,
+    history_dropout: float = 0.0,
 ):
     """Build one training clip anchored at sorted_fidx[pos] (the 'current'
     frame). Tracks = ids seen in the preceding `remember` sampled frames (their
     per-frame history); detections = objects at the current frame. Returns torch
     tensors + a (n_tracks, n_dets) 0/1 target of same-id links, or None if the
-    clip is degenerate."""
+    clip is degenerate.
+
+    Augmentations that directly target ID switches (re-linking after loss):
+    - `max_gap`: end the observed window ``gap`` sampled-frames *before* the
+      current frame (gap ~U[0, max_gap]), so the head must re-associate a track
+      last seen several frames ago — the exact case a lost tracklet respawns on.
+    - `history_dropout`: randomly drop observed frames per track (simulated
+      missed detections), so history need not be contiguous."""
+    gap = rng.randint(0, max_gap) if max_gap > 0 else 0
     cur_fidx = sorted_fidx[pos]
-    window = sorted_fidx[max(0, pos - remember):pos]
+    win_end = max(0, pos - gap)
+    window = sorted_fidx[max(0, win_end - remember):win_end]
     if not window or cur_fidx not in seq_frames:
         return None
 
@@ -158,6 +169,8 @@ def sample_clip(
     hist: dict[int, list[dict]] = defaultdict(list)
     for fi in window:
         for r in seq_frames[fi]:
+            if history_dropout > 0.0 and rng.random() < history_dropout:
+                continue
             hist[r["id"]].append(r)
     track_ids = [tid for tid, h in hist.items() if h]
     dets = seq_frames[cur_fidx]
@@ -210,6 +223,8 @@ def train(
     lr: float = 3e-4,
     hidden_dim: int = 128,
     seed: int = 0,
+    max_gap: int = 0,
+    history_dropout: float = 0.0,
     meta: dict | None = None,
 ) -> dict:
     rng = random.Random(seed)
@@ -238,7 +253,8 @@ def train(
             frames, fidx = rng.choice(seqs)
             pos = rng.randint(1, len(fidx) - 1)
             clip = sample_clip(
-                frames, fidx, pos, remember=remember, appearance_dim=appearance_dim, rng=rng
+                frames, fidx, pos, remember=remember, appearance_dim=appearance_dim, rng=rng,
+                max_gap=max_gap, history_dropout=history_dropout,
             )
             if clip is None:
                 continue
@@ -275,6 +291,8 @@ def train(
             "appearance_dim": appearance_dim,
             "hidden_dim": hidden_dim,
             "remember": remember,
+            "max_gap": max_gap,
+            "history_dropout": history_dropout,
         },
         "train_meta": meta or {},
         "loss_history": history,
@@ -318,6 +336,7 @@ def _cmd_train(args):
         paths, args.out_ckpt, device=args.device, epochs=args.epochs,
         clips_per_epoch=args.clips_per_epoch, remember=args.remember,
         hidden_dim=args.hidden_dim, seed=args.seed,
+        max_gap=args.max_gap, history_dropout=args.history_dropout,
         meta={"states_dir": args.states_dir, "sequences": [Path(p).stem for p in paths],
               "note": "PRELIMINARY non-shippable: trained on NC eval-tier tuning data"},
     )
@@ -348,6 +367,10 @@ def main():
     tr.add_argument("--remember", type=int, default=20)
     tr.add_argument("--hidden-dim", type=int, default=128)
     tr.add_argument("--seed", type=int, default=0)
+    tr.add_argument("--max-gap", type=int, default=0,
+                    help="train re-linking across gaps of up to N sampled frames (cuts IDsw)")
+    tr.add_argument("--history-dropout", type=float, default=0.0,
+                    help="randomly drop observed history frames (simulate missed detections)")
     tr.set_defaults(func=_cmd_train)
 
     args = ap.parse_args()
