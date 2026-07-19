@@ -42,6 +42,7 @@ from pitchlab_core.schemas.run import (
     TimelineBucket,
     VideoMeta,
 )
+from pitchlab_core.schemas.spotting import SpottedEvent
 from pitchlab_core.schemas.team import Team, TeamAssignment
 from pitchlab_core.schemas.tracks import Tracklet, TrackletFrame
 
@@ -76,6 +77,7 @@ __all__ = [
     "QAStatus",
     "RunManifest",
     "RunProvenance",
+    "SpottedEvent",
     "StageKind",
     "StageProvenance",
     "StageResult",

@@ -20,7 +20,7 @@ from pitchlab_core.stages.detect import (  # noqa: F401
     yolo_local,
     yolox_local,
 )
-from pitchlab_core.stages.events import possession, spotting_stub  # noqa: F401
+from pitchlab_core.stages.events import possession, spotting_stub, tdeed  # noqa: F401
 from pitchlab_core.stages.fuse import minimap  # noqa: F401
 from pitchlab_core.stages.identity import face, none  # noqa: F401
 from pitchlab_core.stages.team import kit_color, siglip  # noqa: F401

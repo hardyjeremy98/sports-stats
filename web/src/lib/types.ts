@@ -129,6 +129,19 @@ export interface MatchEvent {
   attrs: Record<string, unknown>;
 }
 
+// One event from the spotting exchange contract's output array
+// (docs/reference/spotting-exchange-contract.md), written by the `tdeed`
+// spotting stage to spotting.json. `class` is the spotter's native taxonomy
+// (e.g. T-DEED's "PASS"/"DRIVE"/"SHOT"), verbatim and unmapped to
+// EventType — the mapping, if consumed, lives downstream, not here.
+export interface SpottedEvent {
+  class: string;
+  frame_idx: number;
+  t: number;
+  confidence: number;
+  half: number | null;
+}
+
 export interface PossessionSegment {
   player_id: number;
   team: Team;

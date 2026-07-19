@@ -16,6 +16,7 @@ import type {
   MatchEvent,
   MinimapFrame,
   PlayerEntity,
+  SpottedEvent,
   StatSheet,
   TeamAssignment,
   TimelineBucket,
@@ -39,6 +40,7 @@ export interface RunArtifacts {
   players: PlayerEntity[] | null;
   minimap: MinimapFrame[] | null;
   events: MatchEvent[] | null;
+  spotting: SpottedEvent[] | null;
   stats: StatSheet | null;
   timeline: TimelineBucket[] | null;
   eval: EvalResult | null;
@@ -77,6 +79,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "players", fn: () => fetchJson<PlayerEntity[]>(api.artifactUrl(runId, "players")) },
   { key: "minimap", fn: () => fetchJsonl<MinimapFrame>(api.artifactUrl(runId, "minimap")) },
   { key: "events", fn: () => fetchJson<MatchEvent[]>(api.artifactUrl(runId, "events")) },
+  { key: "spotting", fn: () => fetchJson<SpottedEvent[]>(api.artifactUrl(runId, "spotting")) },
   { key: "stats", fn: () => fetchJson<StatSheet>(api.artifactUrl(runId, "stats")) },
   { key: "timeline", fn: () => fetchJson<TimelineBucket[]>(api.artifactUrl(runId, "timeline")) },
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
@@ -101,6 +104,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     players,
     minimap,
     events,
+    spotting,
     stats,
     timeline,
     evalResult,
@@ -142,6 +146,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     players: players as PlayerEntity[] | null,
     minimap: minimap as MinimapFrame[] | null,
     events: events as MatchEvent[] | null,
+    spotting: spotting as SpottedEvent[] | null,
     stats: stats as StatSheet | null,
     timeline: timeline as TimelineBucket[] | null,
     eval: evalResult as EvalResult | null,

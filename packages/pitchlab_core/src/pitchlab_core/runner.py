@@ -156,6 +156,7 @@ class PipelineRunner:
             StageKind.EVENTS, lambda s: s.detect_events(ctx, minimap, players)
         )
         spotted = self._exec(StageKind.SPOTTING, lambda s: s.spot(ctx)) or []
+        self._index(ArtifactName.SPOTTING)  # written by tdeed-style stages, guarded by exists()
         all_events = (events_out.events if events_out else []) + spotted
         if events_out:
             store.write_json(ArtifactName.POSSESSION, events_out.possession)
