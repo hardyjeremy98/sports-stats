@@ -18,6 +18,7 @@ knows nothing model-specific).
 from __future__ import annotations
 
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -34,7 +35,7 @@ from pitchlab_core.spotting.bridge import SpottingParams, run_spotter
 # Runnable out of the box, with no real model or GPU: the permissive
 # reference spotter CLI built in SPO-45. An operator points `command` at a
 # real T-DEED entrypoint (its own venv) to swap in the genuine model.
-_DEFAULT_COMMAND = ["python", "-m", "pitchlab_core.spotting.reference_cli"]
+_DEFAULT_COMMAND = [sys.executable, "-m", "pitchlab_core.spotting.reference_cli"]
 
 
 class Params(BaseModel):

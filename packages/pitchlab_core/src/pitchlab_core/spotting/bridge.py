@@ -90,6 +90,11 @@ def run_spotter(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest))
 
+    # Clear any stale out_path from a prior invocation so an exit-0 that
+    # writes nothing is detected as "missing out_path" below, rather than
+    # silently returning the previous run's contents.
+    out_path.unlink(missing_ok=True)
+
     try:
         result = subprocess.run(
             [*command, "--job", str(manifest_path)],

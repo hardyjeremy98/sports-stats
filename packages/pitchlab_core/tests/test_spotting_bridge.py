@@ -89,6 +89,26 @@ def test_bridge_raises_typed_error_on_exit_zero_with_no_output(tmp_path):
         )
 
 
+def test_bridge_raises_typed_error_on_stale_out_path_not_rewritten(tmp_path):
+    """A prior invocation's out_path must not leak through as a false success:
+    if it pre-exists and the subprocess exits 0 without rewriting it, the
+    bridge must still raise, not return the stale contents."""
+    out_path = tmp_path / "out.json"
+    out_path.write_text(json.dumps([{"frame_idx": 0, "confidence": 1.0, "class": "STALE"}]))
+
+    silent_success_command = [sys.executable, "-c", "import sys; sys.exit(0)"]
+
+    with pytest.raises(SpottingBridgeError):
+        run_spotter(
+            silent_success_command,
+            manifest_path=tmp_path / "job.json",
+            out_path=out_path,
+            fps=25.0,
+            params=_PARAMS,
+            frames_dir=_make_frames_dir(tmp_path, [0, 1, 2]),
+        )
+
+
 def test_bridge_rejects_both_frames_dir_and_clip_path(tmp_path):
     with pytest.raises(ValueError):
         run_spotter(
