@@ -41,6 +41,10 @@ BENCHMARK_METRIC_KEYS = (
     "mixed_track_seconds",
     "detection_ap",
     "detection_recall",
+    # SPO-49: action-spotting avg-mAP@1. A pure spotting run carries none of
+    # the tracking keys above, so without this it would be ineligible for the
+    # benchmark matrix entirely.
+    "spotting_map_at_1",
 )
 
 

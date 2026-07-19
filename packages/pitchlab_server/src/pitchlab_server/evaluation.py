@@ -24,8 +24,11 @@ def evaluate_run_against_gt(
     oracle_run_id: str | None = None,
 ) -> dict | None:
     """Returns the full eval result dict, or None when the video has no usable
-    ground truth or the run produced no tracklets. Raises ImportError when
-    motmetrics is missing.
+    ground truth or the run produced no scoreable artifact (no tracklets for
+    track GT; no spotting.json for action-event GT). Picks the evaluator from
+    the GT file's shape (`is_event_ground_truth`): action-spotting avg-mAP for
+    event GT, else the MOT/track suite. Raises ImportError when the track path
+    needs motmetrics and it is missing (the spotting path needs no extras).
 
     Before scoring, records the evaluation-set's identity (SPO-10) into the
     run's manifest.json provenance block: every GT-scored run must carry a
@@ -37,27 +40,51 @@ def evaluate_run_against_gt(
     payload from a pristine oracle-detections run of the same video, used to
     upgrade ambiguous tracklet-level switch attributions via oracle
     comparison; refusals (`pitchlab_core.attribution`) raise ValueError."""
-    from pitchlab_core.evaluation import evaluate_run
-    from pitchlab_core.gt import GroundTruth
+    from pitchlab_core.event_gt import is_event_ground_truth
     from pitchlab_core.provenance import hash_evaluation_set
     from pitchlab_core.schemas.run import RunManifest
 
     if not video.gt_path or not Path(video.gt_path).exists():
         return None
     run_dir = Path(run.run_dir)
-    if not (run_dir / "tracklets.json").exists():
-        return None
 
     gt_path = Path(video.gt_path)
     gt_text = gt_path.read_text()
-    gt = GroundTruth.model_validate_json(gt_text)
 
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.exists():
-        manifest = RunManifest.model_validate_json(manifest_path.read_text())
-        manifest.provenance.evaluation_set_hash = hash_evaluation_set(gt_text)
-        manifest.provenance.evaluation_set_source = str(gt_path)
-        manifest_path.write_text(manifest.model_dump_json(indent=2))
+    def _record_provenance() -> None:
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.exists():
+            manifest = RunManifest.model_validate_json(manifest_path.read_text())
+            manifest.provenance.evaluation_set_hash = hash_evaluation_set(gt_text)
+            manifest.provenance.evaluation_set_source = str(gt_path)
+            manifest_path.write_text(manifest.model_dump_json(indent=2))
+
+    # Action-spotting GT (SPO-49): a pure spotting run has no tracklets, so
+    # this branch is gated on spotting.json, not tracklets.json. The MOT/track
+    # path below is unchanged for track GroundTruth. `is_event_ground_truth`
+    # takes a path (or parsed dict), not raw JSON text, so pass `gt_path`.
+    if is_event_ground_truth(gt_path):
+        from pitchlab_core.action_spotting_eval import evaluate_spotting_run
+        from pitchlab_core.event_gt import load_event_ground_truth
+
+        if not (run_dir / "spotting.json").exists():
+            return None
+        _record_provenance()
+        event_gt = load_event_ground_truth(gt_path)
+        result = evaluate_spotting_run(run_dir, event_gt)
+        if result is None:
+            return None
+        (run_dir / "eval.json").write_text(json.dumps(result))
+        return result
+
+    from pitchlab_core.evaluation import evaluate_run
+    from pitchlab_core.gt import GroundTruth
+
+    if not (run_dir / "tracklets.json").exists():
+        return None
+
+    gt = GroundTruth.model_validate_json(gt_text)
+    _record_provenance()
 
     result = evaluate_run(run_dir, gt)
     if oracle_eval is not None:
@@ -69,6 +96,13 @@ def evaluate_run_against_gt(
 
 
 def merged_metrics(run: Run, result: dict) -> dict:
+    # Branch on the result's discriminator: an action-spotting eval has a
+    # different shape than the MOT/track eval, so it gets its own headline.
+    if result.get("kind") == "action_spotting":
+        from pitchlab_core.action_spotting_eval import spotting_headline_metrics
+
+        return {**(run.metrics or {}), **spotting_headline_metrics(result)}
+
     from pitchlab_core.evaluation import headline_metrics
 
     return {**(run.metrics or {}), **headline_metrics(result)}

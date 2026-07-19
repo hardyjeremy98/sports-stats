@@ -37,6 +37,8 @@ const METRICS: MetricDef[] = [
   { key: "tracklet_purity", label: "Tracklet purity", higherIsBetter: true },
   { key: "mixed_track_seconds", label: "Mixed-identity time", higherIsBetter: false, seconds: true },
   { key: "cluster_purity", label: "Cluster purity", higherIsBetter: true },
+  // SPO-49: action-spotting avg-mAP@1 (pure spotting runs, no tracking keys).
+  { key: "spotting_map_at_1", label: "Spotting mAP@1", higherIsBetter: true },
 ];
 
 // Metrics whose absence means the run predates the layer that computes them
