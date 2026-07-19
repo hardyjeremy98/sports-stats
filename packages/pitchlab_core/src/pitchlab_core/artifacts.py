@@ -20,6 +20,7 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.MINIMAP: "minimap.jsonl",
     ArtifactName.POSSESSION: "possession.json",
     ArtifactName.EVENTS: "events.json",
+    ArtifactName.SPOTTING: "spotting.json",
     ArtifactName.STATS: "stats.json",
     ArtifactName.QA_ITEMS: "qa_items.json",
     ArtifactName.TIMELINE: "timeline.json",

@@ -24,6 +24,18 @@ uv run pitchlab-train ingest-soccernet --split test --limit 8
 uv run pitchlab-train ingest-sportsmot --split val --limit 8
 uv run pitchlab-train ingest-soccertrack --limit 8
 
+# Register SoccerNet Ball Action Spotting matches as Lab videos with timed-event ground
+# truth (SPO-47; data must already be downloaded under data/soccernet/ball/, see
+# configs/datasets/README.md):
+uv run pitchlab-train ingest-soccernet-ball --split test --limit 8
+
+# Reference action-spotting stage (SPO-45/46, docs/prds/reference-action-spotting-tdeed.md):
+# smoke config runs the tdeed stage against the permissive in-repo reference CLI (no GPU, no
+# real model); the eval config targets the real, human-gated external-spotters/ T-DEED env
+# (see docs/reference/external-spotters-setup.md) — never run unattended.
+uv run pitchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.tdeed-spotting-smoke.yaml --run-id my-spotting-smoke
+
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
 uv run pitchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
@@ -57,6 +69,12 @@ breaks pydantic-core builds; don't remove the pin.
   models on it and never redistribute it with the product. Its upstream terms also require a
   CodaLab agreement not to redistribute; using it commercially needs a recorded licensing
   sign-off, not just an engineering note. SoccerNet is the unrestricted evaluation tier.
+- **T-DEED (real action spotter) is GPL-3.0 code + non-commercial SoccerNet-trained weights,
+  isolated in a sibling `external-spotters/` env, reached only via a subprocess CLI — never a
+  dependency, never shipped.** Same pattern as `ultralytics`/`external-trackers/`. The `tdeed`
+  spotting stage runs against a permissive in-repo reference CLI by default (no GPL, no GPU);
+  see `docs/reference/external-spotters-setup.md` and
+  `docs/reference/spotting-exchange-contract.md`.
 
 ## Architecture
 

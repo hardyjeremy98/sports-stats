@@ -4,8 +4,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { signalColor } from "../lib/colors";
-import { fmtClock } from "../lib/format";
-import type { MatchEvent, TimelineBucket } from "../lib/types";
+import { fmtClock, fmtConf } from "../lib/format";
+import type { MatchEvent, SpottedEvent, TimelineBucket } from "../lib/types";
 
 export const SIGNALS = [
   { id: "detection_confidence", label: "Detection" },
@@ -45,6 +45,7 @@ export function SignalPicker({
 export function TimelineStrip({
   timeline,
   events,
+  spotting,
   duration,
   signal,
   onSeek,
@@ -53,6 +54,7 @@ export function TimelineStrip({
 }: {
   timeline: TimelineBucket[] | null;
   events: MatchEvent[] | null;
+  spotting?: SpottedEvent[] | null;
   duration: number;
   signal: SignalId;
   onSeek: (t: number) => void;
@@ -134,6 +136,26 @@ export function TimelineStrip({
             />
           ))}
         </div>
+
+        {/* Spotting markers (spotter-detected actions, e.g. T-DEED) */}
+        {spotting && spotting.length > 0 && (
+          <div className="relative mt-1 h-3">
+            {spotting.map((ev, i) => (
+              <div
+                key={i}
+                title={`${ev.class} · ${fmtConf(ev.confidence)} @ ${fmtClock(ev.t)}`}
+                className="absolute top-0 h-3 w-[3px] rounded-sm bg-team-home"
+                style={{
+                  left: `${(ev.t / Math.max(duration, 0.01)) * 100}%`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSeek(ev.t);
+                }}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Eval failure markers */}
         {markers && markers.length > 0 && (

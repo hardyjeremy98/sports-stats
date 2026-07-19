@@ -1,0 +1,58 @@
+# Smoke config for the `tdeed` spotting stage (SPO-46): every other stage is
+# the same keyless/GPU-less recipe as pipeline.stub.yaml (synthetic detector +
+# IoU tracker etc.), with `spotting.impl: tdeed` turned on against the
+# permissive reference spotter CLI (no real T-DEED, no GPU) so the subprocess
+# bridge + spotting.json artifact can be exercised end-to-end. `max_frames` is
+# kept small so the run is fast.
+name: tdeed-spotting-smoke
+description: >-
+  Stub pipeline + tdeed spotting stage wired to the reference spotter CLI.
+  Produces a contract-valid spotting.json without any real model or GPU.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: 60
+  resize_width: null
+stages:
+  detect:
+    impl: synthetic
+    params:
+      dropout_rate: 0.05
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: tdeed
+    params:
+      command: ["python", "-m", "pitchlab_core.spotting.reference_cli"]
+      weights: ""
+      confidence: 0.3
+      merge_window_s: 1.0
+      device: cpu
+  annotate:
+    impl: overlay
+    params: {}

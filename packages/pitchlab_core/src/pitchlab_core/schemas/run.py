@@ -68,6 +68,7 @@ class ArtifactName(StrEnum):
     MINIMAP = "minimap"              # minimap.jsonl — MinimapFrame rows
     POSSESSION = "possession"        # possession.json — list[PossessionSegment]
     EVENTS = "events"                # events.json — list[Event]
+    SPOTTING = "spotting"            # spotting.json — list[SpottedEvent] (native taxonomy)
     STATS = "stats"                  # stats.json — StatSheet
     QA_ITEMS = "qa_items"            # qa_items.json — list[QAItem]
     TIMELINE = "timeline"            # timeline.json — list[TimelineBucket]

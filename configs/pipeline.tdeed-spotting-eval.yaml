@@ -1,0 +1,109 @@
+# FULL benchmark eval config for the `tdeed` spotting stage (SPO-46/SPO-50).
+#
+# HUMAN-GATED, NON-SHIPPABLE: unlike pipeline.tdeed-spotting-smoke.yaml (which
+# points `command` at the permissive in-repo reference spotter, no GPU, no
+# real model), this config's `spotting.command` targets the REAL external
+# T-DEED entrypoint living in the sibling `external-spotters/` environment --
+# see docs/reference/external-spotters-setup.md for how to stand that
+# environment up (clone T-DEED, its own isolated venv, download the released
+# SoccerNet ball-action weights) and docs/reference/spotting-exchange-contract.md
+# for the subprocess boundary this stage talks over. That environment requires
+# a human operator to create it (GPL-3.0 clone + non-commercial weights
+# download) and a GPU to run inference at reasonable speed -- running this
+# config is SPO-50's human step, out of scope for an unattended agent.
+#
+# Non-shippable on two independent axes: T-DEED's code is GPL-3.0 (never
+# vendored into packages/), and the released ball-action weights are trained
+# on non-commercial SoccerNet data. This config is reference/internal-only,
+# the same posture as the AGPL `ultralytics` detector path and the
+# CC BY-NC 4.0 SportsMOT eval tier (see CLAUDE.md -> Licensing boundaries).
+#
+# Intended target: a video registered from the `soccernet-ball` tier
+# (configs/datasets/soccernet-ball.json, ingested via
+# `pitchlab-train ingest-soccernet-ball`) so the run auto-scores against its
+# event ground truth (avg-mAP@1, pitchlab_core.action_spotting_eval). No
+# avg-mAP number has been measured yet -- this config only wires the run;
+# the actual benchmark pass is SPO-50's pending human-gated step.
+#
+# The other stages here mirror configs/pipeline.v1-hardened-eval.yaml (the
+# program's hardened tracking comparator, SPO-22) so this run also produces
+# normal tracking artifacts/metrics alongside spotting -- swap them for a
+# lighter recipe if you only care about spotting output. AGPL weights
+# (ultralytics/roboflow-sports) via those stages -- LOCAL EVAL ONLY, never
+# shipped, same as v1-hardened-eval.
+name: tdeed-spotting-eval
+description: >-
+  Full benchmark config: hardened tracking stack + the tdeed spotting stage
+  wired to the real, human-gated external-spotters/ T-DEED environment.
+  Pending SPO-50's human-run benchmark pass; no avg-mAP measured yet.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: tdeed
+    params:
+      # Real T-DEED entrypoint inside the sibling external-spotters/ venv --
+      # NOT the reference CLI. Adjust the interpreter/script paths to match
+      # the operator's actual external-spotters/ checkout; see
+      # docs/reference/external-spotters-setup.md step 4 for the CLI
+      # entrypoint this must satisfy (`<command> --job <manifest.json>`,
+      # the exchange contract's invocation shape).
+      command:
+        - "../external-spotters/.venv/bin/python"
+        - "../external-spotters/tdeed_cli.py"
+      weights: "../external-spotters/weights/tdeed-ball-action.pt"
+      confidence: 0.3
+      merge_window_s: 1.0
+      device: cuda
+  annotate:
+    impl: overlay
+    params: {}

@@ -202,6 +202,82 @@ def test_evaluate_run_against_gt_writes_evaluation_set_hash_into_manifest(tmp_pa
     assert prov["evaluation_set_source"] == str(gt_path)
 
 
+def test_evaluate_run_against_gt_scores_spotting_from_event_gt(tmp_path):
+    # Event GT + spotting.json -> the spotting branch scores avg-mAP, writes
+    # eval.json, and records the same provenance hash. No motmetrics needed,
+    # and NO tracklets.json required (a pure spotting run has none).
+    from pitchlab_core.event_gt import EventGroundTruth, GroundTruthEvent
+    from pitchlab_core.provenance import hash_evaluation_set
+    from pitchlab_server.evaluation import evaluate_run_against_gt, merged_metrics
+    from pitchlab_server.models import Run, Video
+
+    gt = EventGroundTruth(
+        source="unit-test",
+        fps=25.0,
+        events=[GroundTruthEvent(class_="PASS", frame_idx=25, t=1.0)],
+    )
+    gt_text = gt.model_dump_json()
+    gt_path = tmp_path / "seq.events.json"
+    gt_path.write_text(gt_text)
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    manifest = {
+        "run_id": "test-run",
+        "created_at": "2026-07-16T00:00:00+00:00",
+        "video": {
+            "path": "seq.mp4", "fps": 25.0, "frame_count": 25,
+            "width": 100, "height": 100, "duration_s": 1.0, "sample_stride": 1,
+        },
+        "config": {}, "config_name": "test", "status": "completed",
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+    # A perfect single-class prediction; note: no tracklets.json on disk.
+    (run_dir / "spotting.json").write_text(
+        json.dumps([{"class": "PASS", "frame_idx": 25, "t": 1.0, "confidence": 0.9}])
+    )
+
+    run = Run(id="test-run", video_id=1, config_name="test", config_yaml="", run_dir=str(run_dir))
+    video = Video(id=1, filename="seq.mp4", path="seq.mp4", gt_path=str(gt_path))
+
+    result = evaluate_run_against_gt(run, video)
+    assert result is not None
+    assert result["kind"] == "action_spotting"
+    assert result["avg_map"] == 1.0
+    assert (run_dir / "eval.json").exists()
+
+    prov = json.loads((run_dir / "manifest.json").read_text())["provenance"]
+    assert prov["evaluation_set_hash"] == hash_evaluation_set(gt_text)
+    assert prov["evaluation_set_source"] == str(gt_path)
+
+    metrics = merged_metrics(run, result)
+    assert metrics["spotting_map_at_1"] == 1.0
+
+
+def test_evaluate_run_against_gt_event_gt_without_spotting_returns_none(tmp_path):
+    from pitchlab_core.event_gt import EventGroundTruth, GroundTruthEvent
+    from pitchlab_server.evaluation import evaluate_run_against_gt
+    from pitchlab_server.models import Run, Video
+
+    gt = EventGroundTruth(
+        source="unit-test",
+        fps=25.0,
+        events=[GroundTruthEvent(class_="PASS", frame_idx=25, t=1.0)],
+    )
+    gt_path = tmp_path / "seq.events.json"
+    gt_path.write_text(gt.model_dump_json())
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "r"}))
+    # No spotting.json -> nothing to score.
+
+    run = Run(id="test-run", video_id=1, config_name="test", config_yaml="", run_dir=str(run_dir))
+    video = Video(id=1, filename="seq.mp4", path="seq.mp4", gt_path=str(gt_path))
+
+    assert evaluate_run_against_gt(run, video) is None
+
+
 def test_evaluate_run_against_gt_no_gt_path_leaves_result_none(tmp_path):
     from pitchlab_server.evaluation import evaluate_run_against_gt
     from pitchlab_server.models import Run, Video
