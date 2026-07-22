@@ -33,3 +33,4 @@ from pitchlab_core.stages.track import (  # noqa: F401
     ocsort,
 )
 from pitchlab_core.stages.track.tdlp import stage as tdlp_shippable  # noqa: F401
+from pitchlab_core.stages.track.tdlp_full import stage as tdlp_full  # noqa: F401
