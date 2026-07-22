@@ -1,0 +1,59 @@
+# SPO-36: permissive RF-DETR detector, measured for detection quality.
+#
+# This is the SHIPPABLE-path detector-adopt-and-measure config: RF-DETR base
+# (Apache code + Apache/Roboflow-commercial-grant weights) detecting COCO
+# "person" -> PLAYER, over the benchmark tiers at stride 1. Everything
+# downstream is the cheapest dependency-free slot (IoU tracker, static
+# calibrate, per-tracklet associate, no identity/spotting, annotate disabled)
+# because this config exists to score the DETECTION layer, not tracking or
+# identity -- the detector is the only variable.
+#
+# rfdetr is Apache-2.0 but not a declared dependency; run with:
+#   uv run --with rfdetr pitchlab-train run configs/train/benchmark-spo36-<tier>.yaml
+name: rfdetr-eval
+description: >
+  Permissive RF-DETR base person detector (SPO-36), stride 1, minimal
+  dependency-free downstream. Detection-quality measurement only.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: rfdetr-local
+    params:
+      model_size: base
+      confidence: 0.1   # keep low-score material so recall/AP see the full range
+      person_class_id: 1
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.25
+      max_age_frames: 15
+      min_length: 5
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: per-tracklet
+    params: {}
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params: {}
+  events:
+    impl: possession-heuristic
+    params: {}
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false

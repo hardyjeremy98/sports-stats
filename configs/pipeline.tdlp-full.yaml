@@ -1,0 +1,67 @@
+# TDLP-full tracker wired natively into pitchlab (research/local tool). The
+# TRACK slot runs the SOTA offline TDLP-full stack — RTMPose keypoints + KPR
+# 6-part appearance + the released `tdlp_sportsmot` link-prediction head — via a
+# subprocess bridge to the isolated `external-trackers/` venvs. `pitchlab-run`
+# with this config works end-to-end on any clip: the `tdlp-full` stage
+# fabricates the MOT-sequence layout the external tools need from the pipeline's
+# own frames + detections, shells out to each venv, and returns native
+# tracklets. Requires the external-trackers checkout + its two venvs + weights;
+# the stage fails early with a pointed message if any are missing.
+#
+# The detector below is orthogonal — TDLP-full tracks whatever the DETECT slot
+# produces. Swap `detect` for `frozen`/`oracle` to isolate the tracker from the
+# detector when benchmarking (see the *-frozen-eval configs for that pattern).
+name: tdlp-full
+description: >
+  SOTA TDLP-full tracker (RTMPose + KPR appearance + released tdlp_sportsmot
+  head) as a native TRACK stage, bridged to the external-trackers venvs.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: tdlp-full
+    params:
+      # external_root defaults to ~/code/sport-stats/external-trackers; all
+      # other paths resolve under it. Override only for a non-default checkout.
+      device: cuda:0
+      timeout_s: 7200.0
+      keep_work: false
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

@@ -1,0 +1,60 @@
+# SPO-42 smoke: the assembled licensing-clean multi-cue TDLP tracker running
+# END-TO-END on arbitrary video. Detector (RF-DETR, Apache) -> tdlp-shippable
+# track stage (RTMPose keypoints + DINOv2 global appearance -> vendored TDLP
+# head). No head checkpoint => UNTRAINED head: this proves the pipeline RUNS on
+# real footage and emits tracklet artifacts; it is NOT a quality result.
+#
+# Run (rfdetr + rtmlib are Apache but not declared deps; DINOv2 via timm is):
+#   uv run --with rfdetr --with rtmlib pitchlab-run \
+#     --video data/clips/08fd33_0.mp4 \
+#     --config configs/pipeline.tdlp-shippable-smoke.yaml --device cuda \
+#     --run-id tdlp-smoke
+name: tdlp-shippable-smoke
+description: >
+  Assembled multi-cue TDLP tracker (RF-DETR + RTMPose + DINOv2 + vendored TDLP
+  head), untrained head — end-to-end plumbing proof on arbitrary video (SPO-42).
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: 40
+  resize_width: null
+stages:
+  detect:
+    impl: rfdetr-local
+    params:
+      model_size: base
+      confidence: 0.3
+      person_class_id: 1
+  track:
+    impl: tdlp-shippable
+    params:
+      use_keypoints: true
+      use_appearance: true
+      embedder: dinov2
+      min_length: 3
+      new_tracklet_detection_threshold: 0.5
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: per-tracklet
+    params: {}
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params: {}
+  events:
+    impl: possession-heuristic
+    params: {}
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false

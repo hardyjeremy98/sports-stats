@@ -1,6 +1,17 @@
 # PRD: Shippable Multi-Cue Tracklet System
 
-**Status:** Draft for decomposition (2026-07-19).
+> ⛔ **SUPERSEDED / CLOSED (2026-07-20).** This program was retired after a pivot to **research
+> mode**: adopt the SOTA TDLP stack directly (non-shippable weights/data are fine for
+> local/research) instead of building a licensing-clean equivalent. The PRD's goal — a
+> *shippable* Bar-A system — was **not delivered and is descoped**, not achieved. Outcome:
+> SOTA **TDLP-full** runs and is viewable/GT-scored in the Lab (SportsMOT in-domain IDsw 6–9 /
+> HOTA 0.85–0.92; SoccerNet cross-domain ≈ on par with BoT-SORT), with the finding that
+> TDLP-full's edge is **domain-bound to SportsMOT**. Default shipped tracker remains the
+> **hardened BoT-SORT baseline**. Linear: SPO-36/37/38/41/42/43 Done, SPO-39/40/44 Canceled.
+> Full close-out: [`docs/reports/2026-07-20-sota-tdlp-research-outcome.md`](../reports/2026-07-20-sota-tdlp-research-outcome.md).
+> The text below is retained for history.
+
+**Status:** SUPERSEDED (was: Draft for decomposition, 2026-07-19).
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
 `player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.

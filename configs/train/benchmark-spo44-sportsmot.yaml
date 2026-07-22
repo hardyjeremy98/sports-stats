@@ -1,0 +1,26 @@
+# SPO-44 Bar A (PRELIMINARY): assembled licensing-clean TDLP (bbox + DINOv2
+# appearance + vendored head, preliminary NC-tuning-trained checkpoint) over
+# frozen reference detections on the sportsmot held-out tier. Cost-of-shippability
+# vs the already-measured SOTA TDLP reference (SportsMOT held-out purity
+# ~0.95-0.97) and the SPO-30 hardened comparator. NON-SHIPPABLE checkpoint.
+# Run:
+#   uv run pitchlab-train run configs/train/benchmark-spo44-sportsmot.yaml
+name: benchmark-spo44-sportsmot
+task: benchmark
+description: >
+  SPO-44 Bar A preliminary: tdlp-shippable (DINOv2 appearance + vendored head)
+  over frozen detections, sportsmot held-out.
+params:
+  dataset_manifest: configs/datasets/sportsmot.json
+  roles: [held_out]
+  device: cuda
+  iou_threshold: 0.5
+  candidates:
+    - name: tdlp-shippable-prelim
+      kind: pipeline
+      config: configs/pipeline.tdlp-shippable-frozen-eval.yaml
+      comparison_class: matched_data
+      overrides:
+        stages.detect.params.exchange_dir: data/exchange/frozen-detections/sportsmot
+        stages.track.params.checkpoint: data/experiments/tdlp-head-prelim/head-v3.pt
+output_dir: data/experiments
