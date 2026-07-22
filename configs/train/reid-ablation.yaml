@@ -18,6 +18,7 @@ params:
     - {name: per-tracklet, impl: per-tracklet, params: {}}
     - {name: global-color, impl: global-color, params: {max_gap_s: 20.0}}
     - {name: reid-osnet, impl: global-reid, params: {embedder: osnet, max_gap_s: 20.0}}
+    - {name: reid-solider, impl: global-reid, params: {embedder: solider, max_gap_s: 20.0}}
   threshold_sweep: [0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
   iou_threshold: 0.5
 output_dir: data/experiments

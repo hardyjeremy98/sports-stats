@@ -1,7 +1,8 @@
 """Tests for GlobalReidAssociator (learned body re-ID affinity).
 
-Uses a deterministic FakeEmbedder (registered here as "fake-reid") so no
-torch/network is needed: the embedding of a crop is the L2-normalized
+Uses a deterministic FakeEmbedder (registered as "fake-reid" in conftest.py,
+shared with the stub-pipeline reid regression test) so no torch/network is
+needed: the embedding of a crop is the L2-normalized
 [mean_B, mean_G, mean_R, 1.0], so same-colour crops match and
 different-colour crops don't, and the aggregation math stays hand-computable
 on solid-colour synthetic frames.
@@ -31,40 +32,12 @@ from pitchlab_core.schemas import (
     TrackletFrame,
 )
 from pitchlab_core.schemas.association import AssociationRejectReason
-from pitchlab_core.stages.associate.embedders import BodyEmbedder, register_embedder
 from pitchlab_core.stages.associate.global_reid import GlobalReidAssociator
 from pitchlab_core.video import Frame
 
 IMG_H, IMG_W = 210, 300
 BOX = Box(x1=100, y1=10, x2=170, y2=200)  # height 190, comfortably above gates
 FPS = 10.0
-
-
-@register_embedder("fake-reid")
-class FakeEmbedder(BodyEmbedder):
-    """embedding = normalize([mean_B, mean_G, mean_R, 1.0]); optional
-    model-native quality = mean_B / 255 (deterministic, hand-computable)."""
-
-    dim = 4
-
-    def __init__(self, use_model_quality: bool = False):
-        self.use_model_quality = use_model_quality
-        self.prepared_device: str | None = None
-
-    def prepare(self, device: str) -> None:
-        self.prepared_device = device
-
-    def embed(self, crops: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray | None]:
-        if not crops:
-            return np.zeros((0, self.dim), dtype=np.float32), None
-        embs, quals = [], []
-        for crop in crops:
-            b, g, r = crop.reshape(-1, 3).mean(axis=0)
-            v = np.array([b, g, r, 1.0], dtype=np.float32)
-            embs.append(v / np.linalg.norm(v))
-            quals.append(b / 255.0)
-        quality = np.array(quals, dtype=np.float32) if self.use_model_quality else None
-        return np.stack(embs).astype(np.float32), quality
 
 
 @dataclass

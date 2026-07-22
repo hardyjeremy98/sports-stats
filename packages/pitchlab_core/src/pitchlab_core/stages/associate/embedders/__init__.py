@@ -9,6 +9,7 @@ torch — implementations lazy-import heavy CV deps inside `prepare()`."""
 from pitchlab_core.stages.associate.embedders import (
     dinov2,  # noqa: F401
     osnet,  # noqa: F401
+    solider,  # noqa: F401
 )
 from pitchlab_core.stages.associate.embedders.base import (
     EMBEDDERS,
