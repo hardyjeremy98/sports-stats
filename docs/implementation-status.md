@@ -273,8 +273,12 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   window; short absences < 2 s need both absence-edge boxes within a 4 % border margin, long
   absences ≥ 2 s need one — the two-tier test calibrated on the 2026-07-24 SNMOT-124 pan
   audit) is exempted from the counts and tallied under a per-level `frame_exit` key instead —
-  mid-frame occlusion absences and unverifiable gaps still count; computed at both
-  levels for thresholds 0.5 s / 1 s / 2 s, with 1 s the headline (`idsw_persistent_tracklet`,
+  mid-frame occlusion absences and unverifiable gaps still count. Each level also records
+  per-transition evidence at the 1 s headline (`transitions`: prev/new id, window times, run
+  durations, verdict, located absence) — the run viewer's switch-scrubbing UI (timeline
+  markers, Eval-tab Switches list, ‹ › stepping) renders these directly; pre-feature
+  eval.json artifacts fall back to the raw instance view. The counts themselves are computed
+  at both levels for thresholds 0.5 s / 1 s / 2 s, with 1 s the headline (`idsw_persistent_tracklet`,
   `idsw_persistent_entity` in `runs.metrics`; the Lab dashboard's switch column shows the
   persistent entity count — raw IDsw stays in eval.json, the benchmark matrix, and the diff
   view). Measured on the imported TDLP-full runs (2026-07-24 re-score, two-tier exemption):

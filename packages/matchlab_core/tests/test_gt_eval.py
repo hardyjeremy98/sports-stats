@@ -147,10 +147,9 @@ def test_evaluate_run_association_gain(tmp_path):
     ps = result["persistent_switches"]
     assert ps["threshold_headline_s"] == 1.0
     for level in ("tracklet", "entity"):
-        assert ps[level] == {
-            "t_0.5s": 0, "t_1s": 0, "t_2s": 0,
-            "frame_exit": {"t_0.5s": 0, "t_1s": 0, "t_2s": 0},
-        }
+        assert ps[level]["t_0.5s"] == 0 and ps[level]["t_1s"] == 0 and ps[level]["t_2s"] == 0
+        assert ps[level]["frame_exit"] == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+        assert ps[level]["transitions"] == []
     assert heads["idsw_persistent_tracklet"] == 0
     assert heads["idsw_persistent_entity"] == 0
     # Crop-yield guardrail (SPO-30): every scored run reports approved crops
@@ -1094,7 +1093,9 @@ def test_persistent_flicker_revert_counts_zero():
     # A for 2 s, B for 0.2 s, back to A for 2 s: raw IDsw would be 2; the
     # flicker and its reversion both vanish at every threshold.
     counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 5 + [1] * 50)}, SPF_25)
-    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0, "frame_exit": NO_EXITS}
+    assert counts["t_0.5s"] == 0 and counts["t_1s"] == 0 and counts["t_2s"] == 0
+    assert counts["frame_exit"] == NO_EXITS
+    assert counts["transitions"] == []
 
 
 def test_persistent_flicker_then_handoff_counts_one():
@@ -1103,7 +1104,11 @@ def test_persistent_flicker_then_handoff_counts_one():
     # A (2 s), brief B (0.2 s), then C (2 s): identity genuinely moved via a
     # brief intermediary -> exactly one persistent switch at every threshold.
     counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 5 + [3] * 50)}, SPF_25)
-    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1, "frame_exit": NO_EXITS}
+    assert counts["t_0.5s"] == 1 and counts["t_1s"] == 1 and counts["t_2s"] == 1
+    assert counts["frame_exit"] == NO_EXITS
+    assert [(r["prev_id"], r["new_id"], r["verdict"]) for r in counts["transitions"]] == [
+        (1, 3, "genuine")
+    ]
 
 
 def test_persistent_boundary_run_survives():
@@ -1112,7 +1117,8 @@ def test_persistent_boundary_run_survives():
     # Two runs of exactly 1.0 s (25 frames at 25 fps): >= threshold survives,
     # so t_1s counts the transition; t_2s drops both runs.
     counts = persistent_switch_counts({7: _seq([1] * 25 + [2] * 25)}, SPF_25)
-    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 0, "frame_exit": NO_EXITS}
+    assert counts["t_0.5s"] == 1 and counts["t_1s"] == 1 and counts["t_2s"] == 0
+    assert counts["frame_exit"] == NO_EXITS
 
 
 def test_persistent_stride_normalized():
@@ -1126,8 +1132,14 @@ def test_persistent_stride_normalized():
         2 / 25.0,
         stride=2,
     )
-    assert stride1 == stride2
+
+    def strip(c):
+        return {k: v for k, v in c.items() if k != "transitions"}
+
+    assert strip(stride1) == strip(stride2)
     assert stride1["t_1s"] == 1
+    assert [r["verdict"] for r in stride1["transitions"]] == ["genuine"]
+    assert [r["verdict"] for r in stride2["transitions"]] == ["genuine"]
 
 
 def test_persistent_sums_over_gt_tracks():
@@ -1355,3 +1367,91 @@ def test_short_absence_both_edges_at_border_exempt():
     )
     assert counts["t_1s"] == 0
     assert counts["frame_exit"]["t_1s"] == 1
+
+
+# --- transition records (switch scrubbing; spec:
+# docs/superpowers/specs/2026-07-24-switch-scrubbing-design.md) --------------
+
+
+def test_transition_record_genuine_handoff_times_and_ids():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 50)}, SPF_25)
+    (rec,) = counts["transitions"]
+    assert rec["gt_track_id"] == 7
+    assert rec["prev_id"] == 1 and rec["new_id"] == 2
+    assert rec["t_from"] == 1.96  # frame 49
+    assert rec["t_to"] == 2.0  # frame 50
+    assert rec["prev_run_s"] == 2.0 and rec["new_run_s"] == 2.0
+    assert rec["verdict"] == "genuine"
+    assert rec["absence"] is None  # no >=0.2s GT gap in the window
+
+
+def test_transition_record_frame_exit_carries_absence():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    seqs, boxes = _exit_fixture(BORDER_BOX, INSIDE_BOX)
+    counts = persistent_switch_counts(seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME)
+    (rec,) = counts["transitions"]
+    assert rec["verdict"] == "frame_exit"
+    assert rec["absence"] == {"t_from": 1.96, "t_to": 4.0}  # frames 49 -> 100
+
+
+def test_transition_record_counted_still_reports_absence():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # Mid-pitch occlusion: counted, but the located absence is still reported
+    # so "why was this NOT exempt" is auditable from the artifact.
+    seqs, boxes = _exit_fixture(MID_BOX, MID_BOX)
+    counts = persistent_switch_counts(seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME)
+    (rec,) = counts["transitions"]
+    assert rec["verdict"] == "genuine"
+    assert rec["absence"] == {"t_from": 1.96, "t_to": 4.0}
+
+
+def test_transition_records_sorted_and_enriched_via_evaluate_run(tmp_path):
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    # Reuse the frame-exit integration fixture shape: GT track 1 at the left
+    # border, absent 4 s mid-clip, tracker covers it with two ids.
+    seq = tmp_path / "SNMOT-003"
+    (seq / "gt").mkdir(parents=True)
+    (seq / "seqinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-003\nimDir=img1\nframeRate=25\nseqLength=300\n"
+        "imWidth=1920\nimHeight=1080\nimExt=.jpg\n"
+    )
+    (seq / "gameinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-003\nnum_tracklets=1\n"
+        "trackletID_1= player team left;10\n"
+    )
+    rows = []
+    for frame in list(range(1, 101)) + list(range(201, 301)):
+        rows.append(f"{frame},1,0,500,40,120,1,-1,-1,-1")
+    (seq / "gt" / "gt.txt").write_text("\n".join(rows))
+    gt = load_soccernet_sequence(seq)
+
+    tracklets = [
+        _tracklet(10, [(f, 0, 500) for f in range(0, 100)]),
+        _tracklet(11, [(f, 0, 500) for f in range(200, 300)]),
+    ]
+    players = [
+        {"player_id": 1, "tracklet_ids": [10]},
+        {"player_id": 2, "tracklet_ids": [11]},
+    ]
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"video": {"fps": 25.0, "frame_count": 300, "sample_stride": 1}})
+    )
+    (run_dir / "tracklets.json").write_text(json.dumps(tracklets))
+    (run_dir / "players.json").write_text(json.dumps(players))
+
+    result = evaluate_run(run_dir, gt)
+    for level in ("tracklet", "entity"):
+        recs = result["persistent_switches"][level]["transitions"]
+        (rec,) = recs
+        assert rec["level"] == level
+        assert rec["gt_label"] == "#10 (left)"
+        assert rec["verdict"] == "frame_exit"
+        assert rec["t_to"] == 8.0  # first matched frame after re-entry

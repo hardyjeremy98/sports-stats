@@ -469,11 +469,26 @@ export interface DetectionEval {
   };
 }
 
+export interface PersistentSwitchTransition {
+  level: "tracklet" | "entity";
+  gt_track_id: number;
+  gt_label: string;
+  prev_id: number;
+  new_id: number;
+  t_from: number;
+  t_to: number;
+  prev_run_s: number;
+  new_run_s: number;
+  verdict: "genuine" | "frame_exit";
+  absence: { t_from: number; t_to: number } | null;
+}
+
 export interface PersistentSwitchLevel {
   "t_0.5s": number;
   t_1s: number;
   "t_2s": number;
   frame_exit?: { "t_0.5s": number; t_1s: number; "t_2s": number };
+  transitions?: PersistentSwitchTransition[];
 }
 
 export interface EvalResult {

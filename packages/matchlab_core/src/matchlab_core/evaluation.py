@@ -196,6 +196,11 @@ def evaluate_run(
         pred_scored = {f: preds.get(f, []) for f in eval_frames}
         hota_levels[level] = compute_hota(gt_scored, pred_scored)
 
+    for level, ps_level in persistent_levels.items():
+        for rec in ps_level["transitions"]:
+            rec["level"] = level
+            rec["gt_label"] = gt_label.get(rec["gt_track_id"], "?")
+
     result = {
         "source": gt.source,
         "sequence": gt.sequence,
@@ -886,13 +891,18 @@ def persistent_switch_counts(
     under the returned dict's "frame_exit" sub-dict instead of the `t_*`
     counts when the GT track's OWN annotations, inside the transition window,
     contain an absence of at least `_FRAME_EXIT_MIN_ABSENCE_S` that passes
-    the two-tier border test (see `_is_frame_exit_gap`) -- the player
+    the two-tier border test (see `_locate_frame_exit`) -- the player
     verifiably left the frame between the two identity assignments. When
     `gt_boxes`/`frame_size` are missing or dimensions are 0 the exemption is
     never applied -- unverifiable switches still count.
+
+    Transitions at the headline threshold are additionally returned under
+    `transitions`, sorted by `t_to`, with the located absence reported for
+    counted transitions too.
     """
     counts = {_threshold_key(t): 0 for t in thresholds_s}
     exits = {_threshold_key(t): 0 for t in thresholds_s}
+    transitions: list[dict] = []
     for gt_id, seq in id_sequences.items():
         runs: list[list] = []  # [hyp_id, n_frames, first_frame, last_frame]
         for frame_idx, hid in seq:
@@ -907,24 +917,55 @@ def persistent_switch_counts(
             for a, b in zip(surviving, surviving[1:]):
                 if a[0] == b[0]:
                     continue
-                if _is_frame_exit_gap(
+                is_exit, absence = _locate_frame_exit(
                     track_boxes, a[3], b[2], frame_size, seconds_per_frame, stride
-                ):
+                )
+                if is_exit:
                     exits[_threshold_key(t)] += 1
                 else:
                     counts[_threshold_key(t)] += 1
-    return {**counts, "frame_exit": exits}
+                if t == _PERSISTENCE_HEADLINE_S:
+                    transitions.append(
+                        {
+                            "gt_track_id": gt_id,
+                            "prev_id": a[0],
+                            "new_id": b[0],
+                            "t_from": _frame_to_s(a[3], seconds_per_frame, stride),
+                            "t_to": _frame_to_s(b[2], seconds_per_frame, stride),
+                            "prev_run_s": round(a[1] * seconds_per_frame, 2),
+                            "new_run_s": round(b[1] * seconds_per_frame, 2),
+                            "verdict": "frame_exit" if is_exit else "genuine",
+                            "absence": (
+                                {
+                                    "t_from": _frame_to_s(absence[0], seconds_per_frame, stride),
+                                    "t_to": _frame_to_s(absence[1], seconds_per_frame, stride),
+                                }
+                                if absence
+                                else None
+                            ),
+                        }
+                    )
+    transitions.sort(key=lambda r: r["t_to"])
+    return {**counts, "frame_exit": exits, "transitions": transitions}
 
 
-def _is_frame_exit_gap(
+def _locate_frame_exit(
     track_boxes: dict[int, list[float]] | None,
     gap_start: int,
     gap_end: int,
     frame_size: tuple[int, int] | None,
     seconds_per_frame: float,
     stride: int,
-) -> bool:
-    """True only when the transition window [gap_start, gap_end] between two
+) -> tuple[bool, tuple[int, int] | None]:
+    """Locate the largest GT-annotation absence inside the transition window
+    and apply the two-tier border test (see the module constants above).
+    Returns (is_frame_exit, absence) where absence is the (from_frame,
+    to_frame) of the largest gap >= _FRAME_EXIT_MIN_ABSENCE_S, or None --
+    reported for counted transitions too, so "why was this NOT exempt" is
+    auditable from eval.json. Anything unverifiable is (False, ...): the
+    switch then counts.
+
+    True only when the transition window [gap_start, gap_end] between two
     surviving runs spans a positively verified frame exit. The absence is
     located from the GT track's own annotation gaps (the window's edges are
     matched frames and may include border-lip flicker), then the border test
@@ -933,28 +974,28 @@ def _is_frame_exit_gap(
     a panning camera routinely re-annotates the returning player well inside
     the frame (measured 47-244 px on SNMOT-124), but a long absence that
     begins AND ends mid-frame stays counted: that is where a genuine
-    occlusion silent swap would live. Anything unverifiable is False (the
-    switch then counts)."""
-    if not track_boxes or not frame_size or not frame_size[0] or not frame_size[1]:
-        return False
-    if stride <= 0 or seconds_per_frame <= 0:
-        return False
+    occlusion silent swap would live."""
+    if not track_boxes or stride <= 0 or seconds_per_frame <= 0:
+        return False, None
     frames = sorted(f for f in track_boxes if gap_start <= f <= gap_end)
     if len(frames) < 2:
-        return False
+        return False, None
     absent_from, absent_to = max(
         zip(frames, frames[1:]), key=lambda pair: pair[1] - pair[0]
     )
     absence_s = (absent_to - absent_from) * seconds_per_frame / stride
     if absence_s < _FRAME_EXIT_MIN_ABSENCE_S:
-        return False
+        return False, None
+    absence = (absent_from, absent_to)
+    if not frame_size or not frame_size[0] or not frame_size[1]:
+        return False, absence
     at_border = [
         _touches_border(track_boxes[absent_from], frame_size),
         _touches_border(track_boxes[absent_to], frame_size),
     ]
     if absence_s >= _FRAME_EXIT_LONG_ABSENCE_S:
-        return any(at_border)
-    return all(at_border)
+        return any(at_border), absence
+    return all(at_border), absence
 
 
 def _touches_border(box: list[float], frame_size: tuple[int, int]) -> bool:
@@ -966,6 +1007,10 @@ def _touches_border(box: list[float], frame_size: tuple[int, int]) -> bool:
 
 def _threshold_key(t: float) -> str:
     return f"t_{t:g}s"
+
+
+def _frame_to_s(frame_idx: int, seconds_per_frame: float, stride: int) -> float:
+    return round(frame_idx * seconds_per_frame / stride, 2)
 
 
 def _matched_id_sequences(acc) -> dict[int, list[tuple[int, int]]]:

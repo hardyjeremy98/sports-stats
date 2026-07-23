@@ -23,6 +23,7 @@ import type {
   EvalInstance,
   EvalLevelMetrics,
   EvalResult,
+  PersistentSwitchTransition,
   QARecord,
   RunDetail,
 } from "../lib/types";
@@ -63,6 +64,11 @@ export default function LabRunViewer() {
   const playerRef = useRef<VideoOverlayHandle>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [signal, setSignal] = useState<SignalId>("detection_confidence");
+  const [switchClasses, setSwitchClasses] = useState({
+    genuine: true,
+    frameExit: false,
+    raw: false,
+  });
   const [tab, setTab] = useState<TabId>("stages");
   const [qaSubTab, setQaSubTab] = useState<"events" | "identity">("events");
   const [hlTracklet, setHlTracklet] = useState<number | null>(null);
@@ -76,16 +82,68 @@ export default function LabRunViewer() {
   const getTime = useMemo(() => () => playerRef.current?.getTime() ?? 0, []);
   const seek = (t: number) => playerRef.current?.seek(t);
 
+  const goToTransition = (rec: PersistentSwitchTransition) => {
+    seek(Math.max(0, rec.t_to - 1));
+    setLayers((l) => ({ ...l, gt: true, tracklets: true }));
+    setHlGtTrack(rec.gt_track_id);
+    if (rec.level === "tracklet") {
+      setHlPair([rec.prev_id, rec.new_id]);
+      setHlTracklet(null);
+      setHlPlayer(null);
+    } else {
+      setHlPair(null);
+      setHlTracklet(null);
+      setHlPlayer(rec.new_id < 100000 ? rec.new_id : null);
+    }
+  };
+
+  const switchTransitions = useMemo(() => {
+    const ps = artifacts.eval?.persistent_switches;
+    if (!ps) return null;
+    const recs = [...(ps.tracklet.transitions ?? []), ...(ps.entity.transitions ?? [])];
+    return recs.length > 0 || ps.tracklet.transitions ? recs : null;
+  }, [artifacts.eval]);
+
+  const visibleTransitions = useMemo(() => {
+    if (!switchTransitions) return [];
+    return switchTransitions
+      .filter((r) => (r.verdict === "genuine" ? switchClasses.genuine : switchClasses.frameExit))
+      .sort((a, b) => a.t_to - b.t_to);
+  }, [switchTransitions, switchClasses]);
+
   const evalMarkers = useMemo(() => {
     const ev = artifacts.eval;
-    if (!ev || ev.instances.length === 0) return undefined;
-    return ev.instances.map((inst) => ({
-      t: Math.max(0, inst.t),
-      color: inst.level === "entity" ? "#F5C518" : "#8B949E",
-      title: `${inst.level} switch @ ${fmtClock(inst.t)} GT ${inst.gt_label}`,
-      onClick: () => seek(Math.max(0, inst.t - 1)),
+    if (!ev) return undefined;
+    // Pre-transitions artifacts: exactly the old raw view.
+    if (!switchTransitions) {
+      if (ev.instances.length === 0) return undefined;
+      return ev.instances.map((inst) => ({
+        t: Math.max(0, inst.t),
+        color: inst.level === "entity" ? "#F5C518" : "#8B949E",
+        title: `${inst.level} switch @ ${fmtClock(inst.t)} GT ${inst.gt_label}`,
+        onClick: () => seek(Math.max(0, inst.t - 1)),
+      }));
+    }
+    const markers = visibleTransitions.map((rec) => ({
+      t: Math.max(0, rec.t_to),
+      color: rec.verdict === "genuine" ? "#F87171" : "#64748B",
+      title: `${rec.verdict === "genuine" ? "switch" : "frame exit"} ${rec.level} @ ${fmtClock(
+        rec.t_to,
+      )} GT ${rec.gt_label} · ${rec.prev_id} → ${rec.new_id}`,
+      onClick: () => goToTransition(rec),
     }));
-  }, [artifacts.eval]);
+    if (switchClasses.raw) {
+      markers.push(
+        ...ev.instances.map((inst) => ({
+          t: Math.max(0, inst.t),
+          color: "#8B949E",
+          title: `raw ${inst.level} switch @ ${fmtClock(inst.t)} GT ${inst.gt_label}`,
+          onClick: () => seek(Math.max(0, inst.t - 1)),
+        })),
+      );
+    }
+    return markers.length > 0 ? markers : undefined;
+  }, [artifacts.eval, switchTransitions, visibleTransitions, switchClasses.raw]);
 
   if (run.isLoading) return <Spinner label="Loading run" />;
   if (run.isError) return <ErrorNote>{(run.error as Error).message}</ErrorNote>;
@@ -141,8 +199,57 @@ export default function LabRunViewer() {
           />
           <LayerChips layers={layers} onChange={setLayers} artifacts={artifacts} gt={gt} />
           <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <SignalPicker value={signal} onChange={setSignal} />
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <SignalPicker value={signal} onChange={setSignal} />
+                {switchTransitions && (
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-ink-500">
+                    {(
+                      [
+                        ["genuine", "switches", "#F87171"],
+                        ["frameExit", "frame exits", "#64748B"],
+                        ["raw", "raw", "#8B949E"],
+                      ] as const
+                    ).map(([key, label, color]) => (
+                      <button
+                        key={key}
+                        onClick={() => setSwitchClasses((s) => ({ ...s, [key]: !s[key] }))}
+                        className={`rounded border px-2 py-0.5 ${
+                          switchClasses[key]
+                            ? "border-white/20 text-ink-100"
+                            : "border-white/8 text-ink-600"
+                        }`}
+                      >
+                        <span style={{ color: switchClasses[key] ? color : undefined }}>●</span>{" "}
+                        {label}
+                      </button>
+                    ))}
+                    <span className="mx-1 text-ink-700">·</span>
+                    <button
+                      className="rounded border border-white/8 px-2 py-0.5 hover:text-ink-100"
+                      title="previous switch"
+                      onClick={() => {
+                        const t = getTime();
+                        const prev = [...visibleTransitions].reverse().find((r) => r.t_to < t + 0.95);
+                        if (prev) goToTransition(prev);
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      className="rounded border border-white/8 px-2 py-0.5 hover:text-ink-100"
+                      title="next switch"
+                      onClick={() => {
+                        const t = getTime();
+                        const next = visibleTransitions.find((r) => r.t_to - 1 > t + 0.05);
+                        if (next) goToTransition(next);
+                      }}
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
               <span className="text-[11px] text-ink-500">
                 red cells = low confidence · click to seek
               </span>
@@ -263,6 +370,7 @@ export default function LabRunViewer() {
                 hasGroundTruth={!!r.video?.has_ground_truth}
                 onReEvaluate={() => reEvaluate.mutate()}
                 reEvaluating={reEvaluate.isPending}
+                onTransition={goToTransition}
                 onInstance={(inst) => {
                   seek(Math.max(0, inst.t - 1)); // land just before the switch
                   setLayers((l) => ({ ...l, gt: true, tracklets: true }));
@@ -1228,6 +1336,7 @@ function EvalTab({
   onReEvaluate,
   reEvaluating,
   onInstance,
+  onTransition,
 }: {
   artifacts: RunArtifacts;
   gt: GtIndex | null;
@@ -1235,12 +1344,28 @@ function EvalTab({
   onReEvaluate: () => void;
   reEvaluating: boolean;
   onInstance: (inst: EvalInstance) => void;
+  onTransition: (rec: PersistentSwitchTransition) => void;
 }) {
   const ev = artifacts.eval;
   const [levelFilter, setLevelFilter] = useState<EvalLevelFilter>("all");
   const [gtFilter, setGtFilter] = useState<number | "all">("all");
   const [layerFilter, setLayerFilter] = useState<AttributionLayer | "all">("all");
   const [sortBy, setSortBy] = useState<EvalSortBy>("time");
+
+  const transitions = useMemo(() => {
+    const ps = ev?.persistent_switches;
+    if (!ps) return null;
+    // Same presence check as the page-level `switchTransitions` memo: old
+    // artifacts written before per-transition records existed have
+    // `persistent_switches` but no `.transitions` key on either level, and
+    // must keep rendering exactly today's raw-instance-only view.
+    const recs = [...(ps.tracklet.transitions ?? []), ...(ps.entity.transitions ?? [])];
+    if (!(recs.length > 0 || ps.tracklet.transitions)) return null;
+    let list = recs;
+    if (levelFilter !== "all") list = list.filter((r) => r.level === levelFilter);
+    if (gtFilter !== "all") list = list.filter((r) => r.gt_track_id === gtFilter);
+    return list.sort((a, b) => a.t_to - b.t_to);
+  }, [ev, levelFilter, gtFilter]);
 
   const layerOptions = useMemo(() => {
     if (!ev) return [];
@@ -1448,6 +1573,54 @@ function EvalTab({
           ))}
         </div>
       </div>
+
+      {transitions !== null && (
+        <div>
+          <div className="mb-1 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-500">
+            Switches (persistent, 1s)
+          </div>
+          {transitions.length === 0 ? (
+            <div className="py-2 text-[12px] text-ink-500">
+              No persistent switches at the current filters.
+            </div>
+          ) : (
+            <table className="w-full text-[12px]">
+              <tbody>
+                {transitions.map((rec, i) => (
+                  <tr
+                    key={i}
+                    className="cursor-pointer border-b border-white/5 last:border-0 hover:bg-turf-900"
+                    onClick={() => onTransition(rec)}
+                  >
+                    <td className="py-1.5">
+                      <span
+                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                          rec.verdict === "genuine"
+                            ? "bg-team-away/20 text-team-away"
+                            : "bg-white/5 text-ink-500"
+                        }`}
+                      >
+                        {rec.verdict === "genuine" ? "switch" : "frame exit"}
+                      </span>
+                    </td>
+                    <td className="py-1.5 font-mono text-ink-300">
+                      {rec.prev_id} → {rec.new_id}
+                    </td>
+                    <td className="py-1.5 text-ink-400">{rec.gt_label}</td>
+                    <td className="py-1.5 font-mono text-ink-400">
+                      {fmtClock(rec.t_from)}–{fmtClock(rec.t_to)}
+                    </td>
+                    <td className="py-1.5 text-right font-mono text-[11px] text-ink-500">
+                      {rec.prev_run_s.toFixed(1)}s → {rec.new_run_s.toFixed(1)}s
+                    </td>
+                    <td className="py-1.5 pl-2 text-[11px] text-ink-600">{rec.level}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {visibleInstances.length === 0 && (
         <div className="py-3 text-center text-[13px] text-ink-500">
