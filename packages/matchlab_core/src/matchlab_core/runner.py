@@ -129,7 +129,7 @@ class PipelineRunner:
         players = self._exec(
             StageKind.ASSOCIATE, lambda s: s.associate(ctx, tracklets, teams)
         )
-        self._index(ArtifactName.ASSOCIATION, ArtifactName.REID_EMBEDDINGS)
+        self._index(ArtifactName.ASSOCIATION, ArtifactName.REID_EMBEDDINGS, ArtifactName.NAMING)
         if players is None:
             # No associator configured: degrade to one entity per tracklet.
             from matchlab_core.stages.associate.identity_fallback import one_entity_per_tracklet

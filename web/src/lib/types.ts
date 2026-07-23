@@ -609,6 +609,37 @@ export interface AssociationReport {
   entities: AssociationEntitySummary[];
 }
 
+// ---- Closed-roster naming decisions (naming.json, reid-engine) ----
+
+export type NamingDecision = "named" | "abstain";
+export type ConfidenceTier = "auto_accept" | "adjudicate" | "qa";
+
+export interface AnchorRecord {
+  tracklet_id: number;
+  candidate: string;
+  log_lr: number;
+  source: string; // anchor-source name, e.g. "oracle-jersey"
+}
+
+export interface ThreadNaming {
+  thread_id: number; // == PlayerEntity.player_id
+  tracklet_ids: number[];
+  label: string | null; // roster candidate when decision == "named"
+  posterior: Record<string, number>; // roster candidate -> probability
+  margin: number | null; // top1 - top2 posterior
+  decision: NamingDecision;
+  tier: ConfidenceTier | null; // null until the tier slice routes it
+  anchors_consumed: AnchorRecord[];
+}
+
+export interface NamingReport {
+  impl: string;
+  params: Record<string, unknown>;
+  roster: string[];
+  threads: ThreadNaming[];
+  calibration: Record<string, unknown>;
+}
+
 // ---- Identity QA labels (human annotations; never mutate run artifacts/entities) ----
 
 export type IdentityLabelKind = "pair" | "merge" | "split" | "roster";

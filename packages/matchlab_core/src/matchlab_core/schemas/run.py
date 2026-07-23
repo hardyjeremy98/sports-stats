@@ -78,6 +78,7 @@ class ArtifactName(StrEnum):
     ASSOCIATION = "association"      # association.json — AssociationReport (pair decisions)
     REID_EMBEDDINGS = "reid_embeddings"  # reid_embeddings.npz — per-tracklet re-ID features
     FRAME_FEATURES = "frame_features"    # frame_features.npz — per-(tracklet, frame) features
+    NAMING = "naming"                    # naming.json — NamingReport (roster naming decisions)
 
 
 class TimelineBucket(BaseModel):

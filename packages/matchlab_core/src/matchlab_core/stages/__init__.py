@@ -6,6 +6,7 @@ from matchlab_core.stages.associate import (  # noqa: F401
     global_embed,
     global_reid,
     identity_fallback,
+    reid_engine,
 )
 from matchlab_core.stages.calibrate import (  # noqa: F401
     roboflow_keypoints,
