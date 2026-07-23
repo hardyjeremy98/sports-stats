@@ -1,5 +1,14 @@
 # PRD: Reference Action-Spotting Stage (T-DEED)
 
+> 🔄 **Research-posture update (2026-07-24):** the "shippable vs reference" framing running
+> through this PRD is **void** — the whole repo is research and there is no shippable target
+> (see CLAUDE.md → Research posture). Read every "reference-only / never shipped /
+> non-shippable" qualifier below as legacy licensing provenance, not capability status: the
+> T-DEED stage, external env, and exchange contract this PRD built **are** the spotting
+> capability, fully implemented. The "clean-room shippable spotter follow-up PRD" named
+> below is dead and will not be written. Only SPO-50 (the real-weights benchmark pass)
+> remains open.
+
 **Status:** Draft for decomposition (2026-07-19).
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
@@ -219,10 +228,9 @@ metric, assert equality" shape.
 
 ## Out of Scope
 
-- **A shippable spotter.** GPL code and NC-trained weights make this stage reference-only.
-  The clean-room, permissively-trained T-DEED-equivalent (and the permissive event-labelled
-  training data it needs) is a **separate follow-up PRD** — same reference→shippable sequence
-  as SPO-32/35 → shippable-tracklet.
+- ~~**A shippable spotter.**~~ **Dead (2026-07-24, research posture):** there is no
+  shippable target, so no clean-room retrain follow-up exists or will be written. The
+  external T-DEED stage as built *is* the spotting capability.
 - **Any training or fine-tuning.** Released weights, inference only.
 - **Classic 17-class SoccerNet Action Spotting** and its feature-based SOTA (ASTRA/COMEDIAN)
   and the Baidu/ResNet feature-extraction pipeline they require.
@@ -242,15 +250,14 @@ metric, assert equality" shape.
   fit and current-SOTA lineage. Cross-paper avg-mAP numbers mix test-vs-challenge splits and
   tight-vs-loose tolerances; the metric we build and the numbers we quote must be pinned to a
   named split to be comparable.
-- **Licensing summary to carry into the follow-up PRD:** T-DEED GPL-3.0, ASTRA GPL-3.0,
-  COMEDIAN CeCILL-2.1, Spivak Apache-2.0 code / CC-BY-4.0 weights; **all** released weights are
-  SoccerNet-trained (non-commercial data). Reference reimplementation + retrain on permissive
-  data is the only shippable path.
+- **Licensing provenance (recorded facts only, no follow-up exists):** T-DEED GPL-3.0, ASTRA
+  GPL-3.0, COMEDIAN CeCILL-2.1, Spivak Apache-2.0 code / CC-BY-4.0 weights; all released
+  weights are SoccerNet-trained.
 - **Reference URLs:** SoccerNet Ball Action Spotting task
   (https://www.soccer-net.org/tasks/ball-action-spotting); T-DEED paper
   (https://arxiv.org/html/2404.05392) and code (GPL-3.0, https://github.com/arturxe2/T-DEED);
   SoccerNet 2025 challenge results (https://arxiv.org/html/2508.19182v1).
-- **Docs to update on landing:** `implementation-status.md` (spotting = reference/
-  non-shippable capability + measured avg-mAP, pinned to split + weights + revision);
+- **Docs to update on landing:** `implementation-status.md` (spotting capability + measured
+  avg-mAP, pinned to split + weights + revision);
   `configs/datasets/README.md` (new ball-action tier); `CLAUDE.md` only if a new
   operator command (`ingest-soccernet-ball`, the spotting eval config) warrants a one-liner.

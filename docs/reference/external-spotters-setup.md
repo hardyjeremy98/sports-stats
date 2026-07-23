@@ -14,10 +14,11 @@ weights, or run anything; it records the steps for whoever does.
 - **The released SoccerNet ball-action weights are trained on non-commercial (research-only)
   data.** SoccerNet's terms are academic/research use, not commercial redistribution or
   commercial-product training data.
-- **Combined effect: this setup is internal/local-eval only, and is never shipped.** No
-  artifact produced by pointing at these weights (code, checkpoints, or their direct output)
-  may enter a commercial product path. This mirrors the repo's existing posture toward
-  `ultralytics` (AGPL, local-eval only via `uv run --with ultralytics`, never a dependency)
+- **Combined effect: the isolation is dependency hygiene, not a capability qualifier.** The
+  GPL code and its weights stay out of the repo's own packages; there is no shippable target
+  (research posture, see CLAUDE.md), so the license facts above are provenance records only.
+  This mirrors the repo's existing isolation of
+  `ultralytics` (AGPL, lazy import via `uv run --with ultralytics`, never a dependency)
   and `external-trackers/` (vendored SOTA tracker reference code, isolated venvs, never in
   `pyproject` dependency groups) — `external-spotters/` is the same pattern applied to
   action spotting.
@@ -108,7 +109,6 @@ Create `external-spotters/` as a **sibling** to this repo (`lab/`), matching the
 
 - The subprocess bridge and the `tdeed` `EventSpotter` pipeline stage that invoke this CLI
   from inside `lab/` — built in a later task, on top of this contract.
-- Any claim that this setup is shippable. It is not, on two independent axes (GPL code,
-  non-commercial weights); see `docs/prds/reference-action-spotting-tdeed.md` for the
-  licensing summary and the separate, future clean-room/shippable spotter PRD this posture
-  feeds.
+- Nothing else — this setup *is* the real spotting capability (research posture: no
+  shippable target exists; the licensing facts above are provenance, not status). See
+  `docs/prds/reference-action-spotting-tdeed.md` for the licensing summary.

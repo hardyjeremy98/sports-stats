@@ -55,8 +55,9 @@ and **diff two runs of the same clip** (e.g. two tracker configs) side by side.
 ### Models & licensing
 
 v1 leans on [roboflow/sports](https://github.com/roboflow/sports) (MIT) — its fine-tuned
-player/ball/pitch-keypoint detection models and team-classification approach. Shipped code
-avoids AGPL dependencies (no ultralytics/boxmot at runtime): the BoT-SORT tracker is a
+player/ball/pitch-keypoint detection models and team-classification approach. The in-repo
+packages avoid AGPL dependencies (no ultralytics/boxmot at runtime — a dependency-isolation
+choice; this is a research repo with no shippable target): the BoT-SORT tracker is a
 self-contained implementation, and detection runs through the Roboflow `inference` client.
 See `../docs/technology/10-libraries.md` for the full license audit.
 

@@ -19,12 +19,11 @@ instead of box GT). Same `sequences`/`role`/determinism rules below apply once m
 actually ingested; the manifest currently ships with an empty `sequences: []` because data
 acquisition is out-of-band (see next paragraph) and nothing has been downloaded yet.
 
-**Evaluation benchmark only, non-commercial, out-of-band acquisition.** Like `sportsmot.json`,
-this tier trains nothing shippable and is never redistributed with the product (CLAUDE.md →
-Licensing boundaries carries the one-liner). Unlike SportsMOT, the non-commercial reading here
+**Evaluation tier, out-of-band acquisition.** Like `sportsmot.json`, this tier's data is
+never redistributed (CLAUDE.md → Licensing notes carries the one-liner; license terms are
+provenance facts, not capability gates — research posture). The non-commercial reading here
 is an *inference*, not a directly-confirmed term for ball-action data specifically — see the
-caveat recorded in `docs/implementation-status.md` and get a human licensing sign-off before
-any use beyond internal benchmarking. The raw videos and `Labels-ball.json` files are **not**
+caveat recorded in `docs/implementation-status.md`. The raw videos and `Labels-ball.json` files are **not**
 fetched by any command in this repo — obtain them per SoccerNet's own access process and place
 them under `data/soccernet/ball/<split>/<match>/` before running `ingest-soccernet-ball`.
 **Open, unverified concern:** the ingest adapter assumes one video per match; the real release

@@ -16,50 +16,63 @@ project in Linear.
 ## Status vocabulary
 
 - **Implemented:** Runs through the normal pipeline and produces its intended artifact.
-- **Prototype:** Runs, but has known evidence, licensing, evaluation, or robustness limitations.
+- **Prototype:** Runs, but has known evidence, evaluation, or robustness limitations.
 - **Stub:** Registered interface or placeholder that intentionally does not implement the feature.
 - **Planned:** Agreed direction with no runnable implementation.
 - **Research candidate:** Documented option that has not been selected or implemented.
 
 ## Pipeline and identity capabilities
 
-> **Default / current-best tracklet system (as of 2026-07-19): the hardened BoT-SORT baseline.**
+> **Repo-wide research posture (recorded 2026-07-24): there is no shippable target.**
+> Everything in MatchDay is research — if a capability runs locally on data, it is **fully
+> implemented**, full stop. The 2026-07-20 research-mode pivot applies to the whole repo, not
+> just the tracker program. "Shippable / non-shippable / reference-only / licensing-clean"
+> qualifiers surviving in this file's history, the dated reports, code identifiers (e.g. the
+> `tdlp-shippable` stage name), and Linear are **legacy framing** — license terms are
+> provenance facts, never capability status. See CLAUDE.md → Research posture.
+>
+> **Current-best tracklet system: TDLP-full (SOTA) — fully implemented.** MixSort YOLOX +
+> RTMPose keypoints + KPR appearance + the released TDLP link-prediction head, runnable as
+> the native `tdlp-full` TRACK stage (`stages/track/tdlp_full/`, config
+> [`configs/pipeline.tdlp-full.yaml`](../configs/pipeline.tdlp-full.yaml)) via a subprocess
+> bridge to the `external-trackers/` venvs, and alternatively importable via the SPO-18
+> exchange. Measured: **SportsMOT (in-domain) IDsw 6–9 / HOTA 0.85–0.92; SoccerNet
+> (cross-domain, oracle dets) ≈ on par with BoT-SORT (HOTA ~0.75)** — its edge is
+> domain-bound to SportsMOT, and detection is the dominant real-world bottleneck. Close-out:
+> [`docs/reports/2026-07-20-sota-tdlp-research-outcome.md`](reports/2026-07-20-sota-tdlp-research-outcome.md).
+>
+> **Default in-repo baseline config: the hardened BoT-SORT tracker.**
 > Config [`configs/pipeline.v1-hardened-eval.yaml`](../configs/pipeline.v1-hardened-eval.yaml)
 > (frozen-detection variant `pipeline.v1-hardened-frozen-eval.yaml`), impl **`botsort`**
-> (`stages/track/botsort.py`, via `roboflow/trackers==2.4.0`). Fully licensing-clean (a
-> heuristic tracker — Kalman motion model + IoU gating + camera-motion compensation, **no
-> learned weights, no NC/research data**) and runnable on any box. Tuned params (SPO-22):
+> (`stages/track/botsort.py`, via `roboflow/trackers==2.4.0`). A dependency-light heuristic
+> tracker (Kalman motion model + IoU gating + camera-motion compensation, no learned
+> weights) runnable on any box. Tuned params (SPO-22):
 > `track_activation_threshold 0.25`, `lost_track_buffer_s 1.0`, `minimum_consecutive_frames 3`,
 > `min_length 5`, `enable_cmc true` (`sparseOptFlow`, `cmc_downscale 2`),
 > `minimum_iou_threshold_first/second/unconfirmed 0.2/0.5/0.3`, `high_conf_det_threshold 0.4`,
 > `instant_first_frame_activation true`, `state_estimator xcycwh`.
 > Measured on held-out sequences over **frozen reference detections** (tracker isolated from
 > detection): SportsMOT **IDsw 31 / HOTA 0.785 / purity 0.945**; SoccerNet **IDsw 144 / HOTA
-> 0.519 / purity 0.926** — purity-equivalent to the non-shippable SOTA TDLP reference ceiling.
-> **Selected at the SPO-34 Phase-3 gate**: no candidate (BoT-SORT+body-ReID/SPO-31, OC-SORT,
-> TDLP) cleared the pre-registered promotion bar, so this baseline stands as the interim
-> shippable tracker. `botsort-reid` (SPO-31) is a retained optional lever (marginally better
-> IDsw, sub-bar on purity).
+> 0.519 / purity 0.926** — purity-equivalent to the SOTA TDLP reference ceiling.
+> **Selected at the SPO-34 Phase-3 gate**: no off-the-shelf candidate
+> (BoT-SORT+body-ReID/SPO-31, OC-SORT, TDLP-bbox) cleared the pre-registered promotion bar,
+> so this baseline stands as the default comparator config. `botsort-reid` (SPO-31) is a
+> retained optional lever (marginally better IDsw, sub-bar on purity).
 >
-> **The shippable multi-cue TDLP program (SPO-36–44) was CLOSED/superseded (2026-07-20)** by a
-> pivot to **research mode** (adopt SOTA directly, drop the shippable/licensing-clean goal).
-> Outcome: the **SOTA TDLP-full** tracker (MixSort YOLOX + RTMPose + KPR + released TDLP head)
-> runs in the isolated `external-trackers/` env and its results are imported + GT-scored in the
-> Lab — **SportsMOT (in-domain) IDsw 6–9 / HOTA 0.85–0.92; SoccerNet (cross-domain, oracle
-> dets) ≈ on par with BoT-SORT (HOTA ~0.75)**. Finding: TDLP-full's edge is domain-bound to
-> SportsMOT, and detection is the dominant real-world bottleneck. It is a **research/local
-> tool**, not a native in-repo stage, and not shippable (NC/research weights). The hardened
-> BoT-SORT baseline above remains the default. Full close-out:
-> [`docs/reports/2026-07-20-sota-tdlp-research-outcome.md`](reports/2026-07-20-sota-tdlp-research-outcome.md).
+> **The multi-cue TDLP rebuild program (SPO-36–44) was CLOSED (2026-07-20)** by the
+> research-mode pivot: adopt SOTA TDLP-full directly instead of rebuilding an equivalent —
+> the rebuild's remaining issues (SPO-39/40/44) were canceled as pointless, since TDLP-full
+> already runs (see the callout above). Its in-repo partial assembly survives as the
+> unmaintained `tdlp-shippable` stage (legacy name).
 
 | Capability | Status | Current implementation | Primary location |
 |---|---|---|---|
 | Player and ball detection | Implemented | Roboflow inference, local YOLO, synthetic detector | `matchlab_core/stages/detect/` |
 | Oracle (ground-truth) detection | Implemented | Emits a video's GT boxes as detections instead of running a real detector, to isolate tracker/association behavior from detection quality (the "tracker ceiling" experiment); GT resolved from an explicit `gt_path` param or the sibling `<video>.gt.json` convention, loud error if neither exists; optional seed-deterministic dropout/jitter knobs (off by default); metadata-only, no frame decode | `matchlab_core/stages/detect/oracle.py` (`impl: oracle`), `configs/pipeline.oracle-eval.yaml` |
-| SportsMOT frozen comparator detection (SPO-25) | Prototype | `yolox-local` stage loads a vendored, inference-only MixSort YOLOX-X (`matchlab_core/vendor/mixsort_yolox/`, fetched from `github.com/MCG-NJU/MixSort` @ pinned commit `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6`, MIT repo / Apache-2.0 upstream YOLOX code) against the frozen checkpoint `data/weights/mixsort/yolox_x_sports_train.pth.tar` (sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`). Same "fail loud on missing weights" / `provenance()` idiom as `yolo-local`. **Selection-only, non-shippable**: the checkpoint was fine-tuned on SportsMOT (CC BY-NC 4.0) — it exists to freeze a stronger detection floor for tracker selection (Phase 2/3), never to ship. Measured: mean detection_ap 0.9844 vs the hardened incumbent's 0.2641 over the same 9 same-protocol SportsMOT sequences; see [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md). | `matchlab_core/vendor/mixsort_yolox/`, `matchlab_core/stages/detect/yolox_local.py`, `configs/pipeline.yolox-sportsmot-eval.yaml` |
-| Short-term tracking (**DEFAULT tracker**) | Implemented | **The current best / default tracklet system — hardened BoT-SORT (see the callout above `configs/pipeline.v1-hardened-eval.yaml`).** BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (shipped configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `matchlab_core/stages/track/botsort.py` |
+| SportsMOT frozen comparator detection (SPO-25) | Implemented | `yolox-local` stage loads a vendored, inference-only MixSort YOLOX-X (`matchlab_core/vendor/mixsort_yolox/`, fetched from `github.com/MCG-NJU/MixSort` @ pinned commit `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6`, MIT repo / Apache-2.0 upstream YOLOX code) against the frozen checkpoint `data/weights/mixsort/yolox_x_sports_train.pth.tar` (sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`). Same "fail loud on missing weights" / `provenance()` idiom as `yolo-local`. Checkpoint provenance: fine-tuned on SportsMOT (CC BY-NC 4.0); adopted to freeze a stronger detection floor for tracker selection (Phase 2/3). Measured: mean detection_ap 0.9844 vs the hardened incumbent's 0.2641 over the same 9 same-protocol SportsMOT sequences; see [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md). | `matchlab_core/vendor/mixsort_yolox/`, `matchlab_core/stages/detect/yolox_local.py`, `configs/pipeline.yolox-sportsmot-eval.yaml` |
+| Short-term tracking (**DEFAULT tracker**) | Implemented | **The current best / default tracklet system — hardened BoT-SORT (see the callout above `configs/pipeline.v1-hardened-eval.yaml`).** BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (in-repo configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `matchlab_core/stages/track/botsort.py` |
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
-| Multi-cue learned tracking (in-repo `tdlp-shippable`) | Experimental — **CLOSED/superseded, not the default** | The shippable-equivalent program was retired 2026-07-20 (research-mode pivot; see the callout above). This in-repo stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT and is not maintained; the SOTA TDLP-full path (external env, imported to the Lab) replaced it for research. `tdlp-shippable` (`StageKind.TRACK`): the assembled licensing-clean multi-cue tracker — RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder replaces the research-only KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). **Runs end-to-end on arbitrary video** (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint. **No shippable checkpoint yet** — a preliminary NC-eval-tier-tuning-trained head (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover) yields the first Bar A number (non-shippable); the shippable retrain (SPO-40) is **blocked on permissive association-training data (SPO-39, HITL)**. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
+| Multi-cue learned tracking (in-repo `tdlp-shippable`, legacy name) | Superseded — **CLOSED, not the default, not maintained** | A partial in-repo TDLP rebuild from the retired SPO-36–44 rebuild program (closed 2026-07-20 by the research-mode pivot; TDLP-full — see the callout above — replaced it outright). This stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT. `tdlp-shippable` (`StageKind.TRACK`): RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder in place of KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). Runs end-to-end on arbitrary video (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint; only a preliminary eval-tier-trained head exists (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover). The once-planned permissive-data retrain (SPO-39/40) was **canceled, not blocked** — with TDLP-full implemented there is nothing left to rebuild. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
@@ -76,14 +89,14 @@ project in Linear.
 | Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `matchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `matchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
-| Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained non-commercial weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) and is **reference/internal only, never shipped** — mirrors the `ultralytics`/`external-trackers/` posture. A permissive in-repo reference CLI (`matchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
+| Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) — the same env-isolation pattern as `ultralytics`/`external-trackers/` (dependency hygiene, not a capability qualifier). A permissive in-repo reference CLI (`matchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
 
 Paths in this table are relative to `packages/matchlab_core/src/matchlab_core/` unless otherwise
 stated.
 
 `TrackletFrame` (`schemas/tracks.py`) carries a `source` provenance field —
 `"observed"`/`"predicted"`/`"interpolated"`, defaulting to `"observed"` so artifacts written before
-this field existed still parse — currently always `"observed"` from the shipped tracker
+this field existed still parse — currently always `"observed"` from the in-repo tracker
 implementations; no stage yet writes `predicted`/`interpolated` frames.
 
 ## Provenance and reproducibility
@@ -119,7 +132,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   `packages/matchlab_core/src/matchlab_core/runner.py`.
 - **Hosted-detection response cache** (SPO-10 part 2): `RoboflowDetector` gains `cache_dir`
   (default `data/cache/hosted-detections`) and `cache_mode` (`off` / `readwrite` / `replay`)
-  params; both shipped roboflow configs (`configs/pipeline.v1.yaml`,
+  params; both in-repo roboflow configs (`configs/pipeline.v1.yaml`,
   `configs/pipeline.v1-iou-baseline.yaml`) default to `readwrite`. Cache keys are
   `sha256(model_id, confidence, sha256-of-raw-pixel-bytes, shape, dtype)` — frame index is
   deliberately excluded, so identical pixel content recurring across frames/strides/runs
@@ -376,11 +389,11 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   videos so no clip correlation crosses the held-out/tuning boundary. Ingested 2026-07-17 via
   `matchlab-train ingest-sportsmot`; one held-out sequence scored end-to-end through the
   oracle-eval pipeline to confirm the GT is scorable. **License: CC BY-NC 4.0 — non-commercial /
-  research only.** This tier is an evaluation benchmark only; SportsMOT must never train shipped
-  models or be redistributed with the product (see CLAUDE.md → Licensing boundaries). Upstream
-  distribution is also CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the
-  gate was not clicked through — **commercial use needs an explicit recorded licensing sign-off,
-  which is still open** (raised at SPO-16, deferred to the owner of product licensing risk).
+  research only.** Fine for this research repo as an evaluation tier; do not
+  redistribute the data itself (see CLAUDE.md → Licensing notes). Upstream distribution is
+  CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the gate was not
+  clicked through. The formerly-open "commercial-use sign-off" question (SPO-16) is **moot**
+  under the research posture — there is no commercial or shippable target.
 - Action-spotting scoring (SPO-47/49): a timestamped-event ground-truth representation
   (`EventGroundTruth`, `matchlab_core/event_gt.py`) distinct from the box/track
   `GroundTruth` used everywhere else, an `ingest-soccernet-ball` CLI that registers SoccerNet
@@ -401,12 +414,9 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
     `Labels-ball.json` — unverified since no real copy has been downloaded to check against
     (see the adapter's module docstring and `configs/datasets/soccernet-ball.json`'s notes).
     The adapter will need extending before a real ingest if this holds.
-  - The `soccernet-ball` tier's non-commercial/eval-only licensing note is an **inference**,
-    not a confirmed reading of SoccerNet's ball-action-specific terms — CLAUDE.md's existing
-    licensing-boundaries section classifies SportsMOT and SoccerNet-tracking, not ball-action
-    data specifically. Treat it as provisional and get an explicit human licensing sign-off
-    before any use beyond internal benchmarking (mirrors the still-open SportsMOT sign-off
-    above).
+  - The `soccernet-ball` tier's licensing note is an **inference**, not a confirmed reading
+    of SoccerNet's ball-action-specific terms. It is recorded as provenance only and does not
+    qualify capability status (research posture); do not redistribute the data regardless.
 
 Primary locations:
 
@@ -500,8 +510,8 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   candidate has both `tuning` and `held_out` rows; zero completed rows still produces an
   entry with `n_sequences: 0, metrics: None` — never omitted) — the two tables are never
   merged, and an `ImportCandidate` with `reference_only: true` is refused outright if it
-  names `comparison_class: "matched_data"` (a reference-only external system can never enter
-  a shipping comparison). An optional `Params.compare = {baseline: <matched_data candidate>}`
+  names `comparison_class: "matched_data"` (an as-published external system's rows never mix
+  into the matched-data table). An optional `Params.compare = {baseline: <matched_data candidate>}`
   plus `Params.tolerances` (pre-registered per gate issue, never a hardcoded default in code)
   produces `summary.comparison.verdicts`: per other matched_data candidate, per tolerance
   metric, `"improved"`/`"regressed"`/`"within_tolerance"` (a small `LOWER_IS_BETTER` set —
@@ -625,16 +635,16 @@ Measured local findings recorded by the repository guidance:
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
-  the hardened BoT-SORT baseline stands as the interim shippable tracker. As-published references
+  the hardened BoT-SORT baseline stands as the in-repo default config. As-published references
   (CAMELTrack, full TDLP) run via the import adapter establish the SOTA ceiling: on **identical
   CAMELTrack multi-cue features** (only the association head differs), full **TDLP's
   link-prediction head beat CAMELTrack's transformer head on every metric** (SportsMOT held-out,
   5-seq: purity 0.968 vs 0.941, mixed-track 10.1 vs 18.3 s, HOTA 0.910 vs 0.893), and
   **appearance+pose is decisive within TDLP** (bbox-only 0.868 → full 0.953 purity; the SPO-32
   "TDLP over-connects" result was a missing-appearance artifact). SPO-34 selected the **TDLP
-  link-prediction head** as the architecture for the shippable build
-  (`docs/prds/shippable-multi-cue-tracklet-system.md`). All SOTA weights are non-shippable
-  (CC BY-NC SportsMOT training data + research-only ReID); the build retrains on permissive data.
+  link-prediction head** as the winning architecture; the rebuild program that followed
+  (`docs/prds/shippable-multi-cue-tracklet-system.md`) was closed by the 2026-07-20
+  research-mode pivot — TDLP-full is adopted directly (fully implemented, see the top callout).
   Reports: `docs/reports/2026-07-19-{spo34-phase3-exit-gate,tdlp-full-spike}.md`,
   `docs/reports/2026-07-18-spo3{0,1,2,3,5}-*.md`.
 - **TDLP-full carries tracklet ids across frame exits, sometimes onto the wrong player
@@ -650,7 +660,7 @@ Measured local findings recorded by the repository guidance:
   re-links (GT 7/9/20) reconnected correctly. Also observed directly on video (human review,
   2-3 s absences re-linked). Disposition: TDLP is a frozen research tool — not retuned; the
   planned re-ID/tracklet-stitching layer owns cross-exit identity (ADR 002: offline, full-match
-  evidence; shipped BoT-SORT already fragments at `lost_track_buffer_s: 1.0`). Wrong bridges
+  evidence; the default BoT-SORT config already fragments at `lost_track_buffer_s: 1.0`). Wrong bridges
   are measurable as tracklet impurity (`mixed_track_seconds`) plus genuine persistent switches
   — the acceptance harness for that stitcher. Optional for future frozen runs:
   `remember_threshold: 25` (1 s) to match BoT-SORT's horizon. Audit provenance: the
@@ -743,8 +753,8 @@ Measured local findings recorded by the repository guidance:
   export byte-identical on re-export; one fp32/GPU repeat-inference check bitwise-identical.
   Separately, the SoccerNet tier's hosted incumbent was frozen via the existing response cache
   (12 sequences, confidence 0.1, 9000 entries) and proven replayable — zero network, byte-
-  identical `det.txt` — with no code change beyond the existing cache. The YOLOX weights remain
-  **selection-only, non-shippable** (CC BY-NC 4.0 training data); this closes the Phase 0 stop/go
+  identical `det.txt` — with no code change beyond the existing cache. The YOLOX checkpoint's
+  provenance (CC BY-NC 4.0 training data) is recorded in the manifest; this closes the Phase 0 stop/go
   decision's Phase 2 scope and hands inputs to the SPO-28 gate (HITL, not yet decided). Code
   revision: `phase2-frozen-detections` branch off `main` `5c9229a`.
 
@@ -759,12 +769,9 @@ report, run set, dataset split, and code/model revision.
    curves (currently only single-run snapshot numbers exist, not trends across frames or a
    run set).
 4. Run the pending SPO-50 human-gated benchmark pass (real T-DEED weights, GPU, the
-   `external-spotters/` env) to get the first measured `avg-mAP@1` number, then design and
-   scope the follow-up **shippable clean-room T-DEED-equivalent spotter** — a permissively
-   licensed, permissively trained retrain of the ball-action-spotting capability, the same
-   reference→shippable sequence the tracklet program followed (SPO-32/35 → the shippable
-   multi-cue tracklet system, `docs/prds/shippable-multi-cue-tracklet-system.md`) — per the
-   Out of Scope section of `docs/prds/reference-action-spotting-tdeed.md`.
+   `external-spotters/` env) to get the first measured `avg-mAP@1` number. (The formerly
+   planned "clean-room spotter retrain" follow-up is dead — research posture; T-DEED as
+   integrated *is* the spotting capability.)
 
 ## Maintenance checklist
 

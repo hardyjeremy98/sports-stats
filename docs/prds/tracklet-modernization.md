@@ -1,5 +1,12 @@
 # PRD: Benchmark-First Tracklet Modernization Program
 
+> 🔄 **Research-posture update (2026-07-24):** every "shippable / non-shippable /
+> selection-only / shipping path" qualifier in this document is **legacy** — the whole repo
+> is research and there is no shippable target (see CLAUDE.md → Research posture). Phases
+> 0–3's measurements stand as history; the forward build/ship program (Phases 4–5, later the
+> `shippable-multi-cue-tracklet-system` PRD) is retired — TDLP-full is adopted directly and
+> tracklet formation is fully implemented.
+
 **Status:** Draft for decomposition; amended 2026-07-17 — Phase 2 rescoped from a
 matched-data detector fine-tuning ladder to adoption of frozen reference detectors,
 consistent with the Phase 0 exit-gate decision (SPO-21, detection-first; see Phase 2

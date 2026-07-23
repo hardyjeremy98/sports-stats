@@ -57,23 +57,34 @@ uv sync --group cv --group eval --group dev
 `face` = insightface (optional). Python is pinned to 3.12 via `.python-version` — system 3.14
 breaks pydantic-core builds; don't remove the pin.
 
-### Licensing boundaries (enforced by dependency layout, don't undo)
+### Research posture (overrides all older "shippable" framing)
 
-- **ultralytics is AGPL and deliberately not a dependency.** The `yolo-local` detect/calibrate
-  stages import it lazily; supply it per-invocation with `uv run --with ultralytics`
-  (local-eval only, never shipped). Shipping configs use the Roboflow `inference` client.
-- **insightface model packs (buffalo_l) are research-only** — face identity stays behind the
-  `face` extra and a config flag.
-- **SportsMOT is CC BY-NC 4.0 (non-commercial) and agreement-gated** — usable as a
-  benchmark/evaluation tier only (`configs/datasets/sportsmot.json`); never train shipped
-  models on it and never redistribute it with the product. Its upstream terms also require a
-  CodaLab agreement not to redistribute; using it commercially needs a recorded licensing
-  sign-off, not just an engineering note. SoccerNet is the unrestricted evaluation tier.
-- **T-DEED (real action spotter) is GPL-3.0 code + non-commercial SoccerNet-trained weights,
-  isolated in a sibling `external-spotters/` env, reached only via a subprocess CLI — never a
-  dependency, never shipped.** Same pattern as `ultralytics`/`external-trackers/`. The `tdeed`
-  spotting stage runs against a permissive in-repo reference CLI by default (no GPL, no GPU);
-  see `docs/reference/external-spotters-setup.md` and
+**Everything in the MatchDay tree is research. There is no shippable target and no
+"research/local tool vs shippable" distinction.** If a capability runs locally on data, it is
+**fully implemented** — full stop. The 2026-07-20 research-mode pivot applies to the whole
+repo, not just the tracker program: any doc, PRD, issue, code comment, or provenance string
+that frames work around a "shippable", "licensing-clean", "reference-only", or "never
+shipped" goal is legacy. Never qualify an implemented capability's status with licensing or
+shippability, and never propose a "clean-room / permissive retrain" as a goal or blocker.
+
+### Licensing notes (provenance facts, not gates)
+
+License terms are recorded for provenance honesty and dataset-redistribution constraints
+only; they gate nothing. The environment isolation below is dependency hygiene, not a
+shipping boundary — don't undo it, but don't read product meaning into it either.
+
+- **ultralytics is AGPL and deliberately not a dependency** (dependency isolation). The
+  `yolo-local` detect/calibrate stages import it lazily; supply it per-invocation with
+  `uv run --with ultralytics`. Hosted configs use the Roboflow `inference` client.
+- **insightface model packs (buffalo_l) are research-only licensed** — fine for this repo;
+  face identity stays behind the `face` extra and a config flag.
+- **SportsMOT is CC BY-NC 4.0 and agreement-gated** — fine as a research evaluation tier
+  (`configs/datasets/sportsmot.json`); do not redistribute the data itself.
+- **T-DEED (real action spotter) is GPL-3.0 code + SoccerNet-trained weights, isolated in a
+  sibling `external-spotters/` env, reached via a subprocess CLI** — same env-isolation
+  pattern as `ultralytics`/`external-trackers/`. The `tdeed` spotting stage runs against a
+  permissive in-repo reference CLI by default (no GPU, no real model); see
+  `docs/reference/external-spotters-setup.md` and
   `docs/reference/spotting-exchange-contract.md`.
 
 ## Architecture
