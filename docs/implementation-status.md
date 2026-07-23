@@ -637,6 +637,24 @@ Measured local findings recorded by the repository guidance:
   (CC BY-NC SportsMOT training data + research-only ReID); the build retrains on permissive data.
   Reports: `docs/reports/2026-07-19-{spo34-phase3-exit-gate,tdlp-full-spike}.md`,
   `docs/reports/2026-07-18-spo3{0,1,2,3,5}-*.md`.
+- **TDLP-full carries tracklet ids across frame exits, sometimes onto the wrong player
+  (2026-07-24).** The external TDLP tracker's `remember_threshold` (50 frames ≈ 2 s at 25 fps
+  in the frozen-run eval config, `external-trackers/TDLP/configs/tdlp/eval/default.yaml`;
+  it is simultaneously the lost-tracklet retention horizon and the link model's temporal
+  window, and behaves as a soft cutoff — re-links observed across 2.16 s and 2.44 s absences)
+  lets a tracklet survive a player leaving the frame and re-attach on re-entry. When correct
+  this silently does the future stitcher's job with 2 s of evidence; when wrong it is exactly
+  the silent-swap failure mode: verified on run `tdlpfullsnc1651a` (SNMOT-126, oracle dets) —
+  tracker id 1 covered GT track 2 before the ~13.5 s camera pan and re-attached to GT track 3
+  (jersey #44) after it, while on `tdlpfullsne4b9e2` (SNMOT-124) all three cross-exit
+  re-links (GT 7/9/20) reconnected correctly. Also observed directly on video (human review,
+  2-3 s absences re-linked). Disposition: TDLP is a frozen research tool — not retuned; the
+  planned re-ID/tracklet-stitching layer owns cross-exit identity (ADR 002: offline, full-match
+  evidence; shipped BoT-SORT already fragments at `lost_track_buffer_s: 1.0`). Wrong bridges
+  are measurable as tracklet impurity (`mixed_track_seconds`) plus genuine persistent switches
+  — the acceptance harness for that stitcher. Optional for future frozen runs:
+  `remember_threshold: 25` (1 s) to match BoT-SORT's horizon. Audit provenance: the
+  2026-07-24 SNMOT-124/126 per-transition traces (session scripts), code revision `3cf4e31`.
 - **Offline association currently adds GT contamination relative to raw tracklets, on one
   measured sequence.** Run `06a067a478f2` (video SNMOT-116, `configs/datasets/soccernet.json`
   `tuning`-role sequence, config `v1-local-eval`: local YOLO detection (`yolo-local`,
