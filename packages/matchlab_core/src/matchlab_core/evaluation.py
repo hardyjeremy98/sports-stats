@@ -879,7 +879,11 @@ def persistent_switch_counts(
     and an absence of at least `_FRAME_EXIT_MIN_ABSENCE_S` is tallied under
     the returned dict's "frame_exit" sub-dict instead of the `t_*` counts.
     When `gt_boxes`/`frame_size` are missing or dimensions are 0 the exemption
-    is never applied -- unverifiable switches still count.
+    is never applied -- unverifiable switches still count. Note the exemption
+    itself is stride-sensitive in the conservative direction: gap edges are
+    matched sampled frames, so at coarser strides (or late tracker
+    reacquisition) a genuine exit may fail verification and still count --
+    it never exempts what it cannot verify.
     """
     counts = {_threshold_key(t): 0 for t in thresholds_s}
     exits = {_threshold_key(t): 0 for t in thresholds_s}

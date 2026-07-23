@@ -276,7 +276,8 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   `idsw_persistent_entity` in `runs.metrics`; the Lab dashboard's switch column shows the
   persistent entity count — raw IDsw stays in eval.json, the benchmark matrix, and the diff
   view). Measured on the imported TDLP-full runs (2026-07-23 re-score): SoccerNet SNMOT-125
-  oracle-dets raw IDsw 118 → 23 persistent@1s (~80 % flicker); SportsMOT runs barely move
+  oracle-dets raw IDsw 118 → 22 persistent@1s + 1 frame-exit exempt, post-exemption re-score
+  2026-07-24 (~80 % flicker); SportsMOT runs barely move
   (9→3, 6→4, 7→5). Design:
   [`docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md`](superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
 - A sixth, LEVEL-INDEPENDENT layer (`eval.json`'s `detection` block, SPO-9): scores the
