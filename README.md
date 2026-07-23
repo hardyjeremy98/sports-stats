@@ -6,20 +6,20 @@ Upload a single ground-level recording of a soccer match; get back a per-player 
 annotated video — fully automated, no special hardware, no manual tagging.
 
 > The market/feasibility research that motivated this build lives in
-> [`docs/market_research/`](docs/market_research/) and the engineering research in
-> [`technology/`](technology/README.md). That dated research shaped the initial architecture;
+> [`../docs/market_research/`](../docs/market_research/) and the engineering research in
+> [`../docs/technology/`](../docs/technology/README.md). That dated research shaped the initial architecture;
 > current policy and implementation sources are linked below.
 
 ## Current direction and documentation
 
 The canonical player tracking and identity strategy is
-[`docs/player-identity-vision.md`](docs/player-identity-vision.md). It defines identity without
+[`../docs/player-identity-vision.md`](../docs/player-identity-vision.md). It defines identity without
 mandatory jersey OCR, quality-gated multimodal evidence, whole-match backfilling, and the distinction
 between team classification, physical-player association, and roster identity.
 
 See [`docs/implementation-status.md`](docs/implementation-status.md) for what is implemented versus
 prototype, stubbed, or planned. [`docs/README.md`](docs/README.md) defines documentation precedence
-and maintenance rules. The `technology/` directory is a dated research dossier and may contain
+and maintenance rules. The `../docs/technology/` directory is a dated research dossier and may contain
 historical recommendations superseded by accepted records in [`docs/decisions/`](docs/decisions/).
 
 ## Architecture
@@ -58,7 +58,7 @@ v1 leans on [roboflow/sports](https://github.com/roboflow/sports) (MIT) — its 
 player/ball/pitch-keypoint detection models and team-classification approach. Shipped code
 avoids AGPL dependencies (no ultralytics/boxmot at runtime): the BoT-SORT tracker is a
 self-contained implementation, and detection runs through the Roboflow `inference` client.
-See `technology/10-libraries.md` for the full license audit.
+See `../docs/technology/10-libraries.md` for the full license audit.
 
 ## Development
 
@@ -84,5 +84,6 @@ web/                        # React + Vite + Tailwind UI
 configs/                    # pipeline YAML configs (the swappable surface)
 docker/                     # Dockerfiles
 data/                       # gitignored: uploads, run artifacts, weights
-docs/, technology/          # research dossier (pre-dates the code)
+docs/                       # ADRs, PRDs, reports, implementation status
+../docs/                    # general product docs + research dossier (pre-dates the code)
 ```

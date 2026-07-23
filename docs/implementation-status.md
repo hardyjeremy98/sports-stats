@@ -5,8 +5,8 @@
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
-intent belongs in [`player-identity-vision.md`](player-identity-vision.md); detailed historical
-research belongs in [`../technology/`](../technology/).
+intent belongs in [`../../docs/player-identity-vision.md`](../../docs/player-identity-vision.md); detailed historical
+research belongs in [`../../docs/technology/`](../../docs/technology/).
 
 A tracklet-quality measurement and hardening program (tracker-level ID switches, GT-contamination
 metrics, oracle-detection ceiling experiments) is underway; plan and phase gates are in
@@ -731,4 +731,4 @@ When implementation changes:
 3. Update evaluation and UI capability lists where affected.
 4. Link measured claims to their experiment report.
 5. Update the verification date only after inspecting the implementation.
-6. Do not mark a researched model as implemented merely because it appears in `technology/`.
+6. Do not mark a researched model as implemented merely because it appears in `../../docs/technology/`.

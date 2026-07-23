@@ -14,7 +14,7 @@
 **Status:** SUPERSEDED (was: Draft for decomposition, 2026-07-19).
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
-`player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
+`../../../docs/player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
 **Supersedes:** **Phases 4 and 5** of
 [`docs/prds/tracklet-modernization.md`](tracklet-modernization.md). That program's
 Phases 0–3 stand (they built the measurement system and selected a tracker direction);

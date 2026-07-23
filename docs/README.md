@@ -8,13 +8,13 @@ Use this order for product and engineering decisions:
 
 1. **Accepted decision records** in [`decisions/`](decisions/).
 2. **Canonical current vision documents**, currently
-   [`player-identity-vision.md`](player-identity-vision.md).
+   [`../../docs/player-identity-vision.md`](../../docs/player-identity-vision.md).
 3. **Factual implementation inventory** in
    [`implementation-status.md`](implementation-status.md), verified against code.
 4. **Repository operating guidance** in [`../CLAUDE.md`](../CLAUDE.md).
 5. **Current architecture overview** in [`../README.md`](../README.md).
-6. **Research and historical recommendations** in [`../technology/`](../technology/).
-7. **Market research and other supporting material** under `docs/`.
+6. **Research and historical recommendations** in [`../../docs/technology/`](../../docs/technology/).
+7. **Market research and other supporting material** under the top-level `../../docs/`.
 
 This is not a general claim that an ADR overrides code reality. Decision records describe intended
 constraints; `implementation-status.md` describes what currently exists. When those differ, record
@@ -24,7 +24,7 @@ the implementation as incomplete rather than rewriting the decision to match it.
 
 | Document | Responsibility | Update when |
 |---|---|---|
-| [`player-identity-vision.md`](player-identity-vision.md) | Product objective, terminology, identity strategy, evaluation principles | Product goals, hard constraints, or strategic priorities change |
+| [`../../docs/player-identity-vision.md`](../../docs/player-identity-vision.md) | Product objective, terminology, identity strategy, evaluation principles | Product goals, hard constraints, or strategic priorities change |
 | [`implementation-status.md`](implementation-status.md) | Implemented/prototype/stub/planned inventory | Code, tests, evaluation, or Lab capability changes |
 | [`decisions/`](decisions/) | Durable choices and their consequences | A major choice is accepted, superseded, or reversed |
 | [`../CLAUDE.md`](../CLAUDE.md) | Concise instructions needed in every AI coding session | Commands, architecture invariants, canonical links, or maintenance rules change |
@@ -32,11 +32,11 @@ the implementation as incomplete rather than rewriting the decision to match it.
 
 ## Supporting documents
 
-- `technology/` is a dated research dossier. It contains evidence, candidates, and historical
-  recommendations. It is not implementation truth.
+- `../../docs/technology/` is a dated research dossier. It contains evidence, candidates, and
+  historical recommendations. It is not implementation truth.
 - `docs/canvases/` contains version-controlled source for interactive Cursor analytical artifacts.
-- `docs/market_research/` contains market evidence and commercial context.
-- `docs/roadmap.md` is early business commentary, not the current engineering roadmap.
+- `../../docs/market_research/` contains market evidence and commercial context.
+- `../../docs/roadmap.md` is early business commentary, not the current engineering roadmap.
 
 ## Documentation maintenance rules
 
@@ -52,7 +52,7 @@ When changing code:
 
 When adding research:
 
-1. Put paper/model findings in `technology/` or a dated experiment report.
+1. Put paper/model findings in `../../docs/technology/` or a dated experiment report.
 2. Distinguish sourced facts from engineering hypotheses.
 3. State dataset, footage domain, metric, date, licensing, and model availability.
 4. Do not promote a model to `implementation-status.md` until runnable code exists.

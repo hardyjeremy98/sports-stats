@@ -3,7 +3,7 @@
 **Status:** Draft for decomposition (2026-07-19).
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
-`player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
+`../../../docs/player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
 **Depends on:** nothing. This is a **standalone new capability axis** (events, not
 tracklets) and runs in parallel with the shippable-tracklet program
 (`docs/prds/shippable-multi-cue-tracklet-system.md`, SPO-36..44). It shares no code path

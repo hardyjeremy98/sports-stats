@@ -14,7 +14,7 @@ phone-footage/domain acceptance deferred pending owned data). Phases 0–3 stand
 **Date:** 2026-07-16
 **Owner:** Jeremy
 **Precedence:** Planning document. Sits below the accepted ADRs and
-`player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
+`../../../docs/player-identity-vision.md`; where this PRD and an ADR disagree, the ADR wins.
 **Related:** ADR 001–004, `docs/canvases/tracklet-SOTA-roadmap.canvas.tsx` (analytical
 source, verified against code 2026-07-16), `docs/implementation-status.md`.
 

@@ -135,7 +135,7 @@ lazily (DB access) but server never imports train.
 
 ## Product and identity direction
 
-Canonical source: [`docs/player-identity-vision.md`](docs/player-identity-vision.md) and the
+Canonical source: [`../docs/player-identity-vision.md`](../docs/player-identity-vision.md) and the
 accepted ADRs in [`docs/decisions/`](docs/decisions/). Non-negotiable invariants:
 
 - MatchLab produces player-by-player analytics from ordinary single-camera amateur footage.
@@ -154,7 +154,7 @@ accepted ADRs in [`docs/decisions/`](docs/decisions/). Non-negotiable invariants
 - New identity approaches require controlled ablations and semantic identity metrics
   (ADR 004), not just tracking counts.
 - Implementation truth is [`docs/implementation-status.md`](docs/implementation-status.md) —
-  researched technologies in `technology/` are not necessarily implemented.
+  researched technologies in `../docs/technology/` are not necessarily implemented.
 
 Measured findings so far (details and caveats in `implementation-status.md` → Known
 findings): kit-colour association is ineffective for player-level identity; remaining ID
@@ -166,7 +166,7 @@ Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md)
 
 1. `docs/decisions/` — accepted ADRs, highest precedence. Supersede with a new ADR, never
    edit one to reverse its meaning.
-2. `docs/player-identity-vision.md` — canonical product/identity direction. Update only
+2. `../docs/player-identity-vision.md` — canonical product/identity direction. Update only
    when intended strategy or hard constraints change.
 3. `docs/implementation-status.md` — what exists now, verified against code. Update
    whenever capability status, evaluation, artifacts, APIs, or Lab functionality changes.
@@ -174,8 +174,8 @@ Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md)
    instead of duplicating them.
 5. `README.md` — contributor-facing overview. Update when setup, public behavior, or
    top-level architecture changes.
-6. `technology/` — historical research dossier (dated 2026-06-24); may contain superseded
-   recommendations. Not implementation truth.
+6. `../docs/technology/` — historical research dossier (dated 2026-06-24); may contain
+   superseded recommendations. Not implementation truth.
 
 When docs contradict: apply the precedence order and mark stale material superseded — never
 silently average conflicting documents. Keep measured claims linked to a dataset, split,
