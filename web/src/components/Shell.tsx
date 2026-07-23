@@ -32,7 +32,7 @@ export function Shell() {
           <Link to="/" className="flex items-center gap-2.5 text-ink-100">
             <PitchMark className="h-5 w-8 text-volt-400" />
             <span className="text-[15px] font-semibold tracking-tight">
-              Pitch<span className="text-volt-400">Lab</span>
+              Match<span className="text-volt-400">Lab</span>
             </span>
           </Link>
 
