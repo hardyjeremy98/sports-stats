@@ -1682,10 +1682,26 @@ function IdentityMetricsBlock({ identity }: { identity: EvalIdentity | null }) {
                 {identity.cluster_purity != null ? fmtPct(identity.cluster_purity) : "—"}
               </td>
             </tr>
-            <tr className="last:border-0">
+            <tr className="border-b border-white/5">
               <td className="py-1.5 text-ink-400">Cluster completeness</td>
               <td className="py-1.5 text-right font-mono text-ink-100">
                 {identity.cluster_completeness != null ? fmtPct(identity.cluster_completeness) : "—"}
+              </td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Roster precision</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.naming?.roster_precision != null
+                  ? fmtPct(identity.naming.roster_precision)
+                  : "—"}
+              </td>
+            </tr>
+            <tr className="last:border-0">
+              <td className="py-1.5 text-ink-400">Named / judged / correct</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.naming
+                  ? `${identity.naming.n_named} / ${identity.naming.n_judged} / ${identity.naming.n_correct}`
+                  : "—"}
               </td>
             </tr>
           </tbody>

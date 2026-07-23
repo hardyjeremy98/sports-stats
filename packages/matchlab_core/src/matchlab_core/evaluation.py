@@ -221,7 +221,14 @@ def evaluate_run(
             "idsw_delta": levels["entity"]["num_switches"] - levels["tracklet"]["num_switches"],
         },
         "instances": sorted(instances, key=lambda i: (i["frame_idx"], i["level"])),
-        "identity": _evaluate_identity(players_data, gt_by_frame, pred_entity, eval_frames, iou_threshold),
+        "identity": _evaluate_identity(
+            players_data,
+            gt_by_frame,
+            pred_entity,
+            eval_frames,
+            iou_threshold,
+            gt_candidates={t.track_id: _gt_candidate(t) for t in scored_tracks},
+        ),
     }
 
     from matchlab_core.attribution import attribute_switches, detect_context
@@ -675,6 +682,11 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         heads["identity_coverage"] = round(identity["coverage"], 3)
         purity = identity["cluster_purity"]
         heads["cluster_purity"] = round(purity, 3) if purity is not None else None
+        naming = identity.get("naming")
+        if naming is not None:
+            rp = naming["roster_precision"]
+            heads["roster_precision"] = round(rp, 3) if rp is not None else None
+            heads["naming_abstention"] = round(naming["abstention_rate"], 3)
     tracklet_purity_post = result["purity"]["tracklet"]["post_filter"]
     heads["tracklet_purity"] = tracklet_purity_post["mean_purity"]
     heads["mixed_track_seconds"] = tracklet_purity_post["total_mixed_seconds"]
@@ -689,12 +701,21 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
     return heads
 
 
+def _gt_candidate(track) -> str | None:
+    """GT track -> naming truth ("team:jersey"), or None when the jersey is
+    unidentified. Same rule as the re-ID engine's roster builder."""
+    from matchlab_core.reid.anchors import candidate_for_track
+
+    return candidate_for_track(track)
+
+
 def _evaluate_identity(
     players_data: list[dict],
     gt_by_frame: dict[int, list[tuple[int, list[float]]]],
     pred_entity: dict[int, list[tuple[int, list[float]]]],
     eval_frames: list[int],
     iou_threshold: float,
+    gt_candidates: dict[int, str | None] | None = None,
 ) -> dict | None:
     """Third eval layer (ADR 004): does `identity.label` correspond to the
     right person, judged against GT tracks — cluster purity/completeness plus
@@ -761,10 +782,12 @@ def _evaluate_identity(
     # entity's full overlap mass goes to its single argmax GT track (see
     # docstring) rather than being spread across every track it overlapped.
     cluster_gt_mass: dict[str, dict[int, int]] = {}
+    assigned_gid_of: dict[int, int] = {}
     for pid in labeled_matched:
         label = label_of[pid]
         row = entity_rows[pid]
         assigned_gid = min(row, key=lambda gid: (-row[gid], gid))
+        assigned_gid_of[pid] = assigned_gid
         total_mass = sum(row.values())
         bucket = cluster_gt_mass.setdefault(label, {})
         bucket[assigned_gid] = bucket.get(assigned_gid, 0) + total_mass
@@ -786,6 +809,9 @@ def _evaluate_identity(
         completeness_den = sum(sum(bucket.values()) for bucket in gt_cluster_mass.values())
         completeness = completeness_num / completeness_den if completeness_den else None
 
+    naming, naming_note = _evaluate_naming(
+        matched_pids, labeled_matched, label_of, assigned_gid_of, gt_candidates or {}
+    )
     return {
         "n_entities_matched": n_entities_matched,
         "n_labeled": n_labeled,
@@ -794,7 +820,56 @@ def _evaluate_identity(
         "n_clusters": n_clusters,
         "cluster_purity": round(purity, 4) if purity is not None else None,
         "cluster_completeness": round(completeness, 4) if completeness is not None else None,
+        "naming": naming,
+        "naming_note": naming_note,
     }
+
+
+def _evaluate_naming(
+    matched_pids: list[int],
+    labeled_matched: list[int],
+    label_of: dict[int, str | None],
+    assigned_gid_of: dict[int, int],
+    gt_candidates: dict[int, str | None],
+) -> tuple[dict | None, str | None]:
+    """Naming-vs-GT sub-block (SPO-52): each named matched entity's label is
+    judged against its argmax-overlap GT track's jersey identity. A label is
+    correct in either the roster form ("left:10") or the bare number ("10",
+    legacy identity stages). Named entities whose GT track has no identified
+    jersey are unjudgeable and excluded from the precision denominator.
+    Abstention counts as non-coverage, never as imprecision. Returns
+    (block, note); the block is None with a note when the GT carries no
+    identified jerseys at all."""
+    if not any(c is not None for c in gt_candidates.values()):
+        return None, "no identified jersey identities in GT"
+    n_matched = len(matched_pids)
+    n_named = len(labeled_matched)
+    judged: list[int] = []
+    correct = 0
+    for pid in labeled_matched:
+        cand = gt_candidates.get(assigned_gid_of[pid])
+        if cand is None:
+            continue
+        judged.append(pid)
+        label = label_of[pid]
+        if label == cand or label == cand.split(":", 1)[1]:
+            correct += 1
+    coverage = (n_named / n_matched) if n_matched else 0.0
+    abstention = 1.0 - coverage
+    precision = (correct / len(judged)) if judged else None
+    return {
+        "n_entities_matched": n_matched,
+        "n_named": n_named,
+        "n_judged": len(judged),
+        "n_correct": correct,
+        "coverage": round(coverage, 4),
+        "abstention_rate": round(abstention, 4),
+        "roster_precision": round(precision, 4) if precision is not None else None,
+        "precision_at_abstention": {
+            "precision": round(precision, 4) if precision is not None else None,
+            "abstention": round(abstention, 4),
+        },
+    }, None
 
 
 def _xywh(box: dict) -> list[float]:

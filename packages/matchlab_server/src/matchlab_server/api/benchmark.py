@@ -35,6 +35,10 @@ BENCHMARK_METRIC_KEYS = (
     "merge_precision",
     "identity_coverage",
     "cluster_purity",
+    # SPO-52: naming-vs-GT-jersey layer (roster precision reported jointly
+    # with abstention so abstain-everywhere can't masquerade as precise).
+    "roster_precision",
+    "naming_abstention",
     # SPO-20: the decision metrics the tracklet-modernization program is
     # steered by. `tracklet_purity`/`mixed_track_seconds` are the tracklet
     # layer (SPO-6) -- not to be confused with `cluster_purity` above, which is

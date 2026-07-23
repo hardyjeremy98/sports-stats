@@ -400,6 +400,20 @@ export interface EvalInstance {
 // Third eval layer (ADR 004): does `identity.label` correspond to the right
 // person, judged against GT tracks. null = identity stage not run; non-null
 // with coverage 0 + cluster_purity null = it ran but abstained everywhere.
+// Naming-vs-GT sub-block (SPO-52): identity labels judged against the
+// argmax-overlap GT track's jersey identity. null (with naming_note) when the
+// GT carries no identified jerseys; roster_precision null when nothing named.
+export interface EvalNaming {
+  n_entities_matched: number;
+  n_named: number;
+  n_judged: number;
+  n_correct: number;
+  coverage: number;
+  abstention_rate: number;
+  roster_precision: number | null;
+  precision_at_abstention: { precision: number | null; abstention: number };
+}
+
 export interface EvalIdentity {
   n_entities_matched: number;
   n_labeled: number;
@@ -408,6 +422,9 @@ export interface EvalIdentity {
   n_clusters: number;
   cluster_purity: number | null;
   cluster_completeness: number | null;
+  // Absent on eval.json files written before SPO-52 — re-evaluate to backfill.
+  naming?: EvalNaming | null;
+  naming_note?: string | null;
 }
 
 // Detection-quality layer (SPO-9): level-independent (computed once, never
