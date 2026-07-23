@@ -131,6 +131,17 @@ def test_metric_bound_applies_only_where_calibration_exists():
     assert partial.check(a, b) is None
 
 
+def test_anchor_conflict_gate_vetoes_differently_anchored_pairs():
+    from matchlab_core.reid.gates import AnchorConflictGate
+
+    gate = AnchorConflictGate({1: "left:7", 2: "left:9", 3: "left:7"})
+    a, b, c = _tracklet(1, 0, 10), _tracklet(2, 20, 30), _tracklet(3, 40, 50)
+    assert gate.check(a, b) == AssociationRejectReason.ANCHOR_CONFLICT
+    assert gate.check(a, c) is None  # same anchor
+    d = _tracklet(4, 60, 70)  # unanchored
+    assert gate.check(a, d) is None
+
+
 def test_overlapping_pairs_are_left_to_the_overlap_gate():
     # The motion gate only reasons about gaps; overlap is TemporalOverlapGate's
     # verdict so the recorded reason stays precise.

@@ -143,6 +143,102 @@ def test_no_feature_artifact_degrades_to_singletons(tmp_path):
     assert ctx.store.path(ArtifactName.NAMING).exists()
 
 
+def test_oracle_anchors_drive_merging_and_are_recorded(tmp_path):
+    # GT: one player ("left:7") tracked across the whole span; our tracker
+    # split them into tracklets 1 and 2 with dissimilar embeddings (view
+    # change), so similarity alone would not merge. Oracle anchors on both
+    # tracklets carry the merge, and naming.json records roster + anchors.
+    from matchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
+
+    def gt_track(tid, jersey, frames, x):
+        return GroundTruthTrack(
+            track_id=tid,
+            role="player",
+            team="left",
+            jersey=jersey,
+            frames=[
+                GroundTruthFrame(frame_idx=f, box=Box(x1=x, y1=0, x2=x + 10, y2=20))
+                for f in frames
+            ],
+        )
+
+    gt = GroundTruth(
+        source="test",
+        tracks=[
+            gt_track(1, "7", list(range(0, 101)), x=0.0),
+            gt_track(2, "9", list(range(0, 101)), x=300.0),
+        ],
+    )
+    gt_path = tmp_path / "clip.gt.json"
+    gt_path.write_text(gt.model_dump_json())
+
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [0.0, 1.0])])  # dissimilar views
+    ctx, entities = _run_stage(
+        tmp_path,
+        tracklets,
+        teams,
+        ff,
+        {"anchor_source": "oracle-jersey", "gt_path": str(gt_path)},
+    )
+
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1, 2]]
+    naming = NamingReport.model_validate_json(
+        ctx.store.path(ArtifactName.NAMING).read_text()
+    )
+    assert naming.roster == ["left:7", "left:9"]
+    [thread] = naming.threads
+    consumed = {(a.tracklet_id, a.candidate, a.source) for a in thread.anchors_consumed}
+    assert consumed == {(1, "left:7", "oracle-jersey"), (2, "left:7", "oracle-jersey")}
+    assert "oracle-jersey" in naming.calibration
+    assert naming.calibration["oracle-jersey"]["coverage"] == 1.0
+
+
+def test_anchor_conflict_blocks_merge_in_stage(tmp_path):
+    from matchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
+
+    def gt_track(tid, jersey, frames, x):
+        return GroundTruthTrack(
+            track_id=tid,
+            role="player",
+            team="left",
+            jersey=jersey,
+            frames=[
+                GroundTruthFrame(frame_idx=f, box=Box(x1=x, y1=0, x2=x + 10, y2=20))
+                for f in frames
+            ],
+        )
+
+    # Two different GT players whose tracklets don't overlap in time and look
+    # identical to the embedder — anchors to different players must veto.
+    gt = GroundTruth(
+        source="test",
+        tracks=[
+            gt_track(1, "7", list(range(0, 51)), x=0.0),
+            gt_track(2, "9", list(range(60, 101)), x=0.0),
+        ],
+    )
+    gt_path = tmp_path / "clip.gt.json"
+    gt_path.write_text(gt.model_dump_json())
+
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.0])])  # identical
+    ctx, entities = _run_stage(
+        tmp_path,
+        tracklets,
+        teams,
+        ff,
+        {"anchor_source": "oracle-jersey", "gt_path": str(gt_path)},
+    )
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    assert report.pairs[0].reason == AssociationRejectReason.ANCHOR_CONFLICT
+
+
 def test_representation_params_reach_the_prototype_builder(tmp_path):
     # Tracklet 1 seen from two orthogonal views; tracklet 2 matches one view
     # exactly. Multi-prototype (default) similarity is 1.0 -> merged; capping

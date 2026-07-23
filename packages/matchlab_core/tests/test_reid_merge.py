@@ -104,6 +104,41 @@ def test_transitive_span_conflict_vetoed_at_union_time():
     assert by_key[(2, 3)].reason == AssociationRejectReason.TEMPORAL_OVERLAP
 
 
+def test_anchor_matched_pairs_merge_before_similarity_pairs():
+    # t2 and t3 co-occur; both are candidate continuations of t1. Pure
+    # similarity would pick t3 (0.9 > 0.7) and span-conflict t2. A shared
+    # anchor on (t1, t2) outranks similarity: the anchor pair merges first
+    # and t3 is the one span-conflicted out.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90), _tracklet(3, 60, 90)]
+    sims = {(1, 2): 0.7, (1, 3): 0.9, (2, 3): 0.9}
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate(tolerance_frames=2)],
+        similarity=lambda a, b: sims[(min(a, b), max(a, b))],
+        min_similarity=0.5,
+        anchor_by_tid={1: "left:7", 2: "left:7"},
+    )
+    assert sorted(map(sorted, result.groups)) == [[1, 2], [3]]
+    by_key = {(p.a, p.b): p for p in result.pairs}
+    assert by_key[(1, 2)].decision == "merged"
+    assert by_key[(1, 3)].reason == AssociationRejectReason.SPAN_CONFLICT
+
+
+def test_same_anchor_pair_merges_even_without_features():
+    # The anchor IS the evidence: two tracklets anchored to the same roster
+    # player merge even when no appearance features exist for them.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90)]
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate()],
+        similarity=lambda a, b: None,
+        min_similarity=0.5,
+        anchor_by_tid={1: "left:7", 2: "left:7"},
+    )
+    assert sorted(map(sorted, result.groups)) == [[1, 2]]
+    assert result.pairs[0].decision == "merged"
+
+
 def test_pair_filter_is_silent_and_blocks_merge():
     a, b = _tracklet(1, 0, 50), _tracklet(2, 60, 90)
     result = merge_tracklets(

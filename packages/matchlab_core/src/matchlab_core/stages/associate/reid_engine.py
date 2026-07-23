@@ -11,13 +11,23 @@ with `identity: none` — the engine owns the whole tracklet→named-entity path
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from pydantic import BaseModel
 
 from matchlab_core.frame_features import FrameFeatures
+from matchlab_core.gt import GroundTruth
 from matchlab_core.interfaces import Associator, StageContext
 from matchlab_core.registry import register
+from matchlab_core.reid.anchors import (
+    Anchor,
+    FaceAnchorSource,
+    OracleJerseyAnchorSource,
+    Roster,
+)
 from matchlab_core.reid.gates import (
+    AnchorConflictGate,
     MotionFeasibilityGate,
     TeamConsistencyGate,
     TemporalOverlapGate,
@@ -66,6 +76,18 @@ class Params(BaseModel):
     gmc_downscale: int = 2
     # Calibration rows below this confidence are ignored (never a dependency).
     calibration_min_confidence: float = 0.5
+    # Anchor layer (SPO-56). "oracle-jersey" derives anchors from the video's
+    # GT jersey identities (benchmark only; GT is consumed here and by the
+    # roster builder, never as a perception input); "face" is the registered
+    # stub stream; "none" disables anchors. GT resolves from `gt_path` or the
+    # sibling `<video>.gt.json` convention, and a missing GT for the oracle
+    # source is a loud error — an oracle run without GT is meaningless.
+    anchor_source: str = "none"
+    gt_path: str | None = None
+    anchor_coverage: float = 1.0
+    anchor_noise: float = 0.0
+    anchor_min_box_height: float = 0.0
+    anchor_seed: int = 0
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -103,6 +125,9 @@ class ReidEngineAssociator(Associator):
                 ta.cls == DetectionClass.REFEREE or tb.cls == DetectionClass.REFEREE
             )
 
+        roster, anchors, anchor_calibration = self._collect_anchors(ctx, tracklets)
+        anchor_by_tid = {a.tracklet_id: a.candidate for a in anchors}
+
         camera_motion = None
         if p.gmc:
             camera_motion = estimate_camera_motion(
@@ -130,11 +155,13 @@ class ReidEngineAssociator(Associator):
                     camera_motion=camera_motion,
                     calibration=calibration,
                 ),
+                AnchorConflictGate(anchor_by_tid),
             ],
             similarity=similarity,
             min_similarity=p.min_similarity,
             overlap_tolerance_frames=p.overlap_tolerance_frames,
             pair_filter=eligible,
+            anchor_by_tid=anchor_by_tid,
         )
 
         idx = {t.tracklet_id: t for t in tracklets}
@@ -181,7 +208,55 @@ class ReidEngineAssociator(Associator):
             NamingReport(
                 impl=self.impl_name,
                 params=p.model_dump(),
-                threads=name_threads(groups),
+                roster=roster.candidates,
+                threads=name_threads(groups, anchors),
+                calibration=anchor_calibration,
             ),
         )
         return entities
+
+    def _collect_anchors(
+        self, ctx: StageContext, tracklets: list[Tracklet]
+    ) -> tuple[Roster, list[Anchor], dict]:
+        """Resolve the configured anchor source. Returns (roster, anchors,
+        calibration provenance for naming.json)."""
+        p = self.params
+        if p.anchor_source == "none":
+            return Roster(candidates=[]), [], {}
+        if p.anchor_source == "face":
+            return Roster(candidates=[]), FaceAnchorSource().anchors(tracklets, Roster([])), {}
+        if p.anchor_source != "oracle-jersey":
+            raise ValueError(
+                f"Unknown anchor_source {p.anchor_source!r}; "
+                "expected 'none', 'face', or 'oracle-jersey'."
+            )
+        gt_path = Path(p.gt_path) if p.gt_path else Path(str(ctx.video.path) + ".gt.json")
+        if not gt_path.exists():
+            # Try the <stem>.gt.json convention next to the video.
+            sibling = Path(ctx.video.path).with_suffix(".gt.json")
+            if sibling.exists():
+                gt_path = sibling
+        if not gt_path.exists():
+            raise RuntimeError(
+                "anchor_source=oracle-jersey needs the video's ground truth "
+                f"(looked for {gt_path}); set `gt_path` or ingest GT next to the video."
+            )
+        gt = GroundTruth.model_validate_json(gt_path.read_text())
+        roster = Roster.from_ground_truth(gt)
+        source = OracleJerseyAnchorSource(
+            gt,
+            coverage=p.anchor_coverage,
+            noise=p.anchor_noise,
+            min_box_height=p.anchor_min_box_height,
+            seed=p.anchor_seed,
+        )
+        calibration = {
+            source.name: {
+                "coverage": p.anchor_coverage,
+                "noise": p.anchor_noise,
+                "min_box_height": p.anchor_min_box_height,
+                "seed": p.anchor_seed,
+                "log_lr": source.log_lr,
+            }
+        }
+        return roster, source.anchors(tracklets, roster), calibration

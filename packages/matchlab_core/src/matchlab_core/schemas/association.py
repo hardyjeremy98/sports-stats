@@ -19,6 +19,7 @@ class AssociationRejectReason(StrEnum):
     SPAN_CONFLICT = "span_conflict"  # rejected at union-find time
     TEAM_MISMATCH = "team_mismatch"  # reid-engine: both teams known, different
     MOTION_INFEASIBLE = "motion_infeasible"  # reid-engine: GMC/metric speed bound
+    ANCHOR_CONFLICT = "anchor_conflict"  # reid-engine: anchored to different players
 
 
 class AssociationPair(BaseModel):

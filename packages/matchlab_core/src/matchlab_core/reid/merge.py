@@ -44,18 +44,27 @@ def merge_tracklets(
     min_similarity: float,
     overlap_tolerance_frames: int = 2,
     pair_filter: Callable[[Tracklet, Tracklet], bool] | None = None,
+    anchor_by_tid: dict[int, str] | None = None,
 ) -> MergeResult:
     """Merge tracklets into threads.
 
     `similarity(a_id, b_id)` returns a higher-is-better score, or None when
     either side has no usable representation (recorded as NO_FEATURES).
-    `pair_filter` is the silent structural filter (referee exclusion, team
-    mismatch): pairs failing it get no report row, bounding the O(n^2) payload
-    exactly like the incumbent associators.
+    `pair_filter` is the silent structural filter (referee exclusion): pairs
+    failing it get no report row, bounding the O(n^2) payload exactly like
+    the incumbent associators.
+
+    `anchor_by_tid` maps tracklets to their anchored roster candidate. Pairs
+    anchored to the SAME candidate are the highest-precision merge signal:
+    they are resolved before every similarity-ranked candidate and merge even
+    with no/weak appearance similarity (the anchor is the evidence). Anchors
+    to different candidates are a cannot-link — enforce that by putting an
+    AnchorConflictGate in `gates`.
     """
     idx = {t.tracklet_id: t for t in tracklets}
     ids = [t.tracklet_id for t in tracklets]
     parent = {tid: tid for tid in ids}
+    anchors = anchor_by_tid or {}
 
     def find(x: int) -> int:
         while parent[x] != x:
@@ -88,6 +97,21 @@ def merge_tracklets(
                 continue
 
             sim = similarity(a, b)
+            same_anchor = (
+                anchors.get(a) is not None and anchors.get(a) == anchors.get(b)
+            )
+            if same_anchor:
+                # Anchor evidence outranks appearance: no similarity gate, and
+                # the pair resolves before all similarity-ranked candidates.
+                pair = AssociationPair(
+                    a=pa, b=pb,
+                    embed_distance=None if sim is None else 1.0 - sim,
+                    affinity=sim, decision="rejected",
+                )
+                pending[(a, b)] = pair
+                pairs.append(pair)
+                candidates.append((0, -(sim or 0.0), a, b))
+                continue
             if sim is None:
                 pairs.append(
                     AssociationPair(
@@ -109,14 +133,15 @@ def merge_tracklets(
             )
             pending[(a, b)] = pair
             pairs.append(pair)
-            candidates.append((sim, a, b))
+            candidates.append((1, -sim, a, b))
 
     spans: dict[int, list[tuple[int, int]]] = {
         tid: [(idx[tid].start_frame, idx[tid].end_frame)] for tid in ids
     }
     merge_edges: list[tuple[int, int]] = []
-    # Best similarity first; ties broken by (a, b) for determinism.
-    for _sim, a, b in sorted(candidates, key=lambda c: (-c[0], c[1], c[2])):
+    # Anchor-matched pairs first (tier 0), then best similarity; ties broken
+    # by (a, b) for determinism.
+    for _tier, _neg_sim, a, b in sorted(candidates):
         pair = pending[(a, b)]
         ra, rb = find(a), find(b)
         if ra == rb:

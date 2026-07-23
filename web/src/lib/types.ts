@@ -584,7 +584,8 @@ export type AssociationRejectReason =
   | "embed_too_far"
   | "span_conflict"
   | "team_mismatch"
-  | "motion_infeasible";
+  | "motion_infeasible"
+  | "anchor_conflict";
 
 export interface AssociationPair {
   a: number; // tracklet ids, a = earlier-starting

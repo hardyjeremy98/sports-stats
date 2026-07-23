@@ -61,6 +61,22 @@ class TeamConsistencyGate:
         return None
 
 
+class AnchorConflictGate:
+    """Veto pairs anchored to different roster players: naming evidence vetoes
+    bad merges instead of decorating them afterwards. Unanchored tracklets are
+    neutral."""
+
+    def __init__(self, anchor_by_tracklet: dict[int, str]):
+        self.anchor_by_tracklet = anchor_by_tracklet
+
+    def check(self, first: Tracklet, second: Tracklet) -> AssociationRejectReason | None:
+        ca = self.anchor_by_tracklet.get(first.tracklet_id)
+        cb = self.anchor_by_tracklet.get(second.tracklet_id)
+        if ca is not None and cb is not None and ca != cb:
+            return AssociationRejectReason.ANCHOR_CONFLICT
+        return None
+
+
 class MotionFeasibilityGate:
     """Veto pairs whose gap-crossing speed is implausible.
 
