@@ -11,13 +11,19 @@ with `identity: none` — the engine owns the whole tracklet→named-entity path
 
 from __future__ import annotations
 
+import numpy as np
 from pydantic import BaseModel
 
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.interfaces import Associator, StageContext
 from matchlab_core.registry import register
-from matchlab_core.reid.gates import TemporalOverlapGate
+from matchlab_core.reid.gates import (
+    MotionFeasibilityGate,
+    TeamConsistencyGate,
+    TemporalOverlapGate,
+)
 from matchlab_core.reid.merge import merge_tracklets
+from matchlab_core.reid.motion import estimate_camera_motion
 from matchlab_core.reid.naming import name_threads
 from matchlab_core.reid.representation import build_representations, pair_similarity
 from matchlab_core.schemas import (
@@ -25,6 +31,7 @@ from matchlab_core.schemas import (
     AssociationEntitySummary,
     AssociationReport,
     DetectionClass,
+    FrameCalibration,
     PlayerEntity,
     Team,
     TeamAssignment,
@@ -47,6 +54,18 @@ class Params(BaseModel):
     view_threshold: float = 0.7
     starved_max_frames: int = 2
     min_part_visibility: float = 0.3
+    # Motion feasibility (SPO-55): camera-motion-compensated pixel speed cap
+    # for short gaps, opportunistic pitch-metric cap where calibration covers
+    # both endpoints, and the long-gap cutoff beyond which the gate is
+    # deliberately soft (never vetoes).
+    max_speed_px_s: float = 800.0
+    max_speed_cm_s: float = 900.0
+    soft_gap_s: float = 15.0
+    # Sparse-optical-flow GMC over the run's frames (disable to skip decode).
+    gmc: bool = True
+    gmc_downscale: int = 2
+    # Calibration rows below this confidence are ignored (never a dependency).
+    calibration_min_confidence: float = 0.5
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -78,15 +97,40 @@ class ReidEngineAssociator(Associator):
             )
 
         def eligible(ta: Tracklet, tb: Tracklet) -> bool:
-            if ta.cls == DetectionClass.REFEREE or tb.cls == DetectionClass.REFEREE:
-                return False
-            return team_by_tid.get(ta.tracklet_id, Team.UNKNOWN) == team_by_tid.get(
-                tb.tracklet_id, Team.UNKNOWN
+            # Referee pairs stay silent (never merge candidates); team
+            # mismatch is a recorded gate below, per the SPO-55 trail contract.
+            return not (
+                ta.cls == DetectionClass.REFEREE or tb.cls == DetectionClass.REFEREE
             )
+
+        camera_motion = None
+        if p.gmc:
+            camera_motion = estimate_camera_motion(
+                ctx.frames(), downscale=p.gmc_downscale
+            )
+        calibration: dict[int, np.ndarray] = {}
+        if ctx.store.exists(ArtifactName.CALIBRATION):
+            for row in ctx.store.read_jsonl(ArtifactName.CALIBRATION, FrameCalibration):
+                if (
+                    row.homography is not None
+                    and row.confidence >= p.calibration_min_confidence
+                ):
+                    calibration[row.frame_idx] = np.asarray(row.homography)
 
         result = merge_tracklets(
             tracklets,
-            gates=[TemporalOverlapGate(p.overlap_tolerance_frames)],
+            gates=[
+                TemporalOverlapGate(p.overlap_tolerance_frames),
+                TeamConsistencyGate(team_by_tid),
+                MotionFeasibilityGate(
+                    fps=ctx.video.fps,
+                    max_speed_px_s=p.max_speed_px_s,
+                    max_speed_cm_s=p.max_speed_cm_s,
+                    soft_gap_s=p.soft_gap_s,
+                    camera_motion=camera_motion,
+                    calibration=calibration,
+                ),
+            ],
             similarity=similarity,
             min_similarity=p.min_similarity,
             overlap_tolerance_frames=p.overlap_tolerance_frames,

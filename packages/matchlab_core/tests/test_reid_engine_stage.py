@@ -20,6 +20,7 @@ from matchlab_core.schemas import (
     Tracklet,
     TrackletFrame,
 )
+from matchlab_core.schemas.association import AssociationRejectReason
 from matchlab_core.schemas.detections import DetectionClass
 from matchlab_core.schemas.identity import IdentityKind
 from matchlab_core.schemas.naming import NamingDecision, NamingReport
@@ -38,6 +39,9 @@ class _FakeCtx:
     store: ArtifactStore
     video: _FakeVideo = field(default_factory=_FakeVideo)
     device: str = "cpu"
+
+    def frames(self):
+        return iter([])  # GMC degrades to identity with no decodable frames
 
 
 def _tracklet(tid: int, start: int, end: int, cls=DetectionClass.PLAYER) -> Tracklet:
@@ -162,7 +166,7 @@ def test_representation_params_reach_the_prototype_builder(tmp_path):
     assert sorted(sorted(e.tracklet_ids) for e in capped) == [[1], [2]]
 
 
-def test_referees_and_cross_team_pairs_excluded_silently(tmp_path):
+def test_team_mismatch_recorded_referees_silent(tmp_path):
     tracklets = [
         _tracklet(1, 0, 50),
         _tracklet(2, 60, 100),  # away — different team than 1
@@ -179,6 +183,44 @@ def test_referees_and_cross_team_pairs_excluded_silently(tmp_path):
     report = AssociationReport.model_validate_json(
         ctx.store.path(ArtifactName.ASSOCIATION).read_text()
     )
-    assert report.pairs == []  # structural filters stay unrecorded
+    # Known opponents are a recorded veto (SPO-55); referee pairs stay silent.
+    assert [(p.a, p.b, p.reason) for p in report.pairs] == [
+        (1, 2, AssociationRejectReason.TEAM_MISMATCH)
+    ]
     ref_entity = next(e for e in entities if e.tracklet_ids == [3])
     assert ref_entity.team == Team.REFEREE
+
+
+def test_motion_gate_active_in_stage(tmp_path):
+    # Identical appearance but an 800-px jump across a 1-s gap (25 frames at
+    # FPS=25) with a 500 px/s cap -> motion veto recorded in the trail.
+    t1 = Tracklet(
+        tracklet_id=1,
+        cls=DetectionClass.PLAYER,
+        frames=[
+            TrackletFrame(frame_idx=0, box=Box(x1=0, y1=0, x2=10, y2=20), confidence=1.0),
+            TrackletFrame(frame_idx=10, box=Box(x1=0, y1=0, x2=10, y2=20), confidence=1.0),
+        ],
+    )
+    t2 = Tracklet(
+        tracklet_id=2,
+        cls=DetectionClass.PLAYER,
+        frames=[
+            TrackletFrame(
+                frame_idx=35, box=Box(x1=800, y1=0, x2=810, y2=20), confidence=1.0
+            ),
+            TrackletFrame(
+                frame_idx=45, box=Box(x1=800, y1=0, x2=810, y2=20), confidence=1.0
+            ),
+        ],
+    )
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 35, [1.0, 0.0])])
+    ctx, entities = _run_stage(
+        tmp_path, [t1, t2], teams, ff, {"max_speed_px_s": 500.0}
+    )
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    assert report.pairs[0].reason == AssociationRejectReason.MOTION_INFEASIBLE

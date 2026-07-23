@@ -41,6 +41,20 @@ stages:
     params:
       min_similarity: 0.6
       overlap_tolerance_frames: 2
+      # Representation (SPO-54)
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      # Constraint gates (SPO-55): sharp GMC pixel bound for short gaps,
+      # opportunistic pitch-metric bound where calibration covers both
+      # endpoints, deliberately soft beyond soft_gap_s.
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
   identity:
     impl: none
     params: {}
