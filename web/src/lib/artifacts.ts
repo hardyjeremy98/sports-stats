@@ -15,6 +15,7 @@ import type {
   GroundTruthTrack,
   MatchEvent,
   MinimapFrame,
+  NamingReport,
   PlayerEntity,
   SpottedEvent,
   StatSheet,
@@ -45,6 +46,7 @@ export interface RunArtifacts {
   timeline: TimelineBucket[] | null;
   eval: EvalResult | null;
   association: AssociationReport | null;
+  naming: NamingReport | null;
   // Derived indexes.
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
@@ -84,6 +86,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "timeline", fn: () => fetchJson<TimelineBucket[]>(api.artifactUrl(runId, "timeline")) },
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
   { key: "association", fn: () => fetchJson<AssociationReport>(api.artifactUrl(runId, "association")) },
+  { key: "naming", fn: () => fetchJson<NamingReport>(api.artifactUrl(runId, "naming")) },
 ].map((q) => ({
   queryKey: ["artifact", runId, q.key],
   queryFn: q.fn,
@@ -109,6 +112,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     timeline,
     evalResult,
     association,
+    naming,
   ] = results.map((r) => (r.isSuccess ? r.data : null));
 
   const trackletBoxesByFrame = new Map<number, TrackletBox[]>();
@@ -151,6 +155,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     timeline: timeline as TimelineBucket[] | null,
     eval: evalResult as EvalResult | null,
     association: association as AssociationReport | null,
+    naming: naming as NamingReport | null,
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,

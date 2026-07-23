@@ -24,7 +24,7 @@ from matchlab_core.schemas import (
 from matchlab_core.schemas.association import AssociationRejectReason
 from matchlab_core.schemas.detections import DetectionClass
 from matchlab_core.schemas.identity import IdentityKind
-from matchlab_core.schemas.naming import NamingDecision, NamingReport
+from matchlab_core.schemas.naming import ConfidenceTier, NamingDecision, NamingReport
 from matchlab_core.schemas.run import StageKind
 
 FPS = 25.0
@@ -129,6 +129,7 @@ def test_naming_report_skeleton_all_abstained(tmp_path):
         assert thread.decision == NamingDecision.ABSTAIN
         assert thread.label is None
         assert thread.posterior == {}
+        assert thread.tier == ConfidenceTier.QA  # abstained -> human QA tier
 
 
 def test_no_feature_artifact_degrades_to_singletons(tmp_path):
@@ -198,6 +199,8 @@ def test_oracle_anchors_drive_merging_and_are_recorded(tmp_path):
     # The decoder (SPO-57) names the thread and fills the entity identity.
     assert thread.decision == NamingDecision.NAMED
     assert thread.label == "left:7"
+    # A confident naming auto-accepts (SPO-58).
+    assert thread.tier == ConfidenceTier.AUTO_ACCEPT
     assert thread.margin is not None and thread.margin > 0
     [entity] = entities
     assert entity.identity.kind == IdentityKind.JERSEY

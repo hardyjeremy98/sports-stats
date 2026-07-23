@@ -36,6 +36,7 @@ from matchlab_core.reid.merge import merge_tracklets
 from matchlab_core.reid.motion import estimate_camera_motion
 from matchlab_core.reid.naming import name_threads
 from matchlab_core.reid.representation import build_representations, pair_similarity
+from matchlab_core.reid.tiers import assign_tiers
 from matchlab_core.schemas import (
     ArtifactName,
     AssociationEntitySummary,
@@ -95,6 +96,11 @@ class Params(BaseModel):
     min_posterior: float = 0.6
     min_margin: float = 0.2
     sinkhorn_iterations: int = 2
+    # Confidence tiers (SPO-58): named threads clearing both bars auto-accept;
+    # the rest enter the adjudication band (v1 adjudicator is a pass-through
+    # to human QA); abstained threads go straight to QA.
+    tier_auto_min_posterior: float = 0.85
+    tier_auto_min_margin: float = 0.5
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -186,6 +192,11 @@ class ReidEngineAssociator(Associator):
             min_margin=p.min_margin,
             sinkhorn_iterations=p.sinkhorn_iterations,
             overlap_tolerance_frames=p.overlap_tolerance_frames,
+        )
+        assign_tiers(
+            threads,
+            auto_min_posterior=p.tier_auto_min_posterior,
+            auto_min_margin=p.tier_auto_min_margin,
         )
         naming_by_thread = {t.thread_id: t for t in threads}
 
