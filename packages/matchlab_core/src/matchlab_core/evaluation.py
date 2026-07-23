@@ -821,13 +821,25 @@ def _num(v) -> float | int:
 # headline (see docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
 _PERSISTENCE_THRESHOLDS_S = (0.5, 1.0, 2.0)
 _PERSISTENCE_HEADLINE_S = 1.0
+# Frame-exit exemption: a switch across an absence where the player left the
+# image does not tally (reported under "frame_exit" instead). "Left the image"
+# requires border-touching GT boxes on both sides of a >= 0.2 s gap with no GT
+# boxes inside it -- full occlusion mid-pitch and losing a visible player are
+# NOT exempt (silent swaps are the product's worst failure; abstain from
+# excusing, never from charging).
+_FRAME_EXIT_BORDER_FRAC = 0.02
+_FRAME_EXIT_MIN_ABSENCE_S = 0.2
 
 
 def persistent_switch_counts(
-    id_sequences: dict[int, list[int]],
+    id_sequences: dict[int, list[tuple[int, int]]],
     seconds_per_frame: float,
     thresholds_s: tuple[float, ...] = _PERSISTENCE_THRESHOLDS_S,
-) -> dict[str, int]:
+    *,
+    stride: int = 1,
+    gt_boxes: dict[int, dict[int, list[float]]] | None = None,
+    frame_size: tuple[int, int] | None = None,
+) -> dict:
     """Flicker-insensitive ID-switch count. Raw motmetrics IDsw charges every
     matched-ID change, so a 3-frame occlusion flicker (A->B->A) costs 2 -- the
     same as a permanent handoff. Here each GT track's matched-ID sequence is
@@ -837,45 +849,96 @@ def persistent_switch_counts(
     vanishes with the flicker), while A->B->C with a short B is 1 (identity
     genuinely moved, via a brief intermediary).
 
-    `id_sequences` holds, per GT track, the matched prediction id at each
-    evaluated frame where a match existed, in frame order. Unmatched frames
-    are simply absent: runs are compared across occlusion gaps, because a
-    handoff across an occlusion is precisely the real failure.
+    `id_sequences` holds, per GT track, `(source_frame_idx, matched hyp id)`
+    at each evaluated frame where a match existed, in frame order. Unmatched
+    frames are simply absent: runs are compared across occlusion gaps, because
+    a handoff across an occlusion is precisely the real failure.
 
     A run's duration is `frames x seconds_per_frame` (`stride / fps`), so
     counts are comparable across sampling strides. A boundary-length run
     (exactly the threshold) survives. `seconds_per_frame == 0` (unknown fps)
     drops every run: the result is 0 everywhere rather than a fabricated
     count -- raw IDsw remains the number to read in that case.
+
+    Frame-exit exemption (`gt_boxes` = GT track id -> {source_frame_idx:
+    [x, y, w, h]}, `frame_size` = (width, height)): a transition whose gap has
+    no GT boxes strictly inside it, border-touching GT boxes at both edges,
+    and an absence of at least `_FRAME_EXIT_MIN_ABSENCE_S` is tallied under
+    the returned dict's "frame_exit" sub-dict instead of the `t_*` counts.
+    When `gt_boxes`/`frame_size` are missing or dimensions are 0 the exemption
+    is never applied -- unverifiable switches still count.
     """
     counts = {_threshold_key(t): 0 for t in thresholds_s}
-    for seq in id_sequences.values():
-        runs: list[list] = []  # [hyp_id, n_frames]
-        for hid in seq:
+    exits = {_threshold_key(t): 0 for t in thresholds_s}
+    for gt_id, seq in id_sequences.items():
+        runs: list[list] = []  # [hyp_id, n_frames, first_frame, last_frame]
+        for frame_idx, hid in seq:
             if runs and runs[-1][0] == hid:
                 runs[-1][1] += 1
+                runs[-1][3] = frame_idx
             else:
-                runs.append([hid, 1])
+                runs.append([hid, 1, frame_idx, frame_idx])
+        track_boxes = (gt_boxes or {}).get(gt_id)
         for t in thresholds_s:
             surviving = [r for r in runs if r[1] * seconds_per_frame >= t]
-            counts[_threshold_key(t)] += sum(
-                1 for a, b in zip(surviving, surviving[1:]) if a[0] != b[0]
-            )
-    return counts
+            for a, b in zip(surviving, surviving[1:]):
+                if a[0] == b[0]:
+                    continue
+                if _is_frame_exit_gap(
+                    track_boxes, a[3], b[2], frame_size, seconds_per_frame, stride
+                ):
+                    exits[_threshold_key(t)] += 1
+                else:
+                    counts[_threshold_key(t)] += 1
+    return {**counts, "frame_exit": exits}
+
+
+def _is_frame_exit_gap(
+    track_boxes: dict[int, list[float]] | None,
+    gap_start: int,
+    gap_end: int,
+    frame_size: tuple[int, int] | None,
+    seconds_per_frame: float,
+    stride: int,
+) -> bool:
+    """True only when the gap between two surviving runs is positively a
+    frame exit; anything unverifiable is False (the switch then counts)."""
+    if not track_boxes or not frame_size or not frame_size[0] or not frame_size[1]:
+        return False
+    if stride <= 0 or seconds_per_frame <= 0:
+        return False
+    absence_s = (gap_end - gap_start) * seconds_per_frame / stride
+    if absence_s < _FRAME_EXIT_MIN_ABSENCE_S:
+        return False
+    if any(gap_start < f < gap_end for f in track_boxes):
+        return False  # the player was annotated (visible) during the gap
+    exit_box = track_boxes.get(gap_start)
+    entry_box = track_boxes.get(gap_end)
+    if exit_box is None or entry_box is None:
+        return False
+    return _touches_border(exit_box, frame_size) and _touches_border(entry_box, frame_size)
+
+
+def _touches_border(box: list[float], frame_size: tuple[int, int]) -> bool:
+    x, y, w, h = box
+    width, height = frame_size
+    mx, my = _FRAME_EXIT_BORDER_FRAC * width, _FRAME_EXIT_BORDER_FRAC * height
+    return x <= mx or x + w >= width - mx or y <= my or y + h >= height - my
 
 
 def _threshold_key(t: float) -> str:
     return f"t_{t:g}s"
 
 
-def _matched_id_sequences(acc) -> dict[int, list[int]]:
-    """Per GT track, the matched hypothesis id at each evaluated frame with a
-    match, in frame order -- from the same motmetrics event stream raw IDsw is
-    computed from, so the two never disagree about matching."""
-    seqs: dict[int, list[int]] = {}
-    for (_frame_idx, _), ev in acc.mot_events.iterrows():
+def _matched_id_sequences(acc) -> dict[int, list[tuple[int, int]]]:
+    """Per GT track, `(source_frame_idx, matched hyp id)` at each evaluated
+    frame with a match, in frame order -- from the same motmetrics event
+    stream raw IDsw is computed from, so the two never disagree about
+    matching."""
+    seqs: dict[int, list[tuple[int, int]]] = {}
+    for (frame_idx, _), ev in acc.mot_events.iterrows():
         if ev["Type"] in ("MATCH", "SWITCH"):
-            seqs.setdefault(int(ev["OId"]), []).append(int(ev["HId"]))
+            seqs.setdefault(int(ev["OId"]), []).append((int(frame_idx), int(ev["HId"])))
     return seqs
 
 

@@ -1077,15 +1077,21 @@ def test_offline_association_change_leaves_raw_tracklet_metrics_identical(tmp_pa
 
 SPF_25 = 1 / 25.0  # seconds per frame at 25 fps, stride 1
 
+NO_EXITS = {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+
+
+def _seq(ids: list[int], start: int = 0) -> list[tuple[int, int]]:
+    """Consecutive source frames starting at `start`, one hyp id per frame."""
+    return [(start + i, hid) for i, hid in enumerate(ids)]
+
 
 def test_persistent_flicker_revert_counts_zero():
     from matchlab_core.evaluation import persistent_switch_counts
 
     # A for 2 s, B for 0.2 s, back to A for 2 s: raw IDsw would be 2; the
     # flicker and its reversion both vanish at every threshold.
-    seq = [1] * 50 + [2] * 5 + [1] * 50
-    counts = persistent_switch_counts({7: seq}, SPF_25)
-    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+    counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 5 + [1] * 50)}, SPF_25)
+    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0, "frame_exit": NO_EXITS}
 
 
 def test_persistent_flicker_then_handoff_counts_one():
@@ -1093,9 +1099,8 @@ def test_persistent_flicker_then_handoff_counts_one():
 
     # A (2 s), brief B (0.2 s), then C (2 s): identity genuinely moved via a
     # brief intermediary -> exactly one persistent switch at every threshold.
-    seq = [1] * 50 + [2] * 5 + [3] * 50
-    counts = persistent_switch_counts({7: seq}, SPF_25)
-    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1}
+    counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 5 + [3] * 50)}, SPF_25)
+    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1, "frame_exit": NO_EXITS}
 
 
 def test_persistent_boundary_run_survives():
@@ -1103,9 +1108,8 @@ def test_persistent_boundary_run_survives():
 
     # Two runs of exactly 1.0 s (25 frames at 25 fps): >= threshold survives,
     # so t_1s counts the transition; t_2s drops both runs.
-    seq = [1] * 25 + [2] * 25
-    counts = persistent_switch_counts({7: seq}, SPF_25)
-    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 0}
+    counts = persistent_switch_counts({7: _seq([1] * 25 + [2] * 25)}, SPF_25)
+    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 0, "frame_exit": NO_EXITS}
 
 
 def test_persistent_stride_normalized():
@@ -1113,16 +1117,21 @@ def test_persistent_stride_normalized():
 
     # The same 2 s + 2 s real-time handoff sampled at stride 1 (50+50 frames,
     # 0.04 s/frame) and stride 2 (25+25 frames, 0.08 s/frame) must agree.
-    stride1 = persistent_switch_counts({7: [1] * 50 + [2] * 50}, 1 / 25.0)
-    stride2 = persistent_switch_counts({7: [1] * 25 + [2] * 25}, 2 / 25.0)
-    assert stride1 == stride2 == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1}
+    stride1 = persistent_switch_counts({7: _seq([1] * 50 + [2] * 50)}, 1 / 25.0)
+    stride2 = persistent_switch_counts(
+        {7: [(2 * i, hid) for i, hid in enumerate([1] * 25 + [2] * 25)]},
+        2 / 25.0,
+        stride=2,
+    )
+    assert stride1 == stride2
+    assert stride1["t_1s"] == 1
 
 
 def test_persistent_sums_over_gt_tracks():
     from matchlab_core.evaluation import persistent_switch_counts
 
     handoff = [1] * 50 + [2] * 50
-    counts = persistent_switch_counts({7: handoff, 8: list(handoff)}, SPF_25)
+    counts = persistent_switch_counts({7: _seq(handoff), 8: _seq(handoff)}, SPF_25)
     assert counts["t_1s"] == 2
 
 
@@ -1131,8 +1140,8 @@ def test_persistent_unknown_fps_abstains():
 
     # seconds_per_frame 0 (fps unknown): every run is dropped -> 0 everywhere,
     # never a fabricated count.
-    counts = persistent_switch_counts({7: [1] * 50 + [2] * 50}, 0.0)
-    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+    counts = persistent_switch_counts({7: _seq([1] * 50 + [2] * 50)}, 0.0)
+    assert counts["t_1s"] == 0
 
 
 def test_persistent_headline_none_for_legacy_payload():
@@ -1140,3 +1149,89 @@ def test_persistent_headline_none_for_legacy_payload():
 
     # eval.json written before the metric existed -> None, not a crash or 0.
     assert _persistent_headline({}, "tracklet") is None
+
+
+# --- frame-exit exemption ---------------------------------------------------
+# A switch across a gap where the player genuinely left the frame (no GT boxes
+# during the gap; edge boxes touch the image border; absence >= 0.2 s) is not
+# charged to t_* -- it is tallied under "frame_exit" instead. Everything the
+# exemption cannot positively verify still counts (fail-safe direction).
+
+W, H = 1920, 1080
+FRAME = (W, H)
+BORDER_BOX = [0.0, 500.0, 40.0, 120.0]  # x1 == 0: touches the left border
+MID_BOX = [900.0, 500.0, 40.0, 120.0]  # nowhere near any border
+
+
+def _exit_fixture(edge_box, comeback_box):
+    """GT track 7: seen frames 0-49 (run A), absent 50-99 (2 s), seen 100-149
+    (run B under a new tracker id). GT boxes exist only on the seen frames."""
+    seq = _seq([1] * 50) + _seq([2] * 50, start=100)
+    boxes = {f: list(edge_box) for f in range(0, 50)}
+    boxes.update({f: list(comeback_box) for f in range(100, 150)})
+    return {7: seq}, {7: boxes}
+
+
+def test_frame_exit_switch_is_exempt_and_reported():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    seqs, boxes = _exit_fixture(BORDER_BOX, BORDER_BOX)
+    counts = persistent_switch_counts(
+        seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 0  # not charged
+    assert counts["frame_exit"]["t_1s"] == 1  # but not silently dropped
+
+
+def test_occlusion_gap_mid_pitch_still_counts():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # Same absence, but the player vanished mid-pitch (full occlusion): the
+    # edge boxes are nowhere near the border, so the switch still counts.
+    seqs, boxes = _exit_fixture(MID_BOX, MID_BOX)
+    counts = persistent_switch_counts(
+        seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 1
+    assert counts["frame_exit"]["t_1s"] == 0
+
+
+def test_lost_while_visible_still_counts():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # GT boxes exist during the match gap (tracker lost a visible player,
+    # even though the player stood at the border): no exemption.
+    seqs, boxes = _exit_fixture(BORDER_BOX, BORDER_BOX)
+    boxes[7].update({f: list(BORDER_BOX) for f in range(50, 100)})
+    counts = persistent_switch_counts(
+        seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 1
+    assert counts["frame_exit"]["t_1s"] == 0
+
+
+def test_instant_border_handoff_still_counts():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # Adjacent runs (no real absence) at the border: min-absence gate keeps
+    # a same-moment handoff between two border-adjacent players countable.
+    seq = _seq([1] * 50 + [2] * 50)
+    boxes = {7: {f: list(BORDER_BOX) for f in range(0, 100)}}
+    counts = persistent_switch_counts(
+        {7: seq}, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 1
+    assert counts["frame_exit"]["t_1s"] == 0
+
+
+def test_unknown_frame_size_never_exempts():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # gt.width/height == 0 (e.g. SoccerTrack CSVs without dims): the exemption
+    # cannot be verified, so the switch counts -- abstain from excusing.
+    seqs, boxes = _exit_fixture(BORDER_BOX, BORDER_BOX)
+    counts = persistent_switch_counts(
+        seqs, SPF_25, gt_boxes=boxes, frame_size=(0, 0)
+    )
+    assert counts["t_1s"] == 1
+    assert counts["frame_exit"]["t_1s"] == 0
