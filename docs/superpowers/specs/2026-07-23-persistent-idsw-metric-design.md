@@ -106,9 +106,14 @@ this spec is the design record.
 ## Amendment (2026-07-23): frame-exit exemption
 
 A transition between surviving runs is exempted from the `t_*` counts — and tallied under a
-per-level `frame_exit` sub-dict instead — only when the gap is positively a frame exit: the
-GT track has no boxes strictly inside the gap, its last box before and first box after the
-gap both touch the image border (within 2 % of the respective dimension), and the absence
-lasts ≥ 0.2 s. Full occlusion mid-pitch, losing a visible player, and anything unverifiable
-(unknown frame dimensions) still count — abstain from excusing, never from charging. Raw
+per-level `frame_exit` sub-dict instead — only when it spans a positively verified frame
+exit. The absence is located from the GT track's **own annotation gaps** inside the
+transition window (matched-run extents can be polluted by border-lip flicker — measured on
+SNMOT-126 gt 3 #44), then a **two-tier border test** applies (calibrated on the SNMOT-124
+audit, 2026-07-24, where a panning camera re-annotated returning players 47–244 px inside
+the frame): a short absence (0.2–2 s) requires **both** absence-edge boxes within a 4 %
+border margin (occlusion and exit are confusable at that timescale); a long absence (≥ 2 s)
+requires only **one** — but a long absence that begins and ends mid-frame still counts,
+because that is where a genuine occlusion silent swap would live. Anything unverifiable
+(unknown frame dimensions) still counts — abstain from excusing, never from charging. Raw
 IDsw is unchanged and still charges re-entry breaks.

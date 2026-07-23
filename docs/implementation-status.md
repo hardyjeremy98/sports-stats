@@ -269,16 +269,18 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   IDs — a flicker and its reversion both vanish; a handoff via a brief intermediary still
   counts once. Run duration is stride-normalized (`frames × stride / fps`); runs are compared
   across unmatched gaps (a handoff across occlusion is the real failure);
-  a verified frame exit (no GT boxes inside the gap, border-touching GT boxes at both edges,
-  absence ≥ 0.2 s) is exempted from the counts and tallied under a per-level `frame_exit`
-  key instead — occlusion and unverifiable gaps still count; computed at both
+  a verified frame exit (the GT track's own annotations vanish ≥ 0.2 s inside the transition
+  window; short absences < 2 s need both absence-edge boxes within a 4 % border margin, long
+  absences ≥ 2 s need one — the two-tier test calibrated on the 2026-07-24 SNMOT-124 pan
+  audit) is exempted from the counts and tallied under a per-level `frame_exit` key instead —
+  mid-frame occlusion absences and unverifiable gaps still count; computed at both
   levels for thresholds 0.5 s / 1 s / 2 s, with 1 s the headline (`idsw_persistent_tracklet`,
   `idsw_persistent_entity` in `runs.metrics`; the Lab dashboard's switch column shows the
   persistent entity count — raw IDsw stays in eval.json, the benchmark matrix, and the diff
-  view). Measured on the imported TDLP-full runs (2026-07-23 re-score): SoccerNet SNMOT-125
-  oracle-dets raw IDsw 118 → 22 persistent@1s + 1 frame-exit exempt, post-exemption re-score
-  2026-07-24 (~80 % flicker); SportsMOT runs barely move
-  (9→3, 6→4, 7→5). Design:
+  view). Measured on the imported TDLP-full runs (2026-07-24 re-score, two-tier exemption):
+  SoccerNet SNMOT-124 oracle-dets raw IDsw 74 → 3 genuine persistent@1s + 16 frame-exit
+  exempt (human audit of this clip counted ~1–2 genuine); SNMOT-126 28 → 0 + 3;
+  SNMOT-125 118 → 13 + 10 (not yet human-audited); SportsMOT 9→1+2, 6→4+0, 7→0+5. Design:
   [`docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md`](superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
 - A sixth, LEVEL-INDEPENDENT layer (`eval.json`'s `detection` block, SPO-9): scores the
   detector itself rather than the tracker, computed once per run (not per tracklet/entity

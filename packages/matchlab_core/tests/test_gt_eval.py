@@ -1287,3 +1287,71 @@ def test_evaluate_run_frame_exit_not_charged(tmp_path):
     for level in ("tracklet", "entity"):
         assert ps[level]["t_1s"] == 0
         assert ps[level]["frame_exit"]["t_1s"] == 1
+
+
+# --- two-tier border test (2026-07-24 SNMOT-124 audit) -----------------------
+# Short absences (< 2 s) need BOTH absence-edge boxes near the border;
+# long absences (>= 2 s) need only ONE -- a panning camera re-annotates the
+# returning player well inside the frame (measured 47-244 px inside on
+# SNMOT-124), but a long absence beginning AND ending mid-frame still counts.
+
+INSIDE_BOX = [150.0, 500.0, 40.0, 120.0]  # 150 px from the left edge: not border at 4 %
+
+
+def test_border_lip_flicker_does_not_block_exit_exemption():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # SNMOT-126 gt-3 #44: 2-frame wrong-id flicker at the exit lip (GT still
+    # annotated, at the border), 4 s genuine absence, return under a new id.
+    # The absence must come from GT annotation gaps, not the window edges.
+    seq = _seq([1] * 50) + _seq([9] * 2, start=50) + _seq([2] * 50, start=152)
+    boxes = {f: list(BORDER_BOX) for f in range(0, 52)}
+    boxes.update({f: list(BORDER_BOX) for f in range(152, 202)})
+    counts = persistent_switch_counts(
+        {7: seq}, SPF_25, gt_boxes={7: boxes}, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 0
+    assert counts["frame_exit"]["t_1s"] == 1
+
+
+def test_pan_reentry_inside_frame_exempt_on_long_absence():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # SNMOT-124 dominant miscount: exit at the border, 4 s absence (camera
+    # panned away), re-entry annotated 150 px inside the frame. Long-absence
+    # tier requires only one border edge -> exempt.
+    seqs, boxes = _exit_fixture(BORDER_BOX, INSIDE_BOX)
+    counts = persistent_switch_counts(
+        seqs, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 0
+    assert counts["frame_exit"]["t_1s"] == 1
+
+
+def test_short_absence_needs_both_edges_at_border():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # 1 s absence with only the exit edge at the border: occlusion and exit
+    # are confusable at this timescale -> still counted.
+    seq = _seq([1] * 50) + _seq([2] * 50, start=75)
+    boxes = {7: {f: list(BORDER_BOX) for f in range(0, 50)}}
+    boxes[7].update({f: list(INSIDE_BOX) for f in range(75, 125)})
+    counts = persistent_switch_counts(
+        {7: seq}, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 1
+    assert counts["frame_exit"]["t_1s"] == 0
+
+
+def test_short_absence_both_edges_at_border_exempt():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # 1 s absence, both edges at the border -> exempt under the short tier.
+    seq = _seq([1] * 50) + _seq([2] * 50, start=75)
+    boxes = {7: {f: list(BORDER_BOX) for f in range(0, 50)}}
+    boxes[7].update({f: list(BORDER_BOX) for f in range(75, 125)})
+    counts = persistent_switch_counts(
+        {7: seq}, SPF_25, gt_boxes=boxes, frame_size=FRAME
+    )
+    assert counts["t_1s"] == 0
+    assert counts["frame_exit"]["t_1s"] == 1

@@ -835,13 +835,21 @@ def _num(v) -> float | int:
 _PERSISTENCE_THRESHOLDS_S = (0.5, 1.0, 2.0)
 _PERSISTENCE_HEADLINE_S = 1.0
 # Frame-exit exemption: a switch across an absence where the player left the
-# image does not tally (reported under "frame_exit" instead). "Left the image"
-# requires border-touching GT boxes on both sides of a >= 0.2 s gap with no GT
-# boxes inside it -- full occlusion mid-pitch and losing a visible player are
-# NOT exempt (silent swaps are the product's worst failure; abstain from
-# excusing, never from charging).
-_FRAME_EXIT_BORDER_FRAC = 0.02
+# image does not tally (reported under "frame_exit" instead). The absence is
+# located from the GT track's own annotation gaps inside the transition
+# window (matched-run extents can be polluted by border-lip flicker), and
+# "left the image" is a two-tier border test calibrated on SNMOT-124's
+# panning camera (2026-07-24 audit): a short absence (< 2 s) needs BOTH
+# absence-edge boxes near the border (occlusion and exit are confusable at
+# that timescale), while a long absence (>= 2 s) needs only ONE -- under a
+# panning camera the re-entry annotation routinely lands 50-250 px inside
+# the frame, but a >= 2 s annotation absence that BEGINS at the border is
+# overwhelmingly the camera looking elsewhere. Long absences that begin and
+# end mid-frame (where a genuine occlusion silent swap would live) still
+# count -- abstain from excusing, never from charging.
+_FRAME_EXIT_BORDER_FRAC = 0.04
 _FRAME_EXIT_MIN_ABSENCE_S = 0.2
+_FRAME_EXIT_LONG_ABSENCE_S = 2.0
 
 
 def persistent_switch_counts(
@@ -874,16 +882,14 @@ def persistent_switch_counts(
     count -- raw IDsw remains the number to read in that case.
 
     Frame-exit exemption (`gt_boxes` = GT track id -> {source_frame_idx:
-    [x, y, w, h]}, `frame_size` = (width, height)): a transition whose gap has
-    no GT boxes strictly inside it, border-touching GT boxes at both edges,
-    and an absence of at least `_FRAME_EXIT_MIN_ABSENCE_S` is tallied under
-    the returned dict's "frame_exit" sub-dict instead of the `t_*` counts.
-    When `gt_boxes`/`frame_size` are missing or dimensions are 0 the exemption
-    is never applied -- unverifiable switches still count. Note the exemption
-    itself is stride-sensitive in the conservative direction: gap edges are
-    matched sampled frames, so at coarser strides (or late tracker
-    reacquisition) a genuine exit may fail verification and still count --
-    it never exempts what it cannot verify.
+    [x, y, w, h]}, `frame_size` = (width, height)): a transition is tallied
+    under the returned dict's "frame_exit" sub-dict instead of the `t_*`
+    counts when the GT track's OWN annotations, inside the transition window,
+    contain an absence of at least `_FRAME_EXIT_MIN_ABSENCE_S` that passes
+    the two-tier border test (see `_is_frame_exit_gap`) -- the player
+    verifiably left the frame between the two identity assignments. When
+    `gt_boxes`/`frame_size` are missing or dimensions are 0 the exemption is
+    never applied -- unverifiable switches still count.
     """
     counts = {_threshold_key(t): 0 for t in thresholds_s}
     exits = {_threshold_key(t): 0 for t in thresholds_s}
@@ -918,22 +924,37 @@ def _is_frame_exit_gap(
     seconds_per_frame: float,
     stride: int,
 ) -> bool:
-    """True only when the gap between two surviving runs is positively a
-    frame exit; anything unverifiable is False (the switch then counts)."""
+    """True only when the transition window [gap_start, gap_end] between two
+    surviving runs spans a positively verified frame exit. The absence is
+    located from the GT track's own annotation gaps (the window's edges are
+    matched frames and may include border-lip flicker), then the border test
+    is two-tier: a short absence (< _FRAME_EXIT_LONG_ABSENCE_S) requires BOTH
+    absence-edge boxes near the border; a long absence requires only ONE --
+    a panning camera routinely re-annotates the returning player well inside
+    the frame (measured 47-244 px on SNMOT-124), but a long absence that
+    begins AND ends mid-frame stays counted: that is where a genuine
+    occlusion silent swap would live. Anything unverifiable is False (the
+    switch then counts)."""
     if not track_boxes or not frame_size or not frame_size[0] or not frame_size[1]:
         return False
     if stride <= 0 or seconds_per_frame <= 0:
         return False
-    absence_s = (gap_end - gap_start) * seconds_per_frame / stride
+    frames = sorted(f for f in track_boxes if gap_start <= f <= gap_end)
+    if len(frames) < 2:
+        return False
+    absent_from, absent_to = max(
+        zip(frames, frames[1:]), key=lambda pair: pair[1] - pair[0]
+    )
+    absence_s = (absent_to - absent_from) * seconds_per_frame / stride
     if absence_s < _FRAME_EXIT_MIN_ABSENCE_S:
         return False
-    if any(gap_start < f < gap_end for f in track_boxes):
-        return False  # the player was annotated (visible) during the gap
-    exit_box = track_boxes.get(gap_start)
-    entry_box = track_boxes.get(gap_end)
-    if exit_box is None or entry_box is None:
-        return False
-    return _touches_border(exit_box, frame_size) and _touches_border(entry_box, frame_size)
+    at_border = [
+        _touches_border(track_boxes[absent_from], frame_size),
+        _touches_border(track_boxes[absent_to], frame_size),
+    ]
+    if absence_s >= _FRAME_EXIT_LONG_ABSENCE_S:
+        return any(at_border)
+    return all(at_border)
 
 
 def _touches_border(box: list[float], frame_size: tuple[int, int]) -> bool:
