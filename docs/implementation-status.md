@@ -76,6 +76,7 @@ project in Linear.
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
+| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`) and the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance). Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
@@ -85,8 +86,8 @@ project in Linear.
 | Gait identity | Research candidate | No temporal identity model or artifact exists | — |
 | Quality-guided multimodal fusion | Planned | No fusion implementation; would require a composite or revised inference flow | — |
 | Match-level constrained optimizer | Planned | Only local pair filtering and greedy merging exist | — |
-| Roster enrollment and assignment | Planned | No roster model or assignment workflow exists | — |
-| Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `matchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `matchlab_server/api/identity_qa.py` |
+| Roster enrollment and assignment | Partial | The roster abstraction exists (`reid/anchors.py::Roster`, benchmark impl built from the sequence GT's identified jersey set, `team:number`) and closed-roster assignment is the re-ID engine's naming decoder; a product enrollment workflow/UX does not exist | `reid/anchors.py`, `reid/naming.py` |
+| Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses, eval ID switches, and — SPO-58 — a tier-aware naming queue of QA-tier threads from `naming.json`, deduped against existing roster labels), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `matchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `matchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
 | Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) — the same env-isolation pattern as `ultralytics`/`external-trackers/` (dependency hygiene, not a capability qualifier). A permissive in-repo reference CLI (`matchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
@@ -250,12 +251,23 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   abstained everywhere. Folds `identity_coverage` and `cluster_purity` into `runs.metrics`.
   Coverage's denominator is all matched real entities, including referees — a run that labels
   every player but abstains on the referee reports coverage < 1.0, not 1.0.
+- Naming-vs-GT sub-block inside the identity layer (SPO-52): each named matched entity's
+  `identity.label` is judged against its argmax-overlap GT track's jersey identity —
+  correct in roster form (`left:10`) or bare number (`10`). Outputs `n_named`/`n_judged`/
+  `n_correct`, coverage, abstention rate, `roster_precision`, and a
+  `precision_at_abstention` pair (precision is only ever reported jointly with abstention,
+  so abstain-everywhere cannot masquerade as precise). Named entities whose GT track has no
+  identified jersey are unjudgeable and excluded from the precision denominator; abstention
+  counts as non-coverage, never imprecision. `naming` is `null` with `naming_note` when the
+  GT carries no identified jerseys. Folds `roster_precision` and `naming_abstention` into
+  `runs.metrics` and the benchmark metric keys.
 - Run-grouping benchmark: `GET /api/benchmark` aggregates completed, GT-scored runs by
   `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
-  mean/range across the seventeen benchmark metric keys (idf1 at tracklet and entity level,
+  mean/range across the benchmark metric keys (idf1 at tracklet and entity level,
   mota at entity level, idsw at tracklet and entity level, persistent idsw at tracklet and
-  entity level, association gain, merge precision, identity coverage, cluster purity, hota at
-  tracklet and entity level, tracklet purity, mixed-track seconds, detection AP and recall).
+  entity level, association gain, merge precision, identity coverage, cluster purity, roster
+  precision, naming abstention, hota at tracklet and entity level, tracklet purity,
+  mixed-track seconds, detection AP and recall).
 - A fourth, orthogonal layer (`eval.json`'s `purity` block, tracklet-modernization SPO-6): direct
   per-tracklet GT-contamination measurement, at both tracklet and post-association entity level —
   where `merge_quality`'s majority-vote already discards exactly this signal. Per tracklet: GT
