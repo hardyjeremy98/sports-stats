@@ -469,6 +469,13 @@ export interface DetectionEval {
   };
 }
 
+export interface PersistentSwitchLevel {
+  "t_0.5s": number;
+  t_1s: number;
+  "t_2s": number;
+  frame_exit?: { "t_0.5s": number; t_1s: number; "t_2s": number };
+}
+
 export interface EvalResult {
   source: string;
   sequence: string | null;
@@ -486,10 +493,13 @@ export interface EvalResult {
   purity?: { tracklet: EvalPurityLevel; entity: EvalPurityLevel };
   // Flicker-insensitive ID switches (keys "t_0.5s" | "t_1s" | "t_2s");
   // threshold_headline_s names the threshold runs.metrics headlines use.
+  // frame_exit tallies switches exempted because the player verifiably left
+  // the frame (border-touching GT boxes both sides of a GT-empty gap) --
+  // excluded from the t_* counts but never silently dropped.
   persistent_switches?: {
     threshold_headline_s: number;
-    tracklet: Record<string, number>;
-    entity: Record<string, number>;
+    tracklet: PersistentSwitchLevel;
+    entity: PersistentSwitchLevel;
   };
   association: {
     idf1_gain: number;

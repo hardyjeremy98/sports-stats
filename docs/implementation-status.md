@@ -268,7 +268,10 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   persistence threshold, and counts only transitions between surviving runs with different
   IDs — a flicker and its reversion both vanish; a handoff via a brief intermediary still
   counts once. Run duration is stride-normalized (`frames × stride / fps`); runs are compared
-  across unmatched gaps (a handoff across occlusion is the real failure); computed at both
+  across unmatched gaps (a handoff across occlusion is the real failure);
+  a verified frame exit (no GT boxes inside the gap, border-touching GT boxes at both edges,
+  absence ≥ 0.2 s) is exempted from the counts and tallied under a per-level `frame_exit`
+  key instead — occlusion and unverifiable gaps still count; computed at both
   levels for thresholds 0.5 s / 1 s / 2 s, with 1 s the headline (`idsw_persistent_tracklet`,
   `idsw_persistent_entity` in `runs.metrics`; the Lab dashboard's switch column shows the
   persistent entity count — raw IDsw stays in eval.json, the benchmark matrix, and the diff

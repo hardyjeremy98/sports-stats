@@ -102,3 +102,13 @@ Unit tests on synthetic ID sequences, following `test_gt_eval.py` patterns:
 
 `docs/implementation-status.md` metric description once implemented (doc governance rule 3);
 this spec is the design record.
+
+## Amendment (2026-07-23): frame-exit exemption
+
+A transition between surviving runs is exempted from the `t_*` counts — and tallied under a
+per-level `frame_exit` sub-dict instead — only when the gap is positively a frame exit: the
+GT track has no boxes strictly inside the gap, its last box before and first box after the
+gap both touch the image border (within 2 % of the respective dimension), and the absence
+lasts ≥ 0.2 s. Full occlusion mid-pitch, losing a visible player, and anything unverifiable
+(unknown frame dimensions) still count — abstain from excusing, never from charging. Raw
+IDsw is unchanged and still charges re-entry breaks.
