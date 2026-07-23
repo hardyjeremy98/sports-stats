@@ -47,7 +47,8 @@ from matchlab_core.schemas import (
     TeamAssignment,
     Tracklet,
 )
-from matchlab_core.schemas.naming import NamingReport
+from matchlab_core.schemas.identity import IdentityKind, PlayerIdentity
+from matchlab_core.schemas.naming import NamingDecision, NamingReport
 from matchlab_core.schemas.run import StageKind
 
 
@@ -88,6 +89,12 @@ class Params(BaseModel):
     anchor_noise: float = 0.0
     anchor_min_box_height: float = 0.0
     anchor_seed: int = 0
+    # Naming decoder (SPO-57): posterior/margin bars below which a thread
+    # abstains, and the Sinkhorn balancing passes (few by design — see
+    # matchlab_core.reid.naming for why running to convergence is wrong here).
+    min_posterior: float = 0.6
+    min_margin: float = 0.2
+    sinkhorn_iterations: int = 2
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -166,6 +173,22 @@ class ReidEngineAssociator(Associator):
 
         idx = {t.tracklet_id: t for t in tracklets}
         groups = sorted(result.groups)  # deterministic entity numbering
+        thread_spans = {
+            n: [(idx[tid].start_frame, idx[tid].end_frame) for tid in members]
+            for n, members in enumerate(groups, start=1)
+        }
+        threads = name_threads(
+            groups,
+            anchors,
+            roster=roster,
+            thread_spans=thread_spans,
+            min_posterior=p.min_posterior,
+            min_margin=p.min_margin,
+            sinkhorn_iterations=p.sinkhorn_iterations,
+            overlap_tolerance_frames=p.overlap_tolerance_frames,
+        )
+        naming_by_thread = {t.thread_id: t for t in threads}
+
         entities: list[PlayerEntity] = []
         summaries: list[AssociationEntitySummary] = []
         for n, members in enumerate(groups, start=1):
@@ -175,13 +198,20 @@ class ReidEngineAssociator(Associator):
                 if lead.cls == DetectionClass.REFEREE
                 else team_by_tid.get(members[0], Team.UNKNOWN)
             )
+            thread = naming_by_thread[n]
+            identity = PlayerIdentity()  # abstained default (kind=none)
+            if thread.decision == NamingDecision.NAMED and thread.label is not None:
+                identity = PlayerIdentity(
+                    kind=IdentityKind.JERSEY,
+                    label=thread.label,
+                    confidence=thread.posterior.get(thread.label, 0.0),
+                )
             entities.append(
                 PlayerEntity(
                     player_id=n,
                     tracklet_ids=members,
                     team=team,
-                    # identity left at the abstained default (kind=none): naming
-                    # decisions arrive with the decoder slices.
+                    identity=identity,
                     association_confidence=1.0 if len(members) == 1 else 0.8,
                 )
             )
@@ -209,7 +239,7 @@ class ReidEngineAssociator(Associator):
                 impl=self.impl_name,
                 params=p.model_dump(),
                 roster=roster.candidates,
-                threads=name_threads(groups, anchors),
+                threads=threads,
                 calibration=anchor_calibration,
             ),
         )

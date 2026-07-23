@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import pytest
 from matchlab_core.artifacts import ArtifactStore
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.registry import build
@@ -193,6 +194,15 @@ def test_oracle_anchors_drive_merging_and_are_recorded(tmp_path):
     assert consumed == {(1, "left:7", "oracle-jersey"), (2, "left:7", "oracle-jersey")}
     assert "oracle-jersey" in naming.calibration
     assert naming.calibration["oracle-jersey"]["coverage"] == 1.0
+
+    # The decoder (SPO-57) names the thread and fills the entity identity.
+    assert thread.decision == NamingDecision.NAMED
+    assert thread.label == "left:7"
+    assert thread.margin is not None and thread.margin > 0
+    [entity] = entities
+    assert entity.identity.kind == IdentityKind.JERSEY
+    assert entity.identity.label == "left:7"
+    assert entity.identity.confidence == pytest.approx(thread.posterior["left:7"])
 
 
 def test_anchor_conflict_blocks_merge_in_stage(tmp_path):
