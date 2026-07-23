@@ -23,38 +23,106 @@ class TrackletRepresentation:
     tracklet_id: int
     prototypes: np.ndarray  # (K, P, D)
     part_visibility: np.ndarray  # (K, P) mean per-part visibility per prototype
+    starved: bool = False  # too few frames for a confident representation
 
 
-def build_representations(ff: FrameFeatures) -> dict[int, TrackletRepresentation]:
-    """One representation per tracklet that has usable evidence. Tracklets
-    whose embeddings are all zero-norm get no entry — missing evidence is
-    neutral (the merge engine records their pairs as NO_FEATURES)."""
+def build_representations(
+    ff: FrameFeatures,
+    *,
+    max_prototypes: int = 4,
+    view_threshold: float = 0.7,
+    starved_max_frames: int = 2,
+) -> dict[int, TrackletRepresentation]:
+    """One representation per tracklet that has usable evidence: up to
+    `max_prototypes` view prototypes, each the quality-weighted mean of one
+    view cluster (embedding norm is the free quality proxy).
+
+    View clustering is deterministic leader clustering in quality order: the
+    best frame seeds the first cluster; each next frame joins the nearest
+    cluster if its cosine to the running centroid is >= `view_threshold`,
+    else it seeds a new cluster (until the cap, after which it joins the
+    nearest regardless). Short tracklets naturally fall back to fewer
+    prototypes; those with <= `starved_max_frames` frames are marked starved.
+    Tracklets whose embeddings are all zero-norm get no entry — missing
+    evidence is neutral (the merge engine records their pairs as NO_FEATURES).
+    """
     reps: dict[int, TrackletRepresentation] = {}
     for tid in np.unique(ff.tracklet_ids):
         mask = ff.tracklet_ids == tid
         embs = ff.embeddings[mask].astype(np.float64)  # (n, P, D)
         vis = ff.visibility[mask].astype(np.float64)  # (n, P)
         quality = np.linalg.norm(embs.reshape(len(embs), -1), axis=1)  # (n,)
-        wsum = float(quality.sum())
-        if wsum <= 0.0:
+        keep = quality > 0.0
+        if not keep.any():
             continue
-        proto = (embs * quality[:, None, None]).sum(axis=0) / wsum  # (P, D)
-        vis_mean = (vis * quality[:, None]).sum(axis=0) / wsum  # (P,)
+        embs, vis, quality = embs[keep], vis[keep], quality[keep]
+        order = np.argsort(-quality, kind="stable")
+
+        # Running per-cluster sums so centroids stay quality-weighted.
+        sums: list[np.ndarray] = []  # Σ q_i * emb_i, (P, D)
+        vis_sums: list[np.ndarray] = []  # Σ q_i * vis_i, (P,)
+        weights: list[float] = []  # Σ q_i
+        for i in order:
+            flat = embs[i].reshape(-1)
+            unit = flat / quality[i]
+            if sums:
+                cents = np.stack([s.reshape(-1) / w for s, w in zip(sums, weights)])
+                norms = np.linalg.norm(cents, axis=1)
+                cos = (cents @ unit) / np.where(norms > 0, norms, 1.0)
+                j = int(np.argmax(cos))
+                if cos[j] >= view_threshold or len(sums) >= max_prototypes:
+                    sums[j] = sums[j] + quality[i] * embs[i]
+                    vis_sums[j] = vis_sums[j] + quality[i] * vis[i]
+                    weights[j] += float(quality[i])
+                    continue
+            sums.append(quality[i] * embs[i])
+            vis_sums.append(quality[i] * vis[i])
+            weights.append(float(quality[i]))
+
+        protos = np.stack([s / w for s, w in zip(sums, weights)])  # (K, P, D)
+        vis_mean = np.stack([v / w for v, w in zip(vis_sums, weights)])  # (K, P)
         reps[int(tid)] = TrackletRepresentation(
             tracklet_id=int(tid),
-            prototypes=proto[None, ...].astype(np.float32),
-            part_visibility=vis_mean[None, ...].astype(np.float32),
+            prototypes=protos.astype(np.float32),
+            part_visibility=vis_mean.astype(np.float32),
+            starved=len(embs) <= starved_max_frames,
         )
     return reps
 
 
-def pair_similarity(a: TrackletRepresentation, b: TrackletRepresentation) -> float:
-    """Max cosine similarity over prototype pairs (flattened across parts)."""
-    fa = a.prototypes.reshape(a.prototypes.shape[0], -1).astype(np.float64)
-    fb = b.prototypes.reshape(b.prototypes.shape[0], -1).astype(np.float64)
-    na = np.linalg.norm(fa, axis=1, keepdims=True)
-    nb = np.linalg.norm(fb, axis=1, keepdims=True)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        sims = (fa / na) @ (fb / nb).T
-    sims = np.nan_to_num(sims, nan=-1.0)
-    return float(sims.max())
+def pair_similarity(
+    a: TrackletRepresentation,
+    b: TrackletRepresentation,
+    *,
+    min_part_visibility: float = 0.3,
+) -> float | None:
+    """Part-aware similarity: max over prototype pairs of the visibility-
+    weighted mean per-part cosine, comparing only parts visible (>= threshold)
+    on BOTH sides so viewpoint mismatch never dominates the score. Part weight
+    is min(vis_a, vis_b). Returns None when no prototype pair shares a visible
+    part — not comparable, which the merge engine treats as missing evidence.
+    """
+    pa = a.prototypes.astype(np.float64)  # (Ka, P, D)
+    pb = b.prototypes.astype(np.float64)  # (Kb, P, D)
+    na = np.linalg.norm(pa, axis=2)  # (Ka, P)
+    nb = np.linalg.norm(pb, axis=2)  # (Kb, P)
+
+    best: float | None = None
+    for i in range(pa.shape[0]):
+        for j in range(pb.shape[0]):
+            va, vb = a.part_visibility[i], b.part_visibility[j]
+            shared = (
+                (va >= min_part_visibility)
+                & (vb >= min_part_visibility)
+                & (na[i] > 0.0)
+                & (nb[j] > 0.0)
+            )
+            if not shared.any():
+                continue
+            w = np.minimum(va, vb)[shared].astype(np.float64)
+            dots = np.einsum("pd,pd->p", pa[i][shared], pb[j][shared])
+            cos = dots / (na[i][shared] * nb[j][shared])
+            score = float((w * cos).sum() / w.sum())
+            if best is None or score > best:
+                best = score
+    return best

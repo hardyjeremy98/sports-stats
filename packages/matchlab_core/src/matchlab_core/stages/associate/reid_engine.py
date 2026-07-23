@@ -35,11 +35,18 @@ from matchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
-    # Minimum cosine similarity between tracklet representations to consider
-    # a merge (the v0 affinity gate; deepened by slices 3-4).
+    # Minimum part-aware similarity between tracklet representations to
+    # consider a merge.
     min_similarity: float = 0.6
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
+    # Representation (SPO-54): view-prototype cap, the cosine threshold that
+    # splits view clusters, the starved-tracklet frame cutoff, and the
+    # per-part visibility floor for part-aware similarity.
+    max_prototypes: int = 4
+    view_threshold: float = 0.7
+    starved_max_frames: int = 2
+    min_part_visibility: float = 0.3
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -56,12 +63,19 @@ class ReidEngineAssociator(Associator):
         reps: dict = {}
         if ctx.store.exists(ArtifactName.FRAME_FEATURES):
             features = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
-            reps = build_representations(features)
+            reps = build_representations(
+                features,
+                max_prototypes=p.max_prototypes,
+                view_threshold=p.view_threshold,
+                starved_max_frames=p.starved_max_frames,
+            )
 
         def similarity(a: int, b: int) -> float | None:
             if a not in reps or b not in reps:
                 return None
-            return pair_similarity(reps[a], reps[b])
+            return pair_similarity(
+                reps[a], reps[b], min_part_visibility=p.min_part_visibility
+            )
 
         def eligible(ta: Tracklet, tb: Tracklet) -> bool:
             if ta.cls == DetectionClass.REFEREE or tb.cls == DetectionClass.REFEREE:

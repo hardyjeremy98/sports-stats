@@ -139,6 +139,29 @@ def test_no_feature_artifact_degrades_to_singletons(tmp_path):
     assert ctx.store.path(ArtifactName.NAMING).exists()
 
 
+def test_representation_params_reach_the_prototype_builder(tmp_path):
+    # Tracklet 1 seen from two orthogonal views; tracklet 2 matches one view
+    # exactly. Multi-prototype (default) similarity is 1.0 -> merged; capping
+    # max_prototypes=1 collapses to the naive mean (cos = 0.707), which a 0.9
+    # threshold rejects — proving the knobs flow through to the representation.
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features(
+        [(1, 0, [1.0, 0.0]), (1, 10, [0.0, 1.0]), (2, 60, [1.0, 0.0])]
+    )
+    _, multi = _run_stage(
+        tmp_path / "multi", tracklets, teams, ff,
+        {"min_similarity": 0.9, "view_threshold": 0.5},
+    )
+    assert sorted(sorted(e.tracklet_ids) for e in multi) == [[1, 2]]
+
+    _, capped = _run_stage(
+        tmp_path / "capped", tracklets, teams, ff,
+        {"min_similarity": 0.9, "max_prototypes": 1},
+    )
+    assert sorted(sorted(e.tracklet_ids) for e in capped) == [[1], [2]]
+
+
 def test_referees_and_cross_team_pairs_excluded_silently(tmp_path):
     tracklets = [
         _tracklet(1, 0, 50),
