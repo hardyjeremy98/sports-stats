@@ -65,6 +65,7 @@ export const VideoOverlay = forwardRef<
     highlightPlayerId?: number | null;
     highlightGtTrackId?: number | null;
     controls?: boolean;
+    scrubber?: boolean;
   }
 >(function VideoOverlay(
   {
@@ -77,11 +78,22 @@ export const VideoOverlay = forwardRef<
     highlightPlayerId,
     highlightGtTrackId,
     controls = true,
+    scrubber = true,
   },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const stepFrames = (n: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    const frame = Math.round(v.currentTime * fps);
+    const t = (frame + n) / fps;
+    const max = v.duration || run.video?.duration_s || Infinity;
+    v.currentTime = Math.min(Math.max(0, t), max);
+  };
 
   useImperativeHandle(ref, () => ({
     seek: (t: number) => {
@@ -289,15 +301,39 @@ export const VideoOverlay = forwardRef<
   ]);
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-white/8 bg-black">
-      <video
-        ref={videoRef}
-        src={`/api/videos/${run.video_id}/file`}
-        controls={controls}
-        playsInline
-        className="block w-full"
-      />
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-x-0 top-0 w-full" />
+    <div className="overflow-hidden rounded-xl border border-white/8 bg-black">
+      <div className="relative">
+        <video
+          ref={videoRef}
+          src={`/api/videos/${run.video_id}/file`}
+          controls={controls}
+          playsInline
+          className="block w-full"
+        />
+        <canvas ref={canvasRef} className="pointer-events-none absolute inset-x-0 top-0 w-full" />
+      </div>
+      {scrubber && (
+        <div className="flex items-center gap-2 border-t border-white/8 px-3 py-1.5 font-mono text-xs text-ink-400">
+          <span className="text-ink-600">Scrub</span>
+          {(
+            [
+              ["<<", -5, "back 5 frames"],
+              ["<", -1, "back 1 frame"],
+              [">", 1, "forward 1 frame"],
+              [">>", 5, "forward 5 frames"],
+            ] as const
+          ).map(([label, delta, title]) => (
+            <button
+              key={label}
+              className="rounded border border-white/8 px-2 py-0.5 hover:text-ink-100"
+              title={title}
+              onClick={() => stepFrames(delta)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
