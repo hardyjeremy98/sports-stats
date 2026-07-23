@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The Two-Voice M, MatchLab edition: same Rajdhani 700 capital M as the
+       MatchDay favicon, split at x=32 — "Match" in ink, "Lab" in volt green —
+       on the lab's turf-900 ground. -->
+  <defs>
+    <clipPath id="l"><rect width="32" height="64"/></clipPath>
+    <clipPath id="r"><rect x="32" width="32" height="64"/></clipPath>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#101512"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="13.5" fill="none" stroke="#ffffff14" stroke-width="1"/>
+  <g stroke-width="2" stroke-linejoin="round">
+    <path clip-path="url(#l)" fill="#f2f5f9" stroke="#f2f5f9" d="M38.82 15H46.65Q47.76 15 47.76 16.11V47.89Q47.76 49 46.65 49H42.31Q41.2 49 41.2 47.89V22.83H40.99L35.6 40.54Q35.28 41.6 34.27 41.6H29.83Q28.83 41.6 28.51 40.54L23.01 22.77H22.8V47.89Q22.8 48.52 22.59 48.76Q22.38 49 21.69 49H17.35Q16.24 49 16.24 47.89V16.11Q16.24 15 17.35 15H25.23Q25.97 15 26.24 15.74L31.84 34.41H32.16L37.82 15.74Q37.98 15 38.82 15Z"/>
+    <path clip-path="url(#r)" fill="#9BE532" stroke="#9BE532" d="M38.82 15H46.65Q47.76 15 47.76 16.11V47.89Q47.76 49 46.65 49H42.31Q41.2 49 41.2 47.89V22.83H40.99L35.6 40.54Q35.28 41.6 34.27 41.6H29.83Q28.83 41.6 28.51 40.54L23.01 22.77H22.8V47.89Q22.8 48.52 22.59 48.76Q22.38 49 21.69 49H17.35Q16.24 49 16.24 47.89V16.11Q16.24 15 17.35 15H25.23Q25.97 15 26.24 15.74L31.84 34.41H32.16L37.82 15.74Q37.98 15 38.82 15Z"/>
+  </g>
+</svg>
