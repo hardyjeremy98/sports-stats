@@ -24,8 +24,8 @@ gate; it records what was frozen, hashed, and measured so the gate can be judged
 
 - **Detector:** YOLOX-X, MixSort's SportsMOT-fine-tuned checkpoint
   (`yolox_x_sports_train.pth.tar`), loaded via a newly vendored inference-only module
-  `pitchlab_core/vendor/mixsort_yolox/` and a new registered detect stage `yolox-local`
-  (`pitchlab_core/stages/detect/yolox_local.py`).
+  `matchlab_core/vendor/mixsort_yolox/` and a new registered detect stage `yolox-local`
+  (`matchlab_core/stages/detect/yolox_local.py`).
 - **Checkpoint:** sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`
   (793 MB), source Google Drive file id `1wLJOZHwUbSBmjOfWw8n3fAPo3fvLyzUd` (MixSort model-zoo
   folder `1pQs1gFC_jG0TlGIUMgf3E0I3OztCvgxI`), stored at
@@ -36,11 +36,11 @@ gate; it records what was frozen, hashed, and measured so the gate can be judged
   `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6` (repo MIT license; upstream Megvii YOLOX code
   Apache-2.0, per-file copyright headers preserved). Six files
   (`network_blocks.py`, `darknet.py`, `yolo_pafpn.py`, `yolo_head.py`, `yolox.py`, `boxes.py`)
-  under `packages/pitchlab_core/src/pitchlab_core/vendor/mixsort_yolox/`, mechanical
+  under `packages/matchlab_core/src/matchlab_core/vendor/mixsort_yolox/`, mechanical
   import-rewrite edits only (relative imports; training-only loss code in `yolo_head.py`
   stubbed to `NotImplementedError`, no effect on `state_dict` or eval-path math) — full edit
   log in the vendored `README.md`. `load_state_dict(strict=True)` against the real checkpoint
-  passes (`packages/pitchlab_core/tests/test_yolox_vendor.py::test_checkpoint_loads_strict`).
+  passes (`packages/matchlab_core/tests/test_yolox_vendor.py::test_checkpoint_loads_strict`).
 - **Capture settings** (`configs/pipeline.yolox-sportsmot-eval.yaml`): `sample_stride: 1`
   (every frame, not stride-2 like Phase 0/1), `confidence: 0.1`, `nms_threshold: 0.7`, input
   800×1440, fp32 (`fp16: false`). Everything downstream of `detect:` (BoT-SORT hardened

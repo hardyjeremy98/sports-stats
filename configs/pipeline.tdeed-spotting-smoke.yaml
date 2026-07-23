@@ -48,7 +48,7 @@ stages:
   spotting:
     impl: tdeed
     params:
-      command: ["python", "-m", "pitchlab_core.spotting.reference_cli"]
+      command: ["python", "-m", "matchlab_core.spotting.reference_cli"]
       weights: ""
       confidence: 0.3
       merge_window_s: 1.0

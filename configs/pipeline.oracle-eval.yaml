@@ -2,7 +2,7 @@
 # association failures can be measured with detection quality held perfect.
 # Otherwise identical to pipeline.stub.yaml -- this is a runnable harness
 # config, not a production recipe. Point at any GT-backed video (sibling
-# `<video>.gt.json`, e.g. one ingested via `pitchlab-train ingest-soccernet`).
+# `<video>.gt.json`, e.g. one ingested via `matchlab-train ingest-soccernet`).
 name: oracle-eval
 description: Oracle (GT-box) detector + IoU tracker + kit-color teams + static camera, for tracker-ceiling analysis.
 sport: soccer

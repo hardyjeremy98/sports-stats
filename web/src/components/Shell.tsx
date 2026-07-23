@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
-/** Line-drawn pitch glyph — the PitchLab mark. */
+/** Line-drawn pitch glyph — the MatchLab mark. */
 export function PitchMark({ className = "h-5 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 30" fill="none" className={className} aria-hidden>

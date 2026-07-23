@@ -14,7 +14,7 @@ many entities even if those labels do not correspond to the correct people.
 
 ## Decision
 
-PitchLab will report three evaluation layers:
+MatchLab will report three evaluation layers:
 
 1. Raw tracker identity at tracklet level.
 2. Physical-player identity after cross-tracklet association.

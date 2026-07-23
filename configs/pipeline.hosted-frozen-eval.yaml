@@ -2,7 +2,7 @@
 # This config freezes the SHIPPING incumbent detector (roboflow-hosted
 # football-players-detection-3zvbc/11, the same model id as
 # configs/pipeline.v1.yaml) via the hosted-detection response cache
-# (SPO-10 part 2, pitchlab_core/stages/detect/hosted_cache.py), so its
+# (SPO-10 part 2, matchlab_core/stages/detect/hosted_cache.py), so its
 # responses become replayable inputs for Phase 2/3 comparison work instead of
 # re-hitting the network on every experiment run. This candidate IS the
 # incumbent -- the reference point the tier is measured against, not a new
@@ -22,7 +22,7 @@
 # same pattern Task 3's pipeline.yolox-sportsmot-eval.yaml used for the
 # SportsMOT tier -- the only variable versus that baseline is the detector.
 #
-# Step 1 finding (packages/pitchlab_core/src/pitchlab_core/stages/detect/roboflow.py):
+# Step 1 finding (packages/matchlab_core/src/matchlab_core/stages/detect/roboflow.py):
 # the `roboflow` detect impl uses the Roboflow `inference` package's
 # `get_model()` / `model.infer()`, which runs inference LOCALLY (onnxruntime)
 # after an initial authenticated model-artifact fetch -- it is NOT a

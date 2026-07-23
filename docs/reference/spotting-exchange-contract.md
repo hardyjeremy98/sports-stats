@@ -10,7 +10,7 @@ sides must satisfy.
 This contract exists so the real spotter (GPL-3.0 T-DEED, non-commercial SoccerNet-trained
 weights, isolated in a sibling `external-spotters/` environment — see
 [`external-spotters-setup.md`](external-spotters-setup.md)) and the permissive in-repo
-reference spotter (`pitchlab_core/spotting/reference_cli.py`) are **interchangeable** behind
+reference spotter (`matchlab_core/spotting/reference_cli.py`) are **interchangeable** behind
 one subprocess boundary. Nothing on the pipeline side of this contract may import GPL code or
 non-commercial weights; nothing on the spotter side needs to know it is being tested rather
 than run for real. The bridge that invokes this contract, and the `tdeed` pipeline stage that
@@ -27,7 +27,7 @@ JSON** file as a single flag:
 ```
 
 `<command>` is whatever the operator has configured (e.g. a `tdeed` entrypoint script inside
-its own venv, or `python -m pitchlab_core.spotting.reference_cli`). The bridge does not care
+its own venv, or `python -m matchlab_core.spotting.reference_cli`). The bridge does not care
 what `<command>` is internally — only that it accepts `--job <manifest-path>`, reads that
 manifest, and behaves as specified below.
 

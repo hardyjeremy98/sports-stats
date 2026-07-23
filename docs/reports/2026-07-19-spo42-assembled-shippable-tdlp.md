@@ -25,7 +25,7 @@ RF-DETR detector (Apache)  ->  tdlp-shippable track stage:
     -> Tracklet artifacts  ->  (existing offline associator, unchanged)
 ```
 
-- **Vendored TDLP head** (`pitchlab_core/_vendor/tdlp/`, MIT, upstream @50344b9): the
+- **Vendored TDLP head** (`matchlab_core/_vendor/tdlp/`, MIT, upstream @50344b9): the
   pure-torch link-prediction architecture only — no `motrack`/`mmdet`/`hydra`. Local
   extension: a `global_appearance` feature encoder so the head consumes a **single global
   appearance embedding** (DINOv2 CLS) instead of the upstream research-only KPR **6-part**
@@ -70,7 +70,7 @@ head (SPO-40, below). The gate surfaces every one rather than letting them slip.
 
 The released TDLP weights are unusable (CC-BY-NC **and** KPR-6-part-shaped), so the head must
 be trained on our shippable features. A **preliminary** head trainer
-(`pitchlab_train/tdlp_head_train.py`, corrupt-and-recover link prediction over bbox + DINOv2
+(`matchlab_train/tdlp_head_train.py`, corrupt-and-recover link prediction over bbox + DINOv2
 appearance) trains on the **NC eval-tier tuning splits** (SoccerNet SNMOT-116..123 + SportsMOT
 tuning) — a **NON-SHIPPABLE** checkpoint whose only purpose is to de-risk the harness and give
 a first Bar A data point. Eval configs (`benchmark-spo44-{soccernet,sportsmot}.yaml`) score it

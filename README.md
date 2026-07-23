@@ -1,4 +1,4 @@
-# PitchLab
+# MatchLab
 
 Automated, individual, player-facing performance analytics from ordinary phone video.
 Upload a single ground-level recording of a soccer match; get back a per-player stat sheet
@@ -39,9 +39,9 @@ offline global cross-tracklet association pass over the whole clip — never per
 
 | Piece | Where | What |
 |-------|-------|------|
-| `pitchlab_core` | `packages/pitchlab_core` | Schemas, stage interfaces, component registry, pipeline runner, v1 stage implementations |
-| `pitchlab_server` | `packages/pitchlab_server` | FastAPI API, job table + polling worker, QA queue |
-| `pitchlab_train` | `packages/pitchlab_train` | Config-driven training/eval experiments, dataset adapters, QA-label export |
+| `matchlab_core` | `packages/matchlab_core` | Schemas, stage interfaces, component registry, pipeline runner, v1 stage implementations |
+| `matchlab_server` | `packages/matchlab_server` | FastAPI API, job table + polling worker, QA queue |
+| `matchlab_train` | `packages/matchlab_train` | Config-driven training/eval experiments, dataset adapters, QA-label export |
 | `web` | `web/` | React UI: user-facing app **and** the ML Pipeline Lab |
 
 ### The Pipeline Lab
@@ -77,9 +77,9 @@ Lab UI are fully exercisable on a laptop.
 ## Repo layout
 
 ```
-packages/pitchlab_core/     # pipeline library (pip: pitchlab-core)
-packages/pitchlab_server/   # API + worker    (pip: pitchlab-server)
-packages/pitchlab_train/    # training        (pip: pitchlab-train)
+packages/matchlab_core/     # pipeline library (pip: matchlab-core)
+packages/matchlab_server/   # API + worker    (pip: matchlab-server)
+packages/matchlab_train/    # training        (pip: matchlab-train)
 web/                        # React + Vite + Tailwind UI
 configs/                    # pipeline YAML configs (the swappable surface)
 docker/                     # Dockerfiles

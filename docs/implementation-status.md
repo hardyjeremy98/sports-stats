@@ -54,14 +54,14 @@ project in Linear.
 
 | Capability | Status | Current implementation | Primary location |
 |---|---|---|---|
-| Player and ball detection | Implemented | Roboflow inference, local YOLO, synthetic detector | `pitchlab_core/stages/detect/` |
-| Oracle (ground-truth) detection | Implemented | Emits a video's GT boxes as detections instead of running a real detector, to isolate tracker/association behavior from detection quality (the "tracker ceiling" experiment); GT resolved from an explicit `gt_path` param or the sibling `<video>.gt.json` convention, loud error if neither exists; optional seed-deterministic dropout/jitter knobs (off by default); metadata-only, no frame decode | `pitchlab_core/stages/detect/oracle.py` (`impl: oracle`), `configs/pipeline.oracle-eval.yaml` |
-| SportsMOT frozen comparator detection (SPO-25) | Prototype | `yolox-local` stage loads a vendored, inference-only MixSort YOLOX-X (`pitchlab_core/vendor/mixsort_yolox/`, fetched from `github.com/MCG-NJU/MixSort` @ pinned commit `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6`, MIT repo / Apache-2.0 upstream YOLOX code) against the frozen checkpoint `data/weights/mixsort/yolox_x_sports_train.pth.tar` (sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`). Same "fail loud on missing weights" / `provenance()` idiom as `yolo-local`. **Selection-only, non-shippable**: the checkpoint was fine-tuned on SportsMOT (CC BY-NC 4.0) — it exists to freeze a stronger detection floor for tracker selection (Phase 2/3), never to ship. Measured: mean detection_ap 0.9844 vs the hardened incumbent's 0.2641 over the same 9 same-protocol SportsMOT sequences; see [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md). | `pitchlab_core/vendor/mixsort_yolox/`, `pitchlab_core/stages/detect/yolox_local.py`, `configs/pipeline.yolox-sportsmot-eval.yaml` |
-| Short-term tracking (**DEFAULT tracker**) | Implemented | **The current best / default tracklet system — hardened BoT-SORT (see the callout above `configs/pipeline.v1-hardened-eval.yaml`).** BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (shipped configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `pitchlab_core/stages/track/botsort.py` |
+| Player and ball detection | Implemented | Roboflow inference, local YOLO, synthetic detector | `matchlab_core/stages/detect/` |
+| Oracle (ground-truth) detection | Implemented | Emits a video's GT boxes as detections instead of running a real detector, to isolate tracker/association behavior from detection quality (the "tracker ceiling" experiment); GT resolved from an explicit `gt_path` param or the sibling `<video>.gt.json` convention, loud error if neither exists; optional seed-deterministic dropout/jitter knobs (off by default); metadata-only, no frame decode | `matchlab_core/stages/detect/oracle.py` (`impl: oracle`), `configs/pipeline.oracle-eval.yaml` |
+| SportsMOT frozen comparator detection (SPO-25) | Prototype | `yolox-local` stage loads a vendored, inference-only MixSort YOLOX-X (`matchlab_core/vendor/mixsort_yolox/`, fetched from `github.com/MCG-NJU/MixSort` @ pinned commit `a078f5bf6ae9fbeecbc1384479d5f02ab8b9e7f6`, MIT repo / Apache-2.0 upstream YOLOX code) against the frozen checkpoint `data/weights/mixsort/yolox_x_sports_train.pth.tar` (sha256 `58547880fb73b9f9ac5674547781c6a87071906376286da301f9b0e19b50ed1c`). Same "fail loud on missing weights" / `provenance()` idiom as `yolo-local`. **Selection-only, non-shippable**: the checkpoint was fine-tuned on SportsMOT (CC BY-NC 4.0) — it exists to freeze a stronger detection floor for tracker selection (Phase 2/3), never to ship. Measured: mean detection_ap 0.9844 vs the hardened incumbent's 0.2641 over the same 9 same-protocol SportsMOT sequences; see [`docs/reports/2026-07-17-phase2-frozen-detections.md`](reports/2026-07-17-phase2-frozen-detections.md). | `matchlab_core/vendor/mixsort_yolox/`, `matchlab_core/stages/detect/yolox_local.py`, `configs/pipeline.yolox-sportsmot-eval.yaml` |
+| Short-term tracking (**DEFAULT tracker**) | Implemented | **The current best / default tracklet system — hardened BoT-SORT (see the callout above `configs/pipeline.v1-hardened-eval.yaml`).** BoT-SORT (via `roboflow/trackers`, pinned `==2.4.0`) and dependency-free IoU tracker. BoT-SORT construction fails loudly (`RuntimeError` naming the class, kwargs, and installed version) on constructor-signature drift instead of silently falling back to a zero-argument constructor; all 13 `BoTSORTTracker` constructor kwargs are exposed as `Params` (shipped configs state them explicitly); person/goalkeeper/referee class is carried through tracking via a `source_idx` entry in `sv.Detections.data` (reconstructed by nearest box centre previously; now index-based, with a fail-loud guard if the tracker drops/truncates that payload) | `matchlab_core/stages/track/botsort.py` |
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
-| Multi-cue learned tracking (in-repo `tdlp-shippable`) | Experimental — **CLOSED/superseded, not the default** | The shippable-equivalent program was retired 2026-07-20 (research-mode pivot; see the callout above). This in-repo stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT and is not maintained; the SOTA TDLP-full path (external env, imported to the Lab) replaced it for research. `tdlp-shippable` (`StageKind.TRACK`): the assembled licensing-clean multi-cue tracker — RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`pitchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder replaces the research-only KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). **Runs end-to-end on arbitrary video** (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint. **No shippable checkpoint yet** — a preliminary NC-eval-tier-tuning-trained head (`pitchlab_train/tdlp_head_train.py`, corrupt-and-recover) yields the first Bar A number (non-shippable); the shippable retrain (SPO-40) is **blocked on permissive association-training data (SPO-39, HITL)**. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
-| Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `pitchlab_core/stages/team/` |
-| Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `pitchlab_core/stages/calibrate/` |
+| Multi-cue learned tracking (in-repo `tdlp-shippable`) | Experimental — **CLOSED/superseded, not the default** | The shippable-equivalent program was retired 2026-07-20 (research-mode pivot; see the callout above). This in-repo stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT and is not maintained; the SOTA TDLP-full path (external env, imported to the Lab) replaced it for research. `tdlp-shippable` (`StageKind.TRACK`): the assembled licensing-clean multi-cue tracker — RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder replaces the research-only KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). **Runs end-to-end on arbitrary video** (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint. **No shippable checkpoint yet** — a preliminary NC-eval-tier-tuning-trained head (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover) yields the first Bar A number (non-shippable); the shippable retrain (SPO-40) is **blocked on permissive association-training data (SPO-39, HITL)**. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
+| Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
+| Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
@@ -73,12 +73,12 @@ project in Linear.
 | Quality-guided multimodal fusion | Planned | No fusion implementation; would require a composite or revised inference flow | — |
 | Match-level constrained optimizer | Planned | Only local pair filtering and greedy merging exist | — |
 | Roster enrollment and assignment | Planned | No roster model or assignment workflow exists | — |
-| Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `pitchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `pitchlab_server/api/identity_qa.py` |
+| Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses and eval ID switches), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `matchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `matchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
-| Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained non-commercial weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) and is **reference/internal only, never shipped** — mirrors the `ultralytics`/`external-trackers/` posture. A permissive in-repo reference CLI (`pitchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
+| Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained non-commercial weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) and is **reference/internal only, never shipped** — mirrors the `ultralytics`/`external-trackers/` posture. A permissive in-repo reference CLI (`matchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
 
-Paths in this table are relative to `packages/pitchlab_core/src/pitchlab_core/` unless otherwise
+Paths in this table are relative to `packages/matchlab_core/src/matchlab_core/` unless otherwise
 stated.
 
 `TrackletFrame` (`schemas/tracks.py`) carries a `source` provenance field —
@@ -104,7 +104,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   applicable), lineage, and per-axis (`code`/`weights`/`training_data`) license status.
   `evaluation_set_hash` is `"unknown"` on every manifest as written by the pipeline runner
   itself (GT linkage is server-side); the server's GT auto-scoring hook
-  (`pitchlab_server/evaluation.py::evaluate_run_against_gt`, called by the worker on run
+  (`matchlab_server/evaluation.py::evaluate_run_against_gt`, called by the worker on run
   completion and by `POST /api/runs/{id}/evaluate`) writes the canonical-JSON hash of the
   scored GT file back into the manifest in place before scoring. `hash_evaluation_set` /
   `hash_dataset_manifest` hash `json.dumps(json.loads(text), sort_keys=True,
@@ -115,8 +115,8 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   aggregating rows together. Consumer-facing schema doc: `docs/provenance.md`;
   `web/src/lib/types.ts` mirrors the schema by hand. No benchmark or comparison numbers
   depend on this yet — Phase 0 instrumentation.
-  `packages/pitchlab_core/src/pitchlab_core/provenance.py`,
-  `packages/pitchlab_core/src/pitchlab_core/runner.py`.
+  `packages/matchlab_core/src/matchlab_core/provenance.py`,
+  `packages/matchlab_core/src/matchlab_core/runner.py`.
 - **Hosted-detection response cache** (SPO-10 part 2): `RoboflowDetector` gains `cache_dir`
   (default `data/cache/hosted-detections`) and `cache_mode` (`off` / `readwrite` / `replay`)
   params; both shipped roboflow configs (`configs/pipeline.v1.yaml`,
@@ -134,7 +134,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   (`null` when caching is off or the stage doesn't cache), refreshed by the runner both
   after `prepare()` and after the stage finishes executing, so a cold cache warmed during a
   `readwrite` run reflects its actual output rather than the pre-run empty-cache hash.
-  `packages/pitchlab_core/src/pitchlab_core/stages/detect/hosted_cache.py`. **Exercised at
+  `packages/matchlab_core/src/matchlab_core/stages/detect/hosted_cache.py`. **Exercised at
   tier scale (SPO-26, Phase 2):** the SoccerNet tier's incumbent (`roboflow`,
   `football-players-detection-3zvbc/11`) was captured `readwrite` at confidence 0.1 over all
   12 tuning/held-out sequences (9000 cache entries, 36 MB), then replayed `cache_mode:
@@ -148,9 +148,9 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   importer let an external MOT research tracker consume this repo's detections and have its
   output scored by the existing evaluator, without becoming a registered pipeline stage.
   Pure conversion (no CLI logic, no DB, no network) in
-  `packages/pitchlab_core/src/pitchlab_core/exchange.py`; CLI wrappers `pitchlab-train
-  export-detections` / `pitchlab-train import-tracklets`
-  (`packages/pitchlab_train/src/pitchlab_train/cli.py`).
+  `packages/matchlab_core/src/matchlab_core/exchange.py`; CLI wrappers `matchlab-train
+  export-detections` / `matchlab-train import-tracklets`
+  (`packages/matchlab_train/src/matchlab_train/cli.py`).
   - `export_frozen_detections(run_dir, out_dir)` reads `<run_dir>/detections.jsonl` +
     `manifest.json` and writes a standard MOT `det.txt` (1-based frames, `id=-1`, xywh boxes
     fixed-formatted `%.2f`/conf `%.6f` so repeated exports of the same run are byte-identical)
@@ -181,7 +181,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
     enforcement is the benchmark runner's `ImportCandidate` validation (SPO-17 part 2, see
     Experiment tooling below): a `reference_only: true` import is refused outright if its
     `comparison_class` is `"matched_data"`.
-  - Tested (`packages/pitchlab_core/tests/test_exchange.py`): export row/ball-filter/sidecar/
+  - Tested (`packages/matchlab_core/tests/test_exchange.py`): export row/ball-filter/sidecar/
     determinism/missing-input cases; import fixture parsing, all refusal paths above
     (parametrized over each required sidecar field), and a hash-mismatch case; an
     export-then-import round trip asserting boxes and track ids survive exactly at `det.txt`'s
@@ -255,14 +255,14 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   `headline_metrics` gains `tracklet_purity` and `mixed_track_seconds`.
 - A fifth, independent backend (`eval.json`'s `hota` block, tracklet-modernization SPO-7): HOTA,
   DetA, AssA, and LocA at both tracklet and entity level, via a vendored slice of TrackEval
-  (`pitchlab_core/hota.py` + `pitchlab_core/_vendor/trackeval/`, upstream
+  (`matchlab_core/hota.py` + `matchlab_core/_vendor/trackeval/`, upstream
   `JonathonLuiten/TrackEval` @ commit `12c8791`, MIT license, only the HOTA metric-math path kept,
   numpy-2 patched (`np.float` removed alias)). Scores the same per-frame GT/prediction structures
   the motmetrics IDF1/MOTA accumulators use; the two backends are never reconciled against each
   other. `headline_metrics` gains `hota_tracklet` and `hota_entity`.
 - A sixth, LEVEL-INDEPENDENT layer (`eval.json`'s `detection` block, SPO-9): scores the
   detector itself rather than the tracker, computed once per run (not per tracklet/entity
-  level) via a standalone pure-numpy module (`pitchlab_core/detection_eval.py`, no
+  level) via a standalone pure-numpy module (`matchlab_core/detection_eval.py`, no
   motmetrics/scipy/trackeval), following the HOTA-adapter structural precedent — its own
   module, lazily imported, folded into `eval.json` under one top-level key. Deterministic
   confidence-descending greedy matching per frame (VOC-style single-pass assignment, not a
@@ -308,7 +308,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
     other provenance/exchange work in this document: capability and test coverage only, no
     measured detection-quality figures on real footage.
 - A seventh annotation pass (`eval.json`'s per-instance `attribution` + top-level
-  `attribution` context block, SPO-19, `pitchlab_core/attribution.py`): every per-instance
+  `attribution` context block, SPO-19, `matchlab_core/attribution.py`): every per-instance
   ID-switch record carries an evidence-based layer attribution — `detection`,
   `online_association`, `refinement` (reserved for the Phase 4 refined-tracklet layer,
   never emitted today), `offline_association` — or an explicit `ambiguous` tag, with the
@@ -318,7 +318,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   zero dropout/jitter, read from the manifest's resolved config) attributes its tracklet
   switches to `online_association` by construction; an oracle-run comparison (greedy
   nearest-`t` one-to-one matching per GT track, the same matcher `diff_switch_instances`
-  now shares from `pitchlab_core.attribution.match_instances`) attributes disappears→
+  now shares from `matchlab_core.attribution.match_instances`) attributes disappears→
   `detection` / persists→`online_association`; entity-level switches inherit a matched
   tracklet counterpart's layer or are `offline_association` when association introduced
   them; everything else is `ambiguous` — no path silently defaults to a specific layer.
@@ -348,7 +348,7 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   sequences drawn from the SportsMOT `val` split (HuggingFace MCG-NJU/SportsMOT) — 6 `held_out`
   (2 each football/basketball/volleyball) + 3 `tuning` (1 per sport), all from distinct source
   videos so no clip correlation crosses the held-out/tuning boundary. Ingested 2026-07-17 via
-  `pitchlab-train ingest-sportsmot`; one held-out sequence scored end-to-end through the
+  `matchlab-train ingest-sportsmot`; one held-out sequence scored end-to-end through the
   oracle-eval pipeline to confirm the GT is scorable. **License: CC BY-NC 4.0 — non-commercial /
   research only.** This tier is an evaluation benchmark only; SportsMOT must never train shipped
   models or be redistributed with the product (see CLAUDE.md → Licensing boundaries). Upstream
@@ -356,14 +356,14 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   gate was not clicked through — **commercial use needs an explicit recorded licensing sign-off,
   which is still open** (raised at SPO-16, deferred to the owner of product licensing risk).
 - Action-spotting scoring (SPO-47/49): a timestamped-event ground-truth representation
-  (`EventGroundTruth`, `pitchlab_core/event_gt.py`) distinct from the box/track
+  (`EventGroundTruth`, `matchlab_core/event_gt.py`) distinct from the box/track
   `GroundTruth` used everywhere else, an `ingest-soccernet-ball` CLI that registers SoccerNet
   Ball Action Spotting matches as Lab videos with event GT, and a `soccernet-ball` eval tier
   manifest (`configs/datasets/soccernet-ball.json`). Scored by a dedicated avg-mAP@1 metric
-  (tolerance-window matching, per-class AP, mean; `pitchlab_core/action_spotting_eval.py`),
+  (tolerance-window matching, per-class AP, mean; `matchlab_core/action_spotting_eval.py`),
   wired into `eval.json` (its own action-spotting result shape, not the MOT suite),
   `runs.metrics` (`spotting_map_at_1`), and `GET /api/benchmark`'s metric keys — the server's
-  GT auto-scoring hook (`pitchlab_server/evaluation.py::evaluate_run_against_gt`) picks this
+  GT auto-scoring hook (`matchlab_server/evaluation.py::evaluate_run_against_gt`) picks this
   path automatically whenever a run's video GT is event-shaped
   (`event_gt.is_event_ground_truth`), the same way it already auto-picks the MOT path for
   track GT. **No benchmark number has been measured yet.** Running the real T-DEED weights
@@ -384,19 +384,19 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
 
 Primary locations:
 
-- `packages/pitchlab_core/src/pitchlab_core/gt.py`
-- `packages/pitchlab_core/src/pitchlab_core/evaluation.py`
-- `packages/pitchlab_core/src/pitchlab_core/attribution.py`
-- `packages/pitchlab_core/src/pitchlab_core/hota.py`
-- `packages/pitchlab_core/src/pitchlab_core/_vendor/trackeval/`
-- `packages/pitchlab_core/src/pitchlab_core/detection_eval.py`
-- `packages/pitchlab_server/src/pitchlab_server/worker.py`
-- `packages/pitchlab_server/src/pitchlab_server/evaluation.py`
-- `packages/pitchlab_server/src/pitchlab_server/api/benchmark.py`
+- `packages/matchlab_core/src/matchlab_core/gt.py`
+- `packages/matchlab_core/src/matchlab_core/evaluation.py`
+- `packages/matchlab_core/src/matchlab_core/attribution.py`
+- `packages/matchlab_core/src/matchlab_core/hota.py`
+- `packages/matchlab_core/src/matchlab_core/_vendor/trackeval/`
+- `packages/matchlab_core/src/matchlab_core/detection_eval.py`
+- `packages/matchlab_server/src/matchlab_server/worker.py`
+- `packages/matchlab_server/src/matchlab_server/evaluation.py`
+- `packages/matchlab_server/src/matchlab_server/api/benchmark.py`
 - `configs/datasets/soccernet.json`
-- `packages/pitchlab_core/src/pitchlab_core/event_gt.py`
-- `packages/pitchlab_core/src/pitchlab_core/action_spotting_eval.py`
-- `packages/pitchlab_train/src/pitchlab_train/datasets/soccernet_ball.py`
+- `packages/matchlab_core/src/matchlab_core/event_gt.py`
+- `packages/matchlab_core/src/matchlab_core/action_spotting_eval.py`
+- `packages/matchlab_train/src/matchlab_train/datasets/soccernet_ball.py`
 - `configs/datasets/soccernet-ball.json`
 
 ### Not implemented
@@ -425,17 +425,17 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 - A run-diff API and UI for config, headline metric, timeline, and stat differences.
 - CLI `eval-pipelines` experiment that runs two configurations over multiple clips.
 - SoccerNet ingestion and QA-label export commands.
-- `pitchlab-train ingest-sportsmot` / `ingest-soccertrack` (SPO-11): mirror
+- `matchlab-train ingest-sportsmot` / `ingest-soccertrack` (SPO-11): mirror
   `ingest-soccernet`'s register-as-Lab-video pattern (stitch frames or copy the source
   video, write a `.gt.json`, register a `Video` row with `gt_path` set) and additionally
   write/merge a `configs/datasets/<tier>.json` split-manifest entry for each ingested
   sequence — the first programmatic writer of that file format (`soccernet.json` remains
-  hand-maintained). Frame-stitching is shared via `pitchlab_train/datasets/stitch.py`
+  hand-maintained). Frame-stitching is shared via `matchlab_train/datasets/stitch.py`
   (used by both `ingest-soccernet` and `ingest-sportsmot`; `ingest-soccertrack` needs no
   stitching since SoccerTrack ships pre-encoded video, discovered by same-directory,
-  same-stem `*.mp4`/`*.csv` pairing). `packages/pitchlab_train/src/pitchlab_train/datasets/
+  same-stem `*.mp4`/`*.csv` pairing). `packages/matchlab_train/src/matchlab_train/datasets/
   {sportsmot,soccertrack,stitch}.py`.
-- `pitchlab_train.datasets.manifest.update_tier_manifest` (SPO-11): deterministic
+- `matchlab_train.datasets.manifest.update_tier_manifest` (SPO-11): deterministic
   (`sort_keys=True`, `sequences` grouped `"tuning"` entries first then `"held_out"`,
   ascending by name within each group) merge-writer for `configs/datasets/<tier>.json`.
   Verifies every `video`/`gt` path exists before writing anything; records paths relative
@@ -445,20 +445,20 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   `"held_out"` — promotion the other way (`"held_out"` to `"tuning"`) is allowed. Covered
   by an end-to-end scoreability test (`test_end_to_end_scoreability_of_ingested_sequence`)
   that ingests a fixture sequence, builds a run whose tracklets echo the ingested ground
-  truth exactly, and asserts `pitchlab_core.evaluation.evaluate_run` recovers near-1.0
+  truth exactly, and asserts `matchlab_core.evaluation.evaluate_run` recovers near-1.0
   IDF1/HOTA against it — confirms the ingest's ground truth is scoreable through the
   existing evaluator, not a benchmark measurement on real detector/tracker output.
-  `packages/pitchlab_train/src/pitchlab_train/datasets/manifest.py`.
-- `pitchlab-train export-reid`: exports identity-QA "same"/"different" pair verdicts (unsure
+  `packages/matchlab_train/src/matchlab_train/datasets/manifest.py`.
+- `matchlab-train export-reid`: exports identity-QA "same"/"different" pair verdicts (unsure
   pairs excluded) as re-ID training pairs with copied crop images, cross-run crop-name-collision
   safe.
-- `GET /api/benchmark` (`pitchlab_server/api/benchmark.py`): read-only, no-schema-change
+- `GET /api/benchmark` (`matchlab_server/api/benchmark.py`): read-only, no-schema-change
   aggregation of every completed, GT-scored run into a config × video mean/range matrix — the
   batch-GT-metrics aggregation that `eval-pipelines` doesn't do (see limitation below), surfaced
   in the Lab at `/lab/benchmark`.
-- `pitchlab-train run` `benchmark` experiment (SPO-17, `pitchlab_train/experiments/
+- `matchlab-train run` `benchmark` experiment (SPO-17, `matchlab_train/experiments/
   benchmark.py`): the PRD's decision-making backbone — a parallel system to `GET
-  /api/benchmark` above, by design (no `pitchlab_server`/DB imports, offline-first). Loads a
+  /api/benchmark` above, by design (no `matchlab_server`/DB imports, offline-first). Loads a
   `configs/datasets/<tier>.json` manifest, expands a candidate matrix (pipeline candidates:
   a config path + dotted-path overrides + parameter sweeps; import candidates: sequence name
   → an `exchange.import_mot_tracklets` run dir), runs/scores each candidate over each

@@ -5,7 +5,7 @@
 # real footage and emits tracklet artifacts; it is NOT a quality result.
 #
 # Run (rfdetr + rtmlib are Apache but not declared deps; DINOv2 via timm is):
-#   uv run --with rfdetr --with rtmlib pitchlab-run \
+#   uv run --with rfdetr --with rtmlib matchlab-run \
 #     --video data/clips/08fd33_0.mp4 \
 #     --config configs/pipeline.tdlp-shippable-smoke.yaml --device cuda \
 #     --run-id tdlp-smoke

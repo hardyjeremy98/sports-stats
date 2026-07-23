@@ -1,7 +1,7 @@
-# TDLP-full tracker wired natively into pitchlab (research/local tool). The
+# TDLP-full tracker wired natively into matchlab (research/local tool). The
 # TRACK slot runs the SOTA offline TDLP-full stack — RTMPose keypoints + KPR
 # 6-part appearance + the released `tdlp_sportsmot` link-prediction head — via a
-# subprocess bridge to the isolated `external-trackers/` venvs. `pitchlab-run`
+# subprocess bridge to the isolated `external-trackers/` venvs. `matchlab-run`
 # with this config works end-to-end on any clip: the `tdlp-full` stage
 # fabricates the MOT-sequence layout the external tools need from the pipeline's
 # own frames + detections, shells out to each venv, and returns native

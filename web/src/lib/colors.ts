@@ -1,7 +1,7 @@
 import type { Team } from "./types";
 
 // Single source of truth for team colors — keep close to the backend
-// annotator palette (pitchlab_core/stages/annotate/overlay.py).
+// annotator palette (matchlab_core/stages/annotate/overlay.py).
 export const TEAM_COLORS: Record<Team, string> = {
   home: "#2C91FF",
   away: "#E7503C",

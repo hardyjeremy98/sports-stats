@@ -335,7 +335,7 @@ function CurrentView() {
               </Text>
               <Button
                 variant="secondary"
-                onClick={() => action({ type: "openFile", path: "packages/pitchlab_core/src/pitchlab_core/stages/detect/roboflow.py" })}
+                onClick={() => action({ type: "openFile", path: "packages/matchlab_core/src/matchlab_core/stages/detect/roboflow.py" })}
               >
                 Open detector
               </Button>
@@ -358,7 +358,7 @@ function CurrentView() {
               </Text>
               <Button
                 variant="secondary"
-                onClick={() => action({ type: "openFile", path: "packages/pitchlab_core/src/pitchlab_core/stages/track/botsort.py" })}
+                onClick={() => action({ type: "openFile", path: "packages/matchlab_core/src/matchlab_core/stages/track/botsort.py" })}
               >
                 Open tracker wrapper
               </Button>
@@ -585,7 +585,7 @@ export default function TrackletSOTARoadmap() {
           }}
         >
           <Stack gap={7}>
-            <Text size="small" tone="tertiary">PITCHLAB · TRACKLET ENGINEERING REVIEW · JULY 2026</Text>
+            <Text size="small" tone="tertiary">MATCHLAB · TRACKLET ENGINEERING REVIEW · JULY 2026</Text>
             <H1>From baseline tracks to SOTA-grade tracklets</H1>
             <Text tone="secondary">
               A broad-sports-first roadmap for detection, local association, camera motion,
@@ -625,7 +625,7 @@ export default function TrackletSOTARoadmap() {
           Repository evidence: current detector/tracker wrappers, installed Roboflow trackers 2026
           implementation, configs, GT evaluator and Lab artifacts. Research evidence: primary papers
           and repositories available through 16 July 2026. Public benchmark scores are not predictions
-          of performance on PitchLab's target footage. The roadmap intentionally uses easier,
+          of performance on MatchLab's target footage. The roadmap intentionally uses easier,
           abundant sports labels before scarce phone labels.
         </Text>
       </Stack>

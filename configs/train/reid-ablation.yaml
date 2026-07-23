@@ -1,7 +1,7 @@
 # Ablate association strategies (per-tracklet baseline, kit-color, OSNet
-# re-ID) against the 8 SoccerNet clips ingested via `pitchlab-train
+# re-ID) against the 8 SoccerNet clips ingested via `matchlab-train
 # ingest-soccernet` (data/videos/soccernet/SNMOT-*.mp4 + sibling .gt.json,
-# written by pitchlab_train.datasets.soccernet_tracking.ingest_soccernet).
+# written by matchlab_train.datasets.soccernet_tracking.ingest_soccernet).
 # The measurement harness ADR 004 requires before shipping global-reid.
 name: reid-ablation-osnet
 task: reid-ablation

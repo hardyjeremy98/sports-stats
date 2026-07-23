@@ -22,6 +22,6 @@ RUN if [ "$INSTALL_CV" = "true" ]; then \
     fi
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PITCHLAB_CONFIG_DIR=/app/configs
+    MATCHLAB_CONFIG_DIR=/app/configs
 
-CMD ["uvicorn", "pitchlab_server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "matchlab_server.app:app", "--host", "0.0.0.0", "--port", "8000"]

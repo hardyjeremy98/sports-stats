@@ -15,10 +15,10 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "pitchlab-core",
-    "pitchlab-server",
-    "pitchlab-train",
-    "pitchlab-workspace",
+    "matchlab-core",
+    "matchlab-server",
+    "matchlab-train",
+    "matchlab-workspace",
 ]
 
 [[package]]
@@ -3316,9 +3316,9 @@ wheels = [
 ]
 
 [[package]]
-name = "pitchlab-core"
+name = "matchlab-core"
 version = "0.1.0"
-source = { editable = "packages/pitchlab_core" }
+source = { editable = "packages/matchlab_core" }
 dependencies = [
     { name = "numpy" },
     { name = "opencv-python-headless" },
@@ -3366,12 +3366,12 @@ requires-dist = [
 provides-extras = ["cv", "face", "eval"]
 
 [[package]]
-name = "pitchlab-server"
+name = "matchlab-server"
 version = "0.1.0"
-source = { editable = "packages/pitchlab_server" }
+source = { editable = "packages/matchlab_server" }
 dependencies = [
     { name = "fastapi" },
-    { name = "pitchlab-core" },
+    { name = "matchlab-core" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-multipart" },
     { name = "sqlalchemy" },
@@ -3381,7 +3381,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "pitchlab-core", editable = "packages/pitchlab_core" },
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "sqlalchemy", specifier = ">=2.0" },
@@ -3389,11 +3389,11 @@ requires-dist = [
 ]
 
 [[package]]
-name = "pitchlab-train"
+name = "matchlab-train"
 version = "0.1.0"
-source = { editable = "packages/pitchlab_train" }
+source = { editable = "packages/matchlab_train" }
 dependencies = [
-    { name = "pitchlab-core" },
+    { name = "matchlab-core" },
     { name = "pyyaml" },
 ]
 
@@ -3403,13 +3403,13 @@ detector = [
     { name = "roboflow" },
 ]
 qa = [
-    { name = "pitchlab-server" },
+    { name = "matchlab-server" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "pitchlab-core", editable = "packages/pitchlab_core" },
-    { name = "pitchlab-server", marker = "extra == 'qa'", editable = "packages/pitchlab_server" },
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
+    { name = "matchlab-server", marker = "extra == 'qa'", editable = "packages/matchlab_server" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rfdetr", marker = "extra == 'detector'", specifier = ">=1.0" },
     { name = "roboflow", marker = "extra == 'detector'", specifier = ">=1.1" },
@@ -3417,18 +3417,18 @@ requires-dist = [
 provides-extras = ["detector", "qa"]
 
 [[package]]
-name = "pitchlab-workspace"
+name = "matchlab-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "pitchlab-core" },
-    { name = "pitchlab-server" },
-    { name = "pitchlab-train" },
+    { name = "matchlab-core" },
+    { name = "matchlab-server" },
+    { name = "matchlab-train" },
 ]
 
 [package.dev-dependencies]
 cv = [
-    { name = "pitchlab-core", extra = ["cv"] },
+    { name = "matchlab-core", extra = ["cv"] },
 ]
 dev = [
     { name = "httpx" },
@@ -3437,29 +3437,29 @@ dev = [
     { name = "ruff" },
 ]
 eval = [
-    { name = "pitchlab-core", extra = ["eval"] },
+    { name = "matchlab-core", extra = ["eval"] },
 ]
 face = [
-    { name = "pitchlab-core", extra = ["face"] },
+    { name = "matchlab-core", extra = ["face"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "pitchlab-core", editable = "packages/pitchlab_core" },
-    { name = "pitchlab-server", editable = "packages/pitchlab_server" },
-    { name = "pitchlab-train", editable = "packages/pitchlab_train" },
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
+    { name = "matchlab-server", editable = "packages/matchlab_server" },
+    { name = "matchlab-train", editable = "packages/matchlab_train" },
 ]
 
 [package.metadata.requires-dev]
-cv = [{ name = "pitchlab-core", extras = ["cv"], editable = "packages/pitchlab_core" }]
+cv = [{ name = "matchlab-core", extras = ["cv"], editable = "packages/matchlab_core" }]
 dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.8" },
 ]
-eval = [{ name = "pitchlab-core", extras = ["eval"], editable = "packages/pitchlab_core" }]
-face = [{ name = "pitchlab-core", extras = ["face"], editable = "packages/pitchlab_core" }]
+eval = [{ name = "matchlab-core", extras = ["eval"], editable = "packages/matchlab_core" }]
+face = [{ name = "matchlab-core", extras = ["face"], editable = "packages/matchlab_core" }]
 
 [[package]]
 name = "platformdirs"

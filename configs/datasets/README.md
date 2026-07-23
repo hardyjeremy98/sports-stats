@@ -10,10 +10,10 @@ deterministic and every path in it must be verified to exist before commit.
 
 `soccernet-ball.json` (SPO-47) covers **SoccerNet Ball Action Spotting**, a different task
 from every other tier in this directory: those score box/track ground truth (IDF1/HOTA/purity
-etc. via `pitchlab_core.gt.GroundTruth`); this one scores timed events
-(`pitchlab_core.event_gt.EventGroundTruth`) with the field-standard **avg-mAP@1** metric
-(`pitchlab_core/action_spotting_eval.py`) — tolerance-window matching around each event's true
-time, not spatial overlap. Ingested via `pitchlab-train ingest-soccernet-ball` (mirrors
+etc. via `matchlab_core.gt.GroundTruth`); this one scores timed events
+(`matchlab_core.event_gt.EventGroundTruth`) with the field-standard **avg-mAP@1** metric
+(`matchlab_core/action_spotting_eval.py`) — tolerance-window matching around each event's true
+time, not spatial overlap. Ingested via `matchlab-train ingest-soccernet-ball` (mirrors
 `ingest-sportsmot`/`ingest-soccertrack`'s register-as-Lab-video pattern, but writes event GT
 instead of box GT). Same `sequences`/`role`/determinism rules below apply once matches are
 actually ingested; the manifest currently ships with an empty `sequences: []` because data
@@ -82,7 +82,7 @@ is written in a stable, explicit group order: all `"tuning"` entries first, then
 `"held_out"` entries, ascending by `name` within each group (never a single flat
 alphabetical sort across both roles — a `"tuning"` sequence named `ZZZ` sorts before a
 `"held_out"` sequence named `AAA`). This is what `soccernet.json` already looks like and
-what `pitchlab_train.datasets.manifest.update_tier_manifest` writes. The point is that the
+what `matchlab_train.datasets.manifest.update_tier_manifest` writes. The point is that the
 file hashes identically across regenerations that don't actually change content. When
 refreshing a manifest, regenerate the whole file rather than hand-editing entries, and
 diff before committing to confirm only the intended sequences changed role or were added.
@@ -92,13 +92,13 @@ diff before committing to confirm only the intended sequences changed role or we
 For every `sequences[]` entry:
 
 1. `video` and `gt` paths exist on disk.
-2. `gt` loads via `pitchlab_core.gt.GroundTruth.model_validate_json(...)` and has
+2. `gt` loads via `matchlab_core.gt.GroundTruth.model_validate_json(...)` and has
    `len(tracks) > 0`.
-3. The server DB (`data/pitchlab.db`, `videos` table) has a row for the video's filename
+3. The server DB (`data/matchlab.db`, `videos` table) has a row for the video's filename
    with `gt_path` set to the same path.
-4. `git grep -n "<held-out sequence name>" -- configs/ packages/pitchlab_train/` returns
+4. `git grep -n "<held-out sequence name>" -- configs/ packages/matchlab_train/` returns
    nothing — held-out sequences must not leak into any tuning config or experiment.
 
-Also run one scoring pass (`pitchlab_core.evaluation.evaluate_run`) against an existing
+Also run one scoring pass (`matchlab_core.evaluation.evaluate_run`) against an existing
 GT-backed run for a sequence in the manifest, to confirm the ingest's ground truth is
 actually scorable end-to-end, not just present on disk.

@@ -7,7 +7,7 @@ place, by the GT auto-scoring hook (see [Refresh timing](#refresh-timing)); ever
 is fixed when the run finishes. This document is written
 for implementers of the benchmark runner (SPO-17) and any future import adapter that needs
 to read or reason about this block — it is the consumer-facing contract, not an
-implementation walkthrough. Code: `packages/pitchlab_core/src/pitchlab_core/provenance.py`.
+implementation walkthrough. Code: `packages/matchlab_core/src/matchlab_core/provenance.py`.
 
 ## The "unknown" convention
 
@@ -19,7 +19,7 @@ as optional — see below), never an absent key. This means:
   `KeyError`/`.get()` guard **for any manifest written since this feature landed, or read back
   through pydantic** (`RunManifest.model_validate`, which fills in the all-`"unknown"` default
   via `Field(default_factory=RunProvenance)` for older manifests missing the key). A manifest
-  served as raw JSON without that revalidation step (e.g. `pitchlab_server`'s
+  served as raw JSON without that revalidation step (e.g. `matchlab_server`'s
   `GET /api/runs/{id}` today, which does a plain `json.loads`) may be a pre-feature manifest
   with **no `provenance` key at all** -- guard for its absence there.
 - `"unknown"` is a real, meaningful value — it says "we could not determine this," not "we
@@ -36,7 +36,7 @@ as optional — see below), never an absent key. This means:
 | Field | Type | Meaning |
 |---|---|---|
 | `git_revision` | `str` | Short SHA of the commit the runner ran from, `-dirty` suffixed if the working tree had uncommitted changes at run time. `"unknown"` if git was unavailable (e.g. no `.git`, git not installed). |
-| `package_versions` | `dict[str, str]` | Installed version of every package in `DEFAULT_PACKAGE_NAMES` (`pitchlab-core`, `torch`, `trackers`, `supervision`, `inference`, `ultralytics`, `transformers`, `numpy`, `opencv-python`, `motmetrics`), via `importlib.metadata.version`. A package that isn't installed still appears, with value `"unknown"`. |
+| `package_versions` | `dict[str, str]` | Installed version of every package in `DEFAULT_PACKAGE_NAMES` (`matchlab-core`, `torch`, `trackers`, `supervision`, `inference`, `ultralytics`, `transformers`, `numpy`, `opencv-python`, `motmetrics`), via `importlib.metadata.version`. A package that isn't installed still appears, with value `"unknown"`. |
 | `stages` | `dict[str, StageProvenance]` | One entry per stage that actually executed (skipped/absent stages have no entry), keyed by the `StageKind` string value (`"detect"`, `"track"`, ...). |
 | `evaluation_set_hash` | `str` | `sha256` of the canonical form of the ground-truth JSON this run was scored against (see [Canonical hashing](#canonical-hashing-rule)). `"unknown"` when the run has no associated GT at manifest-write time — true for every run at pipeline-completion time (the pipeline runner cannot see GT linkage, which is server-side), and updated in place by the server's auto-scoring hook once a GT-backed run is actually scored. |
 | `evaluation_set_source` | `str \| null` | Path to the GT file (or, for the benchmark runner, a `configs/datasets/<tier>.json` manifest) that was hashed. `null` until `evaluation_set_hash` is known. |
@@ -58,7 +58,7 @@ as optional — see below), never an absent key. This means:
 | `weights_path` | `str \| null` | Local filesystem path to the weights file, when one exists. `null` for hosted models with no local file. |
 | `weights_sha256` | `str \| null` | Streaming SHA-256 of `weights_path`'s bytes, when the file exists at manifest-write time. `null` when there is no local file, **or** when `weights_path` is set but the file is missing (e.g. weights not yet downloaded). |
 | `lineage` | `str` | Free-text pretraining/fine-tuning lineage description, e.g. `"pretrained (MSMT17), no fine-tuning"`, `"hosted (unpinned)"`. `"unknown"` by default. |
-| `training_commit` | `str \| null` | Commit the model was trained/fine-tuned at, when applicable (`pitchlab-train` experiment lineage). |
+| `training_commit` | `str \| null` | Commit the model was trained/fine-tuned at, when applicable (`matchlab-train` experiment lineage). |
 | `training_config` | `str \| null` | Path to the training config used, when applicable. |
 | `training_seed` | `int \| null` | Training-time random seed, when applicable. |
 | `dataset_split_manifest` | `str \| null` | Path to the `configs/datasets/<tier>.json` the model's training/eval split came from, when applicable. |
@@ -121,11 +121,11 @@ def check_evaluation_set(expected_hash: str, actual_hash: str, context: str) -> 
 
 Raises `RuntimeError` naming both hashes and the context string when they differ; no-op when
 equal. This mirrors the existing embedder-provenance gate in
-`pitchlab_train.experiments.reid_ablation._sweep_one` ("Embedder provenance mismatch"): name
+`matchlab_train.experiments.reid_ablation._sweep_one` ("Embedder provenance mismatch"): name
 both values, no silent fallback to "close enough."
 
 This function is the primitive the benchmark runner (SPO-17,
-`pitchlab_train.experiments.benchmark`) calls before aggregating two runs' metrics
+`matchlab_train.experiments.benchmark`) calls before aggregating two runs' metrics
 together — if their `evaluation_set_hash`es differ, the runs were scored against different
 ground truth and must not be silently averaged. Wired in as
 `_check_evaluation_set_consistency`: it runs once per pair of completed rows scoring the same
@@ -140,7 +140,7 @@ sequence, before any of `summary.tables`/`summary.comparison` is computed.
   "provenance": {
     "git_revision": "5da1f12-dirty",
     "package_versions": {
-      "pitchlab-core": "0.1.0",
+      "matchlab-core": "0.1.0",
       "torch": "2.4.1",
       "trackers": "2.4.0",
       "supervision": "0.24.0",
@@ -201,7 +201,7 @@ Notes on this example:
   `ultralytics` specifically depends on how the runner was invoked. Note also that the
   fixed name `"opencv-python"` in `DEFAULT_PACKAGE_NAMES` is a specific PyPI distribution
   name; an environment that only has `opencv-python-headless` installed (the core
-  dependency pinned in `pitchlab_core`'s `pyproject.toml`) and not `opencv-python` itself
+  dependency pinned in `matchlab_core`'s `pyproject.toml`) and not `opencv-python` itself
   will report `"unknown"` for that key even though OpenCV is clearly usable — check
   `package_versions` for the exact distribution name you care about, not just the logical
   capability.
@@ -209,12 +209,12 @@ Notes on this example:
   weights, not an oversight.
 - `evaluation_set_hash`/`evaluation_set_source` are `"unknown"`/`null` on every manifest as
   written by the pipeline runner itself; they are filled in afterward, in place, by the
-  server's GT auto-scoring hook (`pitchlab_server.evaluation.evaluate_run_against_gt`) the
+  server's GT auto-scoring hook (`matchlab_server.evaluation.evaluate_run_against_gt`) the
   first time a GT-backed run is scored.
 
 ## Related: external tracklet exchange (SPO-18)
 
-`pitchlab_core.exchange` defines two sibling sidecar schemas for exchanging data with
+`matchlab_core.exchange` defines two sibling sidecar schemas for exchanging data with
 external MOT trackers rather than the pipeline's own `RunProvenance`: `frozen-detections/v1`
 (a `det.txt` export's `detections_provenance.json`) and `ExternalProvenance` (the sidecar an
 imported external tracker's output must carry, folded into the imported run's
@@ -226,7 +226,7 @@ spec.
 
 ## Related: the benchmark runner (SPO-17)
 
-`pitchlab_train.experiments.benchmark` (`BenchmarkExperiment`) is the main consumer of this
+`matchlab_train.experiments.benchmark` (`BenchmarkExperiment`) is the main consumer of this
 module: it calls `hash_dataset_manifest` on the selected `configs/datasets/<tier>.json`,
 `hash_evaluation_set` per sequence's GT, and `check_evaluation_set` (via
 `_check_evaluation_set_consistency`) to refuse aggregating rows scored against different
@@ -236,11 +236,11 @@ ground truth. Full behavior — candidate matrix, gates, tables, tolerances — 
 ## What is out of scope here
 
 - **Hosted-response caching** (Task 2 of SPO-10) is implemented in
-  `pitchlab_core.stages.detect.hosted_cache` (`HostedDetectionCache`) and wired into
+  `matchlab_core.stages.detect.hosted_cache` (`HostedDetectionCache`) and wired into
   `RoboflowDetector`, not in this module — `provenance.py` only defines the
   `ModelProvenance.detections_cache_hash` field it reports into (see above). Caching for
   local detectors, eviction/GC policy, and the benchmark runner's use of the cache hash
   remain out of scope.
 - **Candidate matrix, aggregation tables, and tolerance-comparison logic** for the benchmark
-  runner (SPO-17) live in `pitchlab_train.experiments.benchmark`, not this module — this file
+  runner (SPO-17) live in `matchlab_train.experiments.benchmark`, not this module — this file
   only defines the `check_evaluation_set`/hashing primitives that runner calls (see above).

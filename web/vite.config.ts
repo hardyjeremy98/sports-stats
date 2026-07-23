@@ -2,7 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const API = process.env.PITCHLAB_API_URL ?? "http://localhost:8000";
+const API = process.env.MATCHLAB_API_URL ?? "http://localhost:8000";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

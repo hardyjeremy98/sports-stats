@@ -22,7 +22,7 @@ source, verified against code 2026-07-16), `docs/implementation-status.md`.
 
 ## Problem Statement
 
-PitchLab's raw tracklet system is the foundation everything else stands on. Detection quality
+MatchLab's raw tracklet system is the foundation everything else stands on. Detection quality
 and short-term identity continuity bound what team classification, body and face evidence,
 offline association, roster identity, minimap trajectories, event attribution, and final
 player statistics can achieve. Today that foundation is a credible baseline, not

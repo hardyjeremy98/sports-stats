@@ -98,7 +98,7 @@ Create `external-spotters/` as a **sibling** to this repo (`lab/`), matching the
    the job-manifest / events-JSON file exchange, never through a Python import.
 
 5. **Verify against the contract using the in-repo reference spotter's tests as a template.**
-   `packages/pitchlab_core/tests/test_spotting_reference_cli.py` exercises the reference CLI
+   `packages/matchlab_core/tests/test_spotting_reference_cli.py` exercises the reference CLI
    exactly as a subprocess (build a manifest, run the CLI, assert the output file's shape) —
    the same test shape, pointed at the real `tdeed` entrypoint instead, is the way to confirm
    a real T-DEED setup satisfies the contract before wiring it behind the pipeline's `tdeed`

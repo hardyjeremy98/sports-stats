@@ -5,7 +5,7 @@
 
 ## Context
 
-PitchLab targets amateur phone footage and casual teams. Kits may have no numbers, numbers may be
+MatchLab targets amateur phone footage and casual teams. Kits may have no numbers, numbers may be
 occluded, and distant or compressed footage may never contain readable digits. Requiring OCR would
 exclude normal target-market recordings and make product success depend on detail that is often
 absent from the source pixels.

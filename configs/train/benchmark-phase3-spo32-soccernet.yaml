@@ -3,7 +3,7 @@
 # weights are applied to SoccerNet (matches TDLP's own published SoccerNet
 # config, which loads the SportsMOT checkpoint). TDLP consumed the IDENTICAL
 # frozen hosted-incumbent detections the comparator/SPO-31 consume.
-# Run: uv run --with ultralytics pitchlab-train run \
+# Run: uv run --with ultralytics matchlab-train run \
 #   configs/train/benchmark-phase3-spo32-soccernet.yaml
 name: benchmark-phase3-spo32-soccernet
 task: benchmark

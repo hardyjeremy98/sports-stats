@@ -3,7 +3,7 @@
 #   SPO-30 hardened-frozen (comparator, baseline)
 #   SPO-33 ocsort-frozen
 # Data-collection (no auto tolerances); the SPO-34 gate applies pre-registered
-# deltas. Run: uv run --with ultralytics pitchlab-train run \
+# deltas. Run: uv run --with ultralytics matchlab-train run \
 #   configs/train/benchmark-phase3-ladder-sportsmot.yaml
 name: benchmark-phase3-ladder-sportsmot
 task: benchmark

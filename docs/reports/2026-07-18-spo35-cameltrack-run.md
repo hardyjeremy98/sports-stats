@@ -19,7 +19,7 @@ embeddings, i.e. the exact off-the-shelf inputs behind their published HOTA 80.3
 `camel_bbox_app_kps_sportsmot.ckpt` checkpoint (sha256 `99db5f9b…`), CAMEL association only. This
 reproduces the published pipeline faithfully — the **detections are CAMELTrack's own, not our
 frozen MixSort YOLOX**, which is exactly why it is a reference and not a parity row. MOT output
-imported via `pitchlab-train import-tracklets` with an `ExternalProvenance` sidecar
+imported via `matchlab-train import-tracklets` with an `ExternalProvenance` sidecar
 (`reference_only=true`, `comparison_class=as_published`, pose source recorded); scored with the
 full metric stack. Config: `configs/train/benchmark-phase3-spo35-sportsmot.yaml`.
 

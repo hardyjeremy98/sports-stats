@@ -25,7 +25,7 @@ regression.
   - SoccerNet — hosted incumbent replay cache; per-seq det.txt e.g. SNMOT-124 `d4813e1d…`,
     125 `ce850907…`, 126 `7ace8b6f…`, 127 `988560db…`.
 - **Held-out sets:** SoccerNet SNMOT-124–127; SportsMOT 6 sequences. IoU 0.5, stride 1,
-  device cuda (RTX 4060 Ti). Run via `uv run --with ultralytics pitchlab-train run …`
+  device cuda (RTX 4060 Ti). Run via `uv run --with ultralytics matchlab-train run …`
   (calibrate slot needs ultralytics; detect no longer does).
 
 ## 1. SoccerNet held-out (hosted-incumbent frozen detections)

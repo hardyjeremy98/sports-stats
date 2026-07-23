@@ -2,7 +2,7 @@
 # held-out + tuning sequences (stride 1). Shippable detector-adopt-and-measure.
 # No promotion/tolerances -- a data-collection run for the detection evaluator
 # (P/R/AP by height bin, miss-burst). Run with:
-#   uv run --with rfdetr pitchlab-train run configs/train/benchmark-spo36-soccernet.yaml
+#   uv run --with rfdetr matchlab-train run configs/train/benchmark-spo36-soccernet.yaml
 name: benchmark-spo36-soccernet
 task: benchmark
 description: >

@@ -1,0 +1,47 @@
+[project]
+name = "matchlab-core"
+version = "0.1.0"
+description = "MatchLab pipeline: schemas, stage interfaces, registry, runner, v1 stages"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "opencv-python-headless>=4.9",
+]
+
+[project.optional-dependencies]
+# Real CV stages. Kept optional so the API server / stub runs stay lightweight.
+cv = [
+    "supervision>=0.24",
+    "inference>=0.29",          # Roboflow hosted models (players/ball/pitch)
+    # Pinned per PRD baseline-hardening: constructor drift must be a
+    # deliberate upgrade, not an ambient hazard (SPO-13).
+    "trackers==2.4.0",          # Apache-2.0 BoT-SORT et al. (roboflow/trackers)
+    "transformers>=4.44",       # SigLIP for team classification
+    "torch>=2.3",
+    "umap-learn>=0.5",
+    "scikit-learn>=1.4",
+    "huggingface-hub>=0.24",    # OSNet-AIN weight download (currently transitive; make explicit)
+]
+# Face identity path (note: insightface CODE is MIT, but its distributed model
+# packs (buffalo_l) are research-only — commercial use needs a license from
+# insightface. Keep behind an extra + config flag until that is resolved.
+face = [
+    "insightface>=0.7",
+    "onnxruntime>=1.18",
+]
+# MOT evaluation against ground-truth labels (SoccerNet tracking et al.).
+eval = [
+    "motmetrics>=1.4",
+]
+
+[project.scripts]
+matchlab-run = "matchlab_core.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/matchlab_core"]

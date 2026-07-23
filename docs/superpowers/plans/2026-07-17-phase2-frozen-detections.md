@@ -4,9 +4,9 @@
 
 **Goal:** Produce frozen, hashed, provenance-stamped reference detections for both evaluation tiers — SportsMOT via MixSort's SportsMOT-fine-tuned YOLOX-X, SoccerNet via the hosted incumbent detector replayed from the response cache — and score the YOLOX detections against the incumbent for the Phase 2 gate.
 
-**Architecture:** Vendor MixSort's inference-only YOLOX model code (MIT repo; upstream YOLOX code Apache-2.0) into `pitchlab_core/vendor/mixsort_yolox/`, expose it as a new registered detect stage `yolox-local` (lazy torch import, mirroring the `yolo-local` pattern), run both tiers through the existing `benchmark` experiment (which stamps evaluation-set hashes and provenance), then export per-sequence frozen detections with the existing SPO-18 exporter (`det.txt` + hashed sidecar).
+**Architecture:** Vendor MixSort's inference-only YOLOX model code (MIT repo; upstream YOLOX code Apache-2.0) into `matchlab_core/vendor/mixsort_yolox/`, expose it as a new registered detect stage `yolox-local` (lazy torch import, mirroring the `yolo-local` pattern), run both tiers through the existing `benchmark` experiment (which stamps evaluation-set hashes and provenance), then export per-sequence frozen detections with the existing SPO-18 exporter (`det.txt` + hashed sidecar).
 
-**Tech Stack:** Python 3.12 (pinned), torch 2.12.1+cu130 / torchvision 0.27.1 (already in `cv` group), pydantic stages, existing `pitchlab-train` CLI, RTX 4060 Ti 16 GB.
+**Tech Stack:** Python 3.12 (pinned), torch 2.12.1+cu130 / torchvision 0.27.1 (already in `cv` group), pydantic stages, existing `matchlab-train` CLI, RTX 4060 Ti 16 GB.
 
 ## Global Constraints
 
@@ -14,7 +14,7 @@
 - Python is pinned to 3.12 (`.python-version`); dev env sync is `uv sync --group cv --group eval --group dev` (groups must be synced together).
 - Run all repo commands from `/home/jeremy/code/sport-stats/lab` with `uv run …`.
 - **Licensing:** the MixSort checkpoint is **selection-only, non-shippable** (weights trained on CC BY-NC 4.0 SportsMOT). Its `ModelProvenance.license` must say so on the `training_data` axis. Vendored code keeps upstream copyright headers. ultralytics (AGPL) must NOT become a dependency; neither must anything from Deep-EIoU (unlicensed — never fetched, never executed).
-- **Held-out hygiene:** never write a held-out sequence NAME (`v_00HRwkvvjtQ_c001`, `v_2QhNRucNC7E_c017`, `v_0kUtTtmLaJA_c004`, `v_4-EmEtrturE_c009`, `v_4r8QL_wglzQ_c001`, `v_G-vNjfx1GGc_c004`, `SNMOT-124`, `SNMOT-125`, `SNMOT-126`, `SNMOT-127`) into anything under `configs/` or `packages/pitchlab_train/` — configs reference **roles** (`held_out`), not names. Sequence names may appear in `docs/reports/` (Phase 0 precedent).
+- **Held-out hygiene:** never write a held-out sequence NAME (`v_00HRwkvvjtQ_c001`, `v_2QhNRucNC7E_c017`, `v_0kUtTtmLaJA_c004`, `v_4-EmEtrturE_c009`, `v_4r8QL_wglzQ_c001`, `v_G-vNjfx1GGc_c004`, `SNMOT-124`, `SNMOT-125`, `SNMOT-126`, `SNMOT-127`) into anything under `configs/` or `packages/matchlab_train/` — configs reference **roles** (`held_out`), not names. Sequence names may appear in `docs/reports/` (Phase 0 precedent).
 - Tests assert external behavior with handcrafted tiny fixtures and hand-computed expected values (repo Testing Decisions).
 - Work on branch `phase2-frozen-detections` off `main`. Leave the pre-existing dirty files (`docs/prds/tracklet-modernization.md`, `docs/stat-hierarchy-feasibility.md`, `shot-*.png`) untouched and uncommitted.
 - Long GPU runs: launch with `run_in_background` and verify results from the output files; do not block.
@@ -26,11 +26,11 @@
 - MixSort `preproc` (in `yolox/data/data_augment.py`): letterbox to input_size with 114.0 padding (top-left anchored), ratio `r = min(H_in/h, W_in/w)`, BGR→RGB flip, `/255`, then mean/std, HWC→CHW float32. Returns `(padded_img, r)`. Output boxes from `postprocess` are in input-size space; divide by `r` for source-image coords.
 - `yolox.utils.boxes.postprocess(prediction, num_classes, conf_thre, nms_thre)` returns per-image tensors with columns `[x1, y1, x2, y2, obj_conf, class_conf, class_pred]`; detection confidence = `obj_conf * class_conf`.
 - PyPI `yolox` does NOT install (setup.py needs torch at build time) — that's why we vendor.
-- Detect stage contract: subclass `Detector`, `@register(StageKind.DETECT, "<name>")`, pydantic `Params`, `prepare(ctx)` loads weights (raise loud on missing), `provenance() -> list[ModelProvenance]`, `detect(ctx) -> DetectOutput(frames=[FrameDetections], ball=[])`. Frames come from `ctx.frames()` yielding `Frame(image, frame_idx, t)`; `ctx.device` is `"cuda"`/`"cpu"`. See `packages/pitchlab_core/src/pitchlab_core/stages/detect/yolo_local.py` for the exact idiom (progress calls, class map, provenance shape).
-- `ctx.frames()` images: confirm color order by reading `packages/pitchlab_core/src/pitchlab_core/video.py` (expected BGR from cv2 — MixSort preproc wants BGR input; if it is RGB, drop the `[:, :, ::-1]` flip and say so in the vendored README).
-- Stage registration requires an import in `packages/pitchlab_core/src/pitchlab_core/stages/__init__.py` (read it and follow the existing import list).
-- Benchmark experiment: `pitchlab-train run configs/train/<file>.yaml`, task `benchmark`; per-candidate-per-sequence run dirs land in `data/experiments/<name>-<timestamp>/runs/<candidate>-<seq>/` with `manifest.json` (provenance incl. `evaluation_set_hash`), `detections.jsonl`, `eval.json` (with `result["detection"]` block from the SPO-9 evaluator). Results in `result.json` with provenance gating.
-- Exporter: `uv run pitchlab-train export-detections --run-dir <run_dir> --out <out_dir>` → `<out_dir>/det.txt` (MOT det format, byte-deterministic given identical detections.jsonl) + `<out_dir>/detections_provenance.json` (contains `det_txt_sha256`, `detect_provenance` from the manifest). Default classes player/goalkeeper/referee (ball excluded).
+- Detect stage contract: subclass `Detector`, `@register(StageKind.DETECT, "<name>")`, pydantic `Params`, `prepare(ctx)` loads weights (raise loud on missing), `provenance() -> list[ModelProvenance]`, `detect(ctx) -> DetectOutput(frames=[FrameDetections], ball=[])`. Frames come from `ctx.frames()` yielding `Frame(image, frame_idx, t)`; `ctx.device` is `"cuda"`/`"cpu"`. See `packages/matchlab_core/src/matchlab_core/stages/detect/yolo_local.py` for the exact idiom (progress calls, class map, provenance shape).
+- `ctx.frames()` images: confirm color order by reading `packages/matchlab_core/src/matchlab_core/video.py` (expected BGR from cv2 — MixSort preproc wants BGR input; if it is RGB, drop the `[:, :, ::-1]` flip and say so in the vendored README).
+- Stage registration requires an import in `packages/matchlab_core/src/matchlab_core/stages/__init__.py` (read it and follow the existing import list).
+- Benchmark experiment: `matchlab-train run configs/train/<file>.yaml`, task `benchmark`; per-candidate-per-sequence run dirs land in `data/experiments/<name>-<timestamp>/runs/<candidate>-<seq>/` with `manifest.json` (provenance incl. `evaluation_set_hash`), `detections.jsonl`, `eval.json` (with `result["detection"]` block from the SPO-9 evaluator). Results in `result.json` with provenance gating.
+- Exporter: `uv run matchlab-train export-detections --run-dir <run_dir> --out <out_dir>` → `<out_dir>/det.txt` (MOT det format, byte-deterministic given identical detections.jsonl) + `<out_dir>/detections_provenance.json` (contains `det_txt_sha256`, `detect_provenance` from the manifest). Default classes player/goalkeeper/referee (ball excluded).
 - Tier manifests: `configs/datasets/sportsmot.json` (9 seqs: 3 tuning / 6 held_out), `configs/datasets/soccernet.json` (12 seqs: 8 tuning SNMOT-116..123 / 4 held_out). Videos+GT at `data/videos/<tier>/<seq>.mp4` + `.gt.json`.
 - Hosted cache: `roboflow` detect stage params `cache_dir` (default `data/cache/hosted-detections`), `cache_mode: off|readwrite|replay`. `replay` = no network, raises on miss. Cache content hash lands in `ModelProvenance.detections_cache_hash`. `ROBOFLOW_API_KEY` exists in `/home/jeremy/code/sport-stats/lab/.env` — check how `roboflow.py::prepare` sources the key; if plain `os.environ`, run benchmark commands with `set -a; source .env; set +a;` prefix.
 - Incumbent Phase 0/1 context for the comparison table: baseline (yolo-local football detector) SportsMOT means IDF1 0.163 / HOTA 0.170 / MOTA 0.188; 4 of 6 held-out SportsMOT seqs have ≤1 tracklet (near-zero detections on basketball/volleyball). Detection-attributed switches: 63% (SportsMOT), 75% (SoccerNet). Phase-0 experiment dirs (raw incumbent detection metrics): `data/experiments/benchmark-phase0-*-20260717-06*/`.
@@ -40,14 +40,14 @@
 ### Task 1: Branch + vendor MixSort YOLOX inference code
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/__init__.py` (empty)
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/mixsort_yolox/__init__.py`
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/mixsort_yolox/README.md`
-- Create (fetched): `packages/pitchlab_core/src/pitchlab_core/vendor/mixsort_yolox/{network_blocks.py,darknet.py,yolo_pafpn.py,yolo_head.py,yolox.py,boxes.py}`
-- Test: `packages/pitchlab_core/tests/test_yolox_vendor.py`
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/__init__.py` (empty)
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/mixsort_yolox/__init__.py`
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/mixsort_yolox/README.md`
+- Create (fetched): `packages/matchlab_core/src/matchlab_core/vendor/mixsort_yolox/{network_blocks.py,darknet.py,yolo_pafpn.py,yolo_head.py,yolox.py,boxes.py}`
+- Test: `packages/matchlab_core/tests/test_yolox_vendor.py`
 
 **Interfaces:**
-- Produces: `pitchlab_core.vendor.mixsort_yolox.build_yolox(depth: float, width: float, num_classes: int) -> torch.nn.Module` and `pitchlab_core.vendor.mixsort_yolox.postprocess(prediction, num_classes, conf_thre, nms_thre)` (re-export of vendored `boxes.postprocess`). Both imported lazily by Task 2's stage.
+- Produces: `matchlab_core.vendor.mixsort_yolox.build_yolox(depth: float, width: float, num_classes: int) -> torch.nn.Module` and `matchlab_core.vendor.mixsort_yolox.postprocess(prediction, num_classes, conf_thre, nms_thre)` (re-export of vendored `boxes.postprocess`). Both imported lazily by Task 2's stage.
 
 - [ ] **Step 1: Create branch**
 
@@ -60,7 +60,7 @@ cd /home/jeremy/code/sport-stats/lab && git checkout -b phase2-frozen-detections
 ```bash
 COMMIT=$(git ls-remote https://github.com/MCG-NJU/MixSort.git HEAD | cut -f1)
 echo "$COMMIT"
-DIR=packages/pitchlab_core/src/pitchlab_core/vendor/mixsort_yolox
+DIR=packages/matchlab_core/src/matchlab_core/vendor/mixsort_yolox
 mkdir -p "$DIR"
 for f in models/network_blocks.py models/darknet.py models/yolo_pafpn.py models/yolo_head.py models/yolox.py utils/boxes.py; do
   curl -fsSL "https://raw.githubusercontent.com/MCG-NJU/MixSort/$COMMIT/yolox/$f" -o "$DIR/$(basename $f)"
@@ -113,7 +113,7 @@ CKPT = Path("data/weights/mixsort/yolox_x_sports_train.pth.tar")
 
 
 def test_build_yolox_x_shape():
-    from pitchlab_core.vendor.mixsort_yolox import build_yolox
+    from matchlab_core.vendor.mixsort_yolox import build_yolox
 
     model = build_yolox(1.33, 1.25, 1)
     model.eval()
@@ -125,30 +125,30 @@ def test_build_yolox_x_shape():
 
 @pytest.mark.skipif(not CKPT.exists(), reason="frozen checkpoint not downloaded")
 def test_checkpoint_loads_strict():
-    from pitchlab_core.vendor.mixsort_yolox import build_yolox
+    from matchlab_core.vendor.mixsort_yolox import build_yolox
 
     model = build_yolox(1.33, 1.25, 1)
     ckpt = torch.load(CKPT, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model"], strict=True)
 ```
 
-- [ ] **Step 7: Run tests** — `uv run pytest packages/pitchlab_core/tests/test_yolox_vendor.py -q` from repo root (so `data/…` resolves). Expected: 2 passed. Iterate on Step 3 edits until green.
+- [ ] **Step 7: Run tests** — `uv run pytest packages/matchlab_core/tests/test_yolox_vendor.py -q` from repo root (so `data/…` resolves). Expected: 2 passed. Iterate on Step 3 edits until green.
 
 - [ ] **Step 8: Lint + commit**
 
 ```bash
-uv run ruff check packages/pitchlab_core/src/pitchlab_core/vendor packages/pitchlab_core/tests/test_yolox_vendor.py
-git add packages/pitchlab_core/src/pitchlab_core/vendor packages/pitchlab_core/tests/test_yolox_vendor.py
+uv run ruff check packages/matchlab_core/src/matchlab_core/vendor packages/matchlab_core/tests/test_yolox_vendor.py
+git add packages/matchlab_core/src/matchlab_core/vendor packages/matchlab_core/tests/test_yolox_vendor.py
 git commit -m "Vendor MixSort YOLOX inference code (SPO-25)"
 ```
-If ruff objects to vendored style, add a per-file ignore for `packages/pitchlab_core/src/pitchlab_core/vendor/*` in the root `pyproject.toml` ruff config rather than editing vendored code.
+If ruff objects to vendored style, add a per-file ignore for `packages/matchlab_core/src/matchlab_core/vendor/*` in the root `pyproject.toml` ruff config rather than editing vendored code.
 
 ### Task 2: `yolox-local` detect stage (TDD)
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/stages/detect/yolox_local.py`
-- Modify: `packages/pitchlab_core/src/pitchlab_core/stages/__init__.py` (add import; follow existing list style)
-- Test: `packages/pitchlab_core/tests/test_detect_yolox.py`
+- Create: `packages/matchlab_core/src/matchlab_core/stages/detect/yolox_local.py`
+- Modify: `packages/matchlab_core/src/matchlab_core/stages/__init__.py` (add import; follow existing list style)
+- Test: `packages/matchlab_core/tests/test_detect_yolox.py`
 
 **Interfaces:**
 - Consumes: `build_yolox` / `postprocess` from Task 1.
@@ -165,11 +165,11 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from pitchlab_core.provenance import sha256_file
-from pitchlab_core.registry import available
-from pitchlab_core.schemas.detections import DetectionClass
-from pitchlab_core.schemas.run import StageKind
-from pitchlab_core.stages.detect.yolox_local import YoloxLocalDetector, _preproc, _to_detections
+from matchlab_core.provenance import sha256_file
+from matchlab_core.registry import available
+from matchlab_core.schemas.detections import DetectionClass
+from matchlab_core.schemas.run import StageKind
+from matchlab_core.stages.detect.yolox_local import YoloxLocalDetector, _preproc, _to_detections
 
 
 def test_registered():
@@ -224,7 +224,7 @@ def test_provenance_license_axes(tmp_path):
     assert "Apache-2.0" in prov.license.code
 ```
 
-- [ ] **Step 2: Run tests to verify they fail** — `uv run pytest packages/pitchlab_core/tests/test_detect_yolox.py -q`. Expected: ImportError (module doesn't exist).
+- [ ] **Step 2: Run tests to verify they fail** — `uv run pytest packages/matchlab_core/tests/test_detect_yolox.py -q`. Expected: ImportError (module doesn't exist).
 
 - [ ] **Step 3: Implement the stage**
 
@@ -246,12 +246,12 @@ import cv2
 import numpy as np
 from pydantic import BaseModel
 
-from pitchlab_core.interfaces import Detector, DetectOutput, StageContext
-from pitchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
-from pitchlab_core.registry import register
-from pitchlab_core.schemas import Detection, DetectionClass, FrameDetections
-from pitchlab_core.schemas.geometry import Box
-from pitchlab_core.schemas.run import StageKind
+from matchlab_core.interfaces import Detector, DetectOutput, StageContext
+from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
+from matchlab_core.registry import register
+from matchlab_core.schemas import Detection, DetectionClass, FrameDetections
+from matchlab_core.schemas.geometry import Box
+from matchlab_core.schemas.run import StageKind
 
 # MixSort exp yolox_x_sportsmot.py normalization (old-YOLOX preproc).
 _MEANS = (0.485, 0.456, 0.406)
@@ -314,7 +314,7 @@ class YoloxLocalDetector(Detector):
     def prepare(self, ctx: StageContext) -> None:
         import torch
 
-        from pitchlab_core.vendor.mixsort_yolox import build_yolox
+        from matchlab_core.vendor.mixsort_yolox import build_yolox
 
         p = self.params
         if not Path(p.weights).exists():
@@ -353,7 +353,7 @@ class YoloxLocalDetector(Detector):
     def detect(self, ctx: StageContext) -> DetectOutput:
         import torch
 
-        from pitchlab_core.vendor.mixsort_yolox import postprocess
+        from matchlab_core.vendor.mixsort_yolox import postprocess
 
         p = self.params
         device = torch.device(ctx.device if torch.cuda.is_available() else "cpu")
@@ -384,16 +384,16 @@ class YoloxLocalDetector(Detector):
         return DetectOutput(frames=frames_out, ball=[])
 ```
 
-Adjust only if reality disagrees (e.g. `postprocess` signature has `class_agnostic` arg — pass positionally-correct values; `Frame` attribute names — check `pitchlab_core/video.py`). Add the import line to `stages/__init__.py`.
+Adjust only if reality disagrees (e.g. `postprocess` signature has `class_agnostic` arg — pass positionally-correct values; `Frame` attribute names — check `matchlab_core/video.py`). Add the import line to `stages/__init__.py`.
 
-- [ ] **Step 4: Run tests** — `uv run pytest packages/pitchlab_core/tests/test_detect_yolox.py packages/pitchlab_core/tests/test_yolox_vendor.py -q`. Expected: all pass.
+- [ ] **Step 4: Run tests** — `uv run pytest packages/matchlab_core/tests/test_detect_yolox.py packages/matchlab_core/tests/test_yolox_vendor.py -q`. Expected: all pass.
 
-- [ ] **Step 5: Full core test suite + lint** — `uv run pytest packages/pitchlab_core -q` (no regressions; note pre-existing failures if any) and `uv run ruff check packages`.
+- [ ] **Step 5: Full core test suite + lint** — `uv run pytest packages/matchlab_core -q` (no regressions; note pre-existing failures if any) and `uv run ruff check packages`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/pitchlab_core/src/pitchlab_core/stages/detect/yolox_local.py packages/pitchlab_core/src/pitchlab_core/stages/__init__.py packages/pitchlab_core/tests/test_detect_yolox.py
+git add packages/matchlab_core/src/matchlab_core/stages/detect/yolox_local.py packages/matchlab_core/src/matchlab_core/stages/__init__.py packages/matchlab_core/tests/test_detect_yolox.py
 git commit -m "Add yolox-local detect stage for the frozen SportsMOT comparator (SPO-25)"
 ```
 
@@ -412,11 +412,11 @@ git commit -m "Add yolox-local detect stage for the frozen SportsMOT comparator 
 - [ ] **Step 2: Smoke-run one TUNING sequence** (never smoke on held-out): `v_ITo3sCnpw_k_c007` (football, tuning role):
 
 ```bash
-uv run pitchlab-run --video data/videos/sportsmot/v_ITo3sCnpw_k_c007.mp4 \
+uv run matchlab-run --video data/videos/sportsmot/v_ITo3sCnpw_k_c007.mp4 \
   --config configs/pipeline.yolox-sportsmot-eval.yaml --device cuda \
   --run-id phase2-smoke-yolox 2>&1 | tail -20
 ```
-(Check `pitchlab-run --help` first for exact flag names.) Expected: completes; `data/runs/phase2-smoke-yolox/detections.jsonl` exists.
+(Check `matchlab-run --help` first for exact flag names.) Expected: completes; `data/runs/phase2-smoke-yolox/detections.jsonl` exists.
 
 - [ ] **Step 3: Sanity-check detections against GT** (scratch script): load `detections.jsonl`, count boxes ≥0.5 conf on frame 0; load `data/videos/sportsmot/v_ITo3sCnpw_k_c007.gt.json` and count GT tracks alive on frame 0. Expected: detection count within ±40% of GT count (SportsMOT football ≈ 10–22 visible players), boxes inside image bounds, mean confidence of matched boxes > 0.6. If counts are wildly off (e.g. 0 or 500), the preproc/color order is wrong — fix before proceeding (check BGR assumption per Global Constraints).
 
@@ -463,14 +463,14 @@ params:
   compare:
     baseline: incumbent-hardened
 ```
-Match the real schema of the phase-0 file (key names, tolerances block) — if `roles`/`compare` spell differently there, follow the code (`packages/pitchlab_train/src/pitchlab_train/experiments/benchmark.py`).
+Match the real schema of the phase-0 file (key names, tolerances block) — if `roles`/`compare` spell differently there, follow the code (`packages/matchlab_train/src/matchlab_train/experiments/benchmark.py`).
 
 **Note:** `incumbent-hardened` uses `yolo-local` → needs ultralytics: run with `uv run --with ultralytics`. That arm exists to make the SPO-25 detection comparison same-protocol (stride 1) instead of leaning on the stride-2 Phase 0 runs.
 
 - [ ] **Step 2: Launch in background** (hours-scale: 9 sequences × 2 candidates):
 
 ```bash
-cd /home/jeremy/code/sport-stats/lab && uv run --with ultralytics pitchlab-train run configs/train/benchmark-phase2-sportsmot.yaml
+cd /home/jeremy/code/sport-stats/lab && uv run --with ultralytics matchlab-train run configs/train/benchmark-phase2-sportsmot.yaml
 ```
 Run with `run_in_background`; poll the experiment dir.
 
@@ -494,7 +494,7 @@ Run with `run_in_background`; poll the experiment dir.
 EXP=$(ls -dt data/experiments/benchmark-phase2-sportsmot-* | head -1)
 for d in "$EXP"/runs/yolox-frozen-*; do
   seq=$(basename "$d" | sed 's/^yolox-frozen-//')
-  uv run pitchlab-train export-detections --run-dir "$d" \
+  uv run matchlab-train export-detections --run-dir "$d" \
     --out "data/exchange/frozen-detections/sportsmot/$seq"
 done
 ```
@@ -503,7 +503,7 @@ done
 
 - [ ] **Step 3: Re-export determinism check**: re-run `export-detections` for 2 sequences into a temp dir; `sha256sum` both `det.txt`s must equal INDEX values (exporter is deterministic given the same run dir). Expected: identical.
 
-- [ ] **Step 4: Repeat-inference stability measurement** (one tuning sequence, `v_ITo3sCnpw_k_c007`): re-run the yolox pipeline (`pitchlab-run`, new run id), export, compare `det.txt` hashes. Record outcome honestly: bitwise-identical (ideal) or, if not, quantify (diff row counts, max box delta via scratch script). Either way the FROZEN export is canonical — later consumers replay the export, not the model. This measurement goes in the Task 7 report.
+- [ ] **Step 4: Repeat-inference stability measurement** (one tuning sequence, `v_ITo3sCnpw_k_c007`): re-run the yolox pipeline (`matchlab-run`, new run id), export, compare `det.txt` hashes. Record outcome honestly: bitwise-identical (ideal) or, if not, quantify (diff row counts, max box delta via scratch script). Either way the FROZEN export is canonical — later consumers replay the export, not the model. This measurement goes in the Task 7 report.
 
 ### Task 6: SoccerNet tier — hosted incumbent frozen via response cache
 
@@ -516,7 +516,7 @@ done
 - Consumes: existing `roboflow` detect stage + cache; `configs/datasets/soccernet.json`.
 - Produces: frozen soccer-tier exports + INDEX.json, cache content hash in provenance.
 
-- [ ] **Step 1: Read `packages/pitchlab_core/src/pitchlab_core/stages/detect/roboflow.py`** — confirm (a) how the API key is sourced (env var name), (b) whether inference is local (`inference` package) or hosted HTTP, (c) exact params. If hosted HTTP: 12 seqs × ~750 frames ≈ 9000 API calls — do held_out (4 seqs) first, verify no quota errors, then tuning (8 seqs).
+- [ ] **Step 1: Read `packages/matchlab_core/src/matchlab_core/stages/detect/roboflow.py`** — confirm (a) how the API key is sourced (env var name), (b) whether inference is local (`inference` package) or hosted HTTP, (c) exact params. If hosted HTTP: 12 seqs × ~750 frames ≈ 9000 API calls — do held_out (4 seqs) first, verify no quota errors, then tuning (8 seqs).
 
 - [ ] **Step 2: Write `configs/pipeline.hosted-frozen-eval.yaml`**: copy structure from Task 3's config; `detect:` block = `impl: roboflow`, params `player_model_id: football-players-detection-3zvbc/11` (the shipping incumbent id from `configs/pipeline.v1.yaml`), `use_ball_model: false`, `confidence: 0.1`, `cache_mode: readwrite`, `cache_dir: data/cache/hosted-detections`. Header comment: confidence 0.1 (vs shipping 0.3) captures low-score material for Phase 3 low-score association; the cache key includes confidence, so the frozen cache is bound to 0.1. `video: sample_stride: 1`.
 
@@ -525,7 +525,7 @@ done
 - [ ] **Step 4: Launch** (background; key must be loaded):
 
 ```bash
-cd /home/jeremy/code/sport-stats/lab && set -a && source .env && set +a && uv run pitchlab-train run configs/train/benchmark-phase2-soccernet.yaml
+cd /home/jeremy/code/sport-stats/lab && set -a && source .env && set +a && uv run matchlab-train run configs/train/benchmark-phase2-soccernet.yaml
 ```
 If the roboflow stage needs extra packages (`inference`, `supervision`) missing from the env, sync per Step 1 findings (they're declared in the `cv` group — verify with `uv run python -c "import inference, supervision"` first).
 

@@ -4,7 +4,7 @@
 # vs the already-measured SOTA TDLP reference (SportsMOT held-out purity
 # ~0.95-0.97) and the SPO-30 hardened comparator. NON-SHIPPABLE checkpoint.
 # Run:
-#   uv run pitchlab-train run configs/train/benchmark-spo44-sportsmot.yaml
+#   uv run matchlab-train run configs/train/benchmark-spo44-sportsmot.yaml
 name: benchmark-spo44-sportsmot
 task: benchmark
 description: >

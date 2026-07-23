@@ -13,7 +13,7 @@ But the **policy math is self-contained and testable now**, so I built and TDD'd
 handcrafted tiny sequences (PRD testing mandate), with a clean feature-accessor seam the assembly
 plugs into. This delivers the substance while leaving only the wiring for SPO-42.
 
-## What shipped: `pitchlab_core/refine.py` (pure, no deps beyond schemas)
+## What shipped: `matchlab_core/refine.py` (pure, no deps beyond schemas)
 
 ### 1. terminate-over-force (online margin gate)
 
@@ -44,7 +44,7 @@ plugs into. This delivers the substance while leaving only the wiring for SPO-42
 
 ## Tests (TDD, 13, all green)
 
-`packages/pitchlab_core/tests/test_refine.py`: near-tie terminates / clear winner assigns /
+`packages/matchlab_core/tests/test_refine.py`: near-tie terminates / clear winner assigns /
 sole-candidate assigns / boundary assigns; margin record + termination summary; split at a
 two-identity discontinuity; pure tracklet untouched; reconnect same-identity across a gap;
 **no** reconnect across different identities or temporal overlap; the classic

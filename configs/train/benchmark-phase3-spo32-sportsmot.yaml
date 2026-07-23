@@ -6,7 +6,7 @@
 # The MOT output is imported (per-seq ExternalProvenance sidecar carrying the
 # frozen det.txt sha for a parity cross-check) and scored with the full stack.
 # Comparator = SPO-30 hardened BoT-SORT on the same frozen dets.
-# Run: uv run --with ultralytics pitchlab-train run \
+# Run: uv run --with ultralytics matchlab-train run \
 #   configs/train/benchmark-phase3-spo32-sportsmot.yaml
 name: benchmark-phase3-spo32-sportsmot
 task: benchmark

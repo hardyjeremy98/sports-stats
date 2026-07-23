@@ -8,7 +8,7 @@
 # on basketball/volleyball) now fire. The frozen stage resolves
 # data/exchange/frozen-detections/sportsmot/<seq>/det.txt per sequence.
 # Calibrate needs ultralytics at runtime:
-#   uv run --with ultralytics pitchlab-train run \
+#   uv run --with ultralytics matchlab-train run \
 #     configs/train/benchmark-phase3-comparator-sportsmot.yaml
 name: benchmark-phase3-comparator-sportsmot
 task: benchmark

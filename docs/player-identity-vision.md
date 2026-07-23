@@ -5,13 +5,13 @@
 **Scope:** Product and technical direction for player tracking, re-identification, and roster
 identity.
 
-This document is the source of truth for what PitchLab means by player identity. It supersedes
+This document is the source of truth for what MatchLab means by player identity. It supersedes
 identity recommendations in the earlier `technology/` research dossier when they disagree.
 Research documents remain evidence and option analysis, not current product policy.
 
 ## Product objective
 
-PitchLab produces player-by-player statistics from ordinary, single-camera amateur sports video.
+MatchLab produces player-by-player statistics from ordinary, single-camera amateur sports video.
 The lead case is a ground-level phone recording of a soccer match. The system must keep each
 physical player distinct long enough to attribute events and aggregate trustworthy statistics.
 
@@ -44,7 +44,7 @@ Identity evidence is sparse and unevenly distributed through a match. A distant,
 be impossible to distinguish in one passage, then become identifiable when approaching the camera,
 standing still, turning toward it, or exposing distinctive body or clothing details.
 
-PitchLab should therefore:
+MatchLab should therefore:
 
 1. Build short, conservative tracklets before making long-horizon identity claims.
 2. Score observation quality separately for each identity modality.
@@ -123,7 +123,7 @@ contradictory biometric evidence.
 ### Jersey OCR
 
 Jersey OCR is optional reference evidence. It is useful for comparison with SoccerNet and for
-matches where numbers happen to be legible, but PitchLab must remain functional when kits are
+matches where numbers happen to be legible, but MatchLab must remain functional when kits are
 unnumbered, numbers are occluded, or footage cannot resolve them.
 
 ## Quality-guided fusion

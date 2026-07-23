@@ -20,8 +20,8 @@
 #
 # Intended target: a video registered from the `soccernet-ball` tier
 # (configs/datasets/soccernet-ball.json, ingested via
-# `pitchlab-train ingest-soccernet-ball`) so the run auto-scores against its
-# event ground truth (avg-mAP@1, pitchlab_core.action_spotting_eval). No
+# `matchlab-train ingest-soccernet-ball`) so the run auto-scores against its
+# event ground truth (avg-mAP@1, matchlab_core.action_spotting_eval). No
 # avg-mAP number has been measured yet -- this config only wires the run;
 # the actual benchmark pass is SPO-50's pending human-gated step.
 #

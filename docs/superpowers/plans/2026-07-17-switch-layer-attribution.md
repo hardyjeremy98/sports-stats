@@ -6,7 +6,7 @@
 (`detection` / `online_association` / `refinement` / `offline_association`) or an explicit
 `ambiguous` tag, surfaced in the Lab failure browser.
 
-**Architecture:** A pure post-pass module `pitchlab_core/attribution.py` annotates an
+**Architecture:** A pure post-pass module `matchlab_core/attribution.py` annotates an
 already-computed eval result in place; `evaluate_run` always calls it (single-run evidence),
 and callers holding an oracle-run eval payload re-invoke it to upgrade ambiguous
 tracklet-level switches. Explicit oracle pairing in the benchmark runner
@@ -34,8 +34,8 @@ React/TypeScript (hand-mirrored types).
 ### Task 1: Core attribution module — matcher, context, single-run rules
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/attribution.py`
-- Create: `packages/pitchlab_core/tests/test_attribution.py`
+- Create: `packages/matchlab_core/src/matchlab_core/attribution.py`
+- Create: `packages/matchlab_core/tests/test_attribution.py`
 
 **Interfaces:**
 - Produces: `match_instances(a_list: list[dict], b_list: list[dict], tol_s: float) -> list[tuple[int, int]]` (greedy nearest-`t` one-to-one index pairs, closest first);
@@ -52,7 +52,7 @@ hand-built eval payloads -- no pipeline execution, no motmetrics."""
 from __future__ import annotations
 
 import pytest
-from pitchlab_core.attribution import attribute_switches, detect_context, match_instances
+from matchlab_core.attribution import attribute_switches, detect_context, match_instances
 
 
 def _inst(level: str, frame_idx: int, gt: int, prev_id: int, new_id: int, t: float | None = None) -> dict:
@@ -261,8 +261,8 @@ def test_every_instance_gets_an_attribution():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_attribution.py -q`
-Expected: collection error — `ModuleNotFoundError: No module named 'pitchlab_core.attribution'`
+Run: `uv run pytest packages/matchlab_core/tests/test_attribution.py -q`
+Expected: collection error — `ModuleNotFoundError: No module named 'matchlab_core.attribution'`
 
 - [ ] **Step 3: Write the module**
 
@@ -329,7 +329,7 @@ def match_instances(
     instances (already restricted to one grouping key by the caller), closest
     pairs first, each instance matched at most once, pairs farther apart than
     `tol_s` never match. Returns (index_in_a, index_in_b) pairs in match
-    order. Extracted from `pitchlab_server.evaluation.diff_switch_instances`
+    order. Extracted from `matchlab_server.evaluation.diff_switch_instances`
     (same semantics; stable sort keeps generation order for equal distances)
     so the diff view and attribution share one matcher."""
     candidates = sorted(
@@ -569,13 +569,13 @@ def _validate_oracle_comparison(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_attribution.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_attribution.py -q`
 Expected: all PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/pitchlab_core/src/pitchlab_core/attribution.py packages/pitchlab_core/tests/test_attribution.py
+git add packages/matchlab_core/src/matchlab_core/attribution.py packages/matchlab_core/tests/test_attribution.py
 git commit -m "Add switch layer-attribution module: matcher, context, single-run rules (SPO-19)"
 ```
 
@@ -584,8 +584,8 @@ git commit -m "Add switch layer-attribution module: matcher, context, single-run
 ### Task 2: Oracle-run comparison + refusals
 
 **Files:**
-- Modify: `packages/pitchlab_core/tests/test_attribution.py` (append)
-- Modify: `packages/pitchlab_core/src/pitchlab_core/attribution.py` (already written in Task 1 — this task only adds tests; fix the module if any fail)
+- Modify: `packages/matchlab_core/tests/test_attribution.py` (append)
+- Modify: `packages/matchlab_core/src/matchlab_core/attribution.py` (already written in Task 1 — this task only adds tests; fix the module if any fail)
 
 **Interfaces:**
 - Consumes: Task 1's `attribute_switches(result, oracle_eval=..., oracle_run_id=..., tol_s=...)`.
@@ -683,13 +683,13 @@ def test_oracle_refusal_on_incomparable_payloads(field, value):
 
 - [ ] **Step 2: Run the full attribution test file**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_attribution.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_attribution.py -q`
 Expected: all PASS (Task 1's module already implements this; fix it if not)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add packages/pitchlab_core/tests/test_attribution.py
+git add packages/matchlab_core/tests/test_attribution.py
 git commit -m "Test oracle-run comparison attribution + refusals (SPO-19)"
 ```
 
@@ -698,8 +698,8 @@ git commit -m "Test oracle-run comparison attribution + refusals (SPO-19)"
 ### Task 3: Wire attribution into evaluate_run + integration tests
 
 **Files:**
-- Modify: `packages/pitchlab_core/src/pitchlab_core/evaluation.py` (result assembly in `evaluate_run`, around line 176-192, and the module docstring)
-- Modify: `packages/pitchlab_core/tests/test_attribution.py` (append integration tests)
+- Modify: `packages/matchlab_core/src/matchlab_core/evaluation.py` (result assembly in `evaluate_run`, around line 176-192, and the module docstring)
+- Modify: `packages/matchlab_core/tests/test_attribution.py` (append integration tests)
 
 **Interfaces:**
 - Consumes: `detect_context`, `attribute_switches` from Task 1.
@@ -767,8 +767,8 @@ def _write_run_dir(
 
 def test_evaluate_run_attributes_every_switch(tmp_path):
     pytest.importorskip("motmetrics")
-    from pitchlab_core.evaluation import evaluate_run
-    from pitchlab_core.gt import load_soccernet_sequence
+    from matchlab_core.evaluation import evaluate_run
+    from matchlab_core.gt import load_soccernet_sequence
 
     gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
     # GT1 fragments into tracklets 10 and 11 (tracklet switch at frame 5);
@@ -807,8 +807,8 @@ def test_evaluate_run_attributes_every_switch(tmp_path):
 
 def test_evaluate_run_oracle_manifest_attributes_online_association(tmp_path):
     pytest.importorskip("motmetrics")
-    from pitchlab_core.evaluation import evaluate_run
-    from pitchlab_core.gt import load_soccernet_sequence
+    from matchlab_core.evaluation import evaluate_run
+    from matchlab_core.gt import load_soccernet_sequence
 
     gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
     tracklets = [
@@ -830,8 +830,8 @@ def test_evaluate_run_oracle_manifest_attributes_online_association(tmp_path):
 
 def test_evaluate_run_degraded_oracle_manifest_stays_ambiguous(tmp_path):
     pytest.importorskip("motmetrics")
-    from pitchlab_core.evaluation import evaluate_run
-    from pitchlab_core.gt import load_soccernet_sequence
+    from matchlab_core.evaluation import evaluate_run
+    from matchlab_core.gt import load_soccernet_sequence
 
     gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
     tracklets = [
@@ -849,8 +849,8 @@ def test_evaluate_run_degraded_oracle_manifest_stays_ambiguous(tmp_path):
 
 def test_end_to_end_enrichment_flips_ambiguous_to_detection(tmp_path):
     pytest.importorskip("motmetrics")
-    from pitchlab_core.evaluation import evaluate_run
-    from pitchlab_core.gt import load_soccernet_sequence
+    from matchlab_core.evaluation import evaluate_run
+    from matchlab_core.gt import load_soccernet_sequence
 
     gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
     # Baseline run fragments GT1 (switch); oracle run tracks GT1 cleanly ->
@@ -886,22 +886,22 @@ existing imports, not mid-file (the `# noqa` markers above are only plan notatio
 
 - [ ] **Step 2: Run to verify the integration tests fail**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_attribution.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_attribution.py -q`
 Expected: the four new tests FAIL with `KeyError: 'attribution'` (evaluate_run doesn't seed it yet)
 
 - [ ] **Step 3: Wire into evaluate_run**
 
-In `packages/pitchlab_core/src/pitchlab_core/evaluation.py`, inside `evaluate_run`, right
+In `packages/matchlab_core/src/matchlab_core/evaluation.py`, inside `evaluate_run`, right
 after the `result = {...}` dict literal (currently ending with the `"identity":` entry) and
 BEFORE the `merge_quality` call, add:
 
 ```python
-    from pitchlab_core.attribution import attribute_switches, detect_context
+    from matchlab_core.attribution import attribute_switches, detect_context
 
     # SPO-19: every switch instance carries a layer attribution or an explicit
     # ambiguous tag. Single-run evidence only here; callers holding an
     # oracle-counterpart eval payload re-invoke attribute_switches to upgrade
-    # ambiguous tracklet-level switches (see pitchlab_core.attribution).
+    # ambiguous tracklet-level switches (see matchlab_core.attribution).
     result["attribution"] = detect_context(manifest)
     attribute_switches(result)
 ```
@@ -914,18 +914,18 @@ Also append one sentence to the module docstring (after the SPO-9 paragraph):
 A seventh annotation pass (SPO-19) attributes every per-instance ID switch
 to a pipeline layer -- detection, online association, refinement (reserved),
 offline association -- or an explicit `ambiguous` tag, with the evidence
-basis recorded per instance; see `pitchlab_core.attribution`.
+basis recorded per instance; see `matchlab_core.attribution`.
 ```
 
 - [ ] **Step 4: Run core tests**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_attribution.py packages/pitchlab_core/tests/test_gt_eval.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_attribution.py packages/matchlab_core/tests/test_gt_eval.py -q`
 Expected: all PASS (existing gt_eval assertions are key-specific, not exhaustive — verify none broke)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/pitchlab_core/src/pitchlab_core/evaluation.py packages/pitchlab_core/tests/test_attribution.py
+git add packages/matchlab_core/src/matchlab_core/evaluation.py packages/matchlab_core/tests/test_attribution.py
 git commit -m "Attribute every ID switch in evaluate_run output (SPO-19)"
 ```
 
@@ -934,18 +934,18 @@ git commit -m "Attribute every ID switch in evaluate_run output (SPO-19)"
 ### Task 4: Server — shared matcher + oracle_run_id on the evaluate endpoint
 
 **Files:**
-- Modify: `packages/pitchlab_server/src/pitchlab_server/evaluation.py` (`diff_switch_instances` inner matching; `evaluate_run_against_gt` signature)
-- Modify: `packages/pitchlab_server/src/pitchlab_server/api/runs.py` (`evaluate_run` endpoint)
-- Modify: `packages/pitchlab_server/tests/test_api.py` (append endpoint test)
+- Modify: `packages/matchlab_server/src/matchlab_server/evaluation.py` (`diff_switch_instances` inner matching; `evaluate_run_against_gt` signature)
+- Modify: `packages/matchlab_server/src/matchlab_server/api/runs.py` (`evaluate_run` endpoint)
+- Modify: `packages/matchlab_server/tests/test_api.py` (append endpoint test)
 
 **Interfaces:**
-- Consumes: `match_instances`, `attribute_switches` from `pitchlab_core.attribution`.
+- Consumes: `match_instances`, `attribute_switches` from `matchlab_core.attribution`.
 - Produces: `evaluate_run_against_gt(run, video, oracle_eval: dict | None = None, oracle_run_id: str | None = None)`;
   `POST /api/runs/{run_id}/evaluate?oracle_run_id=<id>`.
 
 - [ ] **Step 1: Refactor diff_switch_instances onto the shared matcher**
 
-In `packages/pitchlab_server/src/pitchlab_server/evaluation.py`, replace the inner
+In `packages/matchlab_server/src/matchlab_server/evaluation.py`, replace the inner
 candidate/matched loop of `diff_switch_instances` (the `candidates = sorted(...)` block
 through the two `matched_a`/`matched_b` loops) with:
 
@@ -956,28 +956,28 @@ through the two `matched_a`/`matched_b` loops) with:
         persisted.extend({"a": a_list[i], "b": b_list[j]} for i, j in pairs)
 ```
 
-with `from pitchlab_core.attribution import match_instances` added to the imports, and a
+with `from matchlab_core.attribution import match_instances` added to the imports, and a
 docstring note that matching is shared with the attribution module. Delete the now-unused
 `from collections import defaultdict`? No — `_grouped` still uses it; leave it.
 
 - [ ] **Step 2: Run existing server tests to confirm no behavior change**
 
-Run: `uv run pytest packages/pitchlab_server/tests/test_evaluation.py packages/pitchlab_server/tests/test_api.py -q`
+Run: `uv run pytest packages/matchlab_server/tests/test_evaluation.py packages/matchlab_server/tests/test_api.py -q`
 Expected: all PASS
 
 - [ ] **Step 3: Append the failing endpoint test**
 
-Append to `packages/pitchlab_server/tests/test_api.py`:
+Append to `packages/matchlab_server/tests/test_api.py`:
 
 ```python
 def test_evaluate_endpoint_with_oracle_run_id(client, video_id):
     """POST /runs/{id}/evaluate?oracle_run_id=... enriches attribution from a
     scored oracle run of the same video; refusals surface as 422."""
     pytest.importorskip("motmetrics")
-    from pitchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
-    from pitchlab_core.schemas.geometry import Box
-    from pitchlab_server.db import session
-    from pitchlab_server.models import Run, Video
+    from matchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
+    from matchlab_core.schemas.geometry import Box
+    from matchlab_server.db import session
+    from matchlab_server.models import Run, Video
 
     # Attach a tiny GT to the shared demo video (120 frames at 20 fps).
     with session() as db:
@@ -1001,7 +1001,7 @@ def test_evaluate_endpoint_with_oracle_run_id(client, video_id):
                 )
             ],
         )
-        gt_path = Path(os.environ["PITCHLAB_DATA_DIR"]) / "clip.gt.json"
+        gt_path = Path(os.environ["MATCHLAB_DATA_DIR"]) / "clip.gt.json"
         gt_path.write_text(gt.model_dump_json())
         video.gt_path = str(gt_path)
         db.commit()
@@ -1074,12 +1074,12 @@ def test_evaluate_endpoint_with_oracle_run_id(client, video_id):
 
 - [ ] **Step 4: Run to verify it fails**
 
-Run: `uv run pytest packages/pitchlab_server/tests/test_api.py::test_evaluate_endpoint_with_oracle_run_id -q`
+Run: `uv run pytest packages/matchlab_server/tests/test_api.py::test_evaluate_endpoint_with_oracle_run_id -q`
 Expected: FAIL (endpoint ignores `oracle_run_id`; first assert on 422 fails with 200)
 
 - [ ] **Step 5: Implement server changes**
 
-`packages/pitchlab_server/src/pitchlab_server/evaluation.py` — extend
+`packages/matchlab_server/src/matchlab_server/evaluation.py` — extend
 `evaluate_run_against_gt`:
 
 ```python
@@ -1095,7 +1095,7 @@ and after `result = evaluate_run(run_dir, gt)` insert:
 
 ```python
     if oracle_eval is not None:
-        from pitchlab_core.attribution import attribute_switches
+        from matchlab_core.attribution import attribute_switches
 
         attribute_switches(result, oracle_eval=oracle_eval, oracle_run_id=oracle_run_id)
 ```
@@ -1103,9 +1103,9 @@ and after `result = evaluate_run(run_dir, gt)` insert:
 (the existing `eval.json` write below then persists the enriched payload). Document the
 params in the docstring: "oracle_eval/oracle_run_id: an already-scored eval.json payload
 from a pristine oracle-detections run of the same video, used to upgrade ambiguous
-tracklet-level switch attributions; refusals (pitchlab_core.attribution) raise ValueError."
+tracklet-level switch attributions; refusals (matchlab_core.attribution) raise ValueError."
 
-`packages/pitchlab_server/src/pitchlab_server/api/runs.py` — replace the endpoint body:
+`packages/matchlab_server/src/matchlab_server/api/runs.py` — replace the endpoint body:
 
 ```python
 @router.post("/{run_id}/evaluate", response_model=RunDetailOut)
@@ -1117,7 +1117,7 @@ def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = De
     pristine oracle detections; its eval.json upgrades this run's ambiguous
     tracklet-level switch attributions via oracle comparison (SPO-19). The
     oracle run must already carry an eval.json -- evaluate it first."""
-    from pitchlab_server.evaluation import evaluate_run_against_gt, merged_metrics
+    from matchlab_server.evaluation import evaluate_run_against_gt, merged_metrics
 
     run = db.get(Run, run_id)
     if run is None:
@@ -1146,7 +1146,7 @@ def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = De
         )
     except ImportError as exc:
         raise HTTPException(501, "motmetrics not installed (uv sync --group eval)") from exc
-    except ValueError as exc:  # attribution refusals (pitchlab_core.attribution)
+    except ValueError as exc:  # attribution refusals (matchlab_core.attribution)
         raise HTTPException(422, str(exc)) from exc
     if result is None:
         raise HTTPException(422, "Run has no tracklets artifact to score")
@@ -1159,13 +1159,13 @@ def evaluate_run(run_id: str, oracle_run_id: str | None = None, db: Session = De
 
 - [ ] **Step 6: Run server tests**
 
-Run: `uv run pytest packages/pitchlab_server -q`
+Run: `uv run pytest packages/matchlab_server -q`
 Expected: all PASS
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/pitchlab_server/src/pitchlab_server/evaluation.py packages/pitchlab_server/src/pitchlab_server/api/runs.py packages/pitchlab_server/tests/test_api.py
+git add packages/matchlab_server/src/matchlab_server/evaluation.py packages/matchlab_server/src/matchlab_server/api/runs.py packages/matchlab_server/tests/test_api.py
 git commit -m "Share switch matcher; oracle_run_id enrichment on evaluate endpoint (SPO-19)"
 ```
 
@@ -1174,11 +1174,11 @@ git commit -m "Share switch matcher; oracle_run_id enrichment on evaluate endpoi
 ### Task 5: Benchmark runner — explicit oracle_candidate pairing
 
 **Files:**
-- Modify: `packages/pitchlab_train/src/pitchlab_train/experiments/benchmark.py`
-- Modify: `packages/pitchlab_train/tests/test_benchmark_runner.py` (append)
+- Modify: `packages/matchlab_train/src/matchlab_train/experiments/benchmark.py`
+- Modify: `packages/matchlab_train/tests/test_benchmark_runner.py` (append)
 
 **Interfaces:**
-- Consumes: `attribute_switches` from `pitchlab_core.attribution`.
+- Consumes: `attribute_switches` from `matchlab_core.attribution`.
 - Produces: `PipelineCandidate.oracle_candidate: str | None`;
   `_validate_oracle_candidates(candidates: list) -> None` (called from `_expand_candidates` before returning);
   `_enrich_with_oracle(candidates, rows, workdir: Path) -> None` (called in `run()` after the candidate loop, before `_check_missing_provenance`);
@@ -1275,7 +1275,7 @@ def test_oracle_candidate_valid_pairing_expands():
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py -q -k oracle_candidate`
+Run: `uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py -q -k oracle_candidate`
 Expected: FAIL (`oracle_candidate` is not a PipelineCandidate field → pydantic rejects the extra key... note: pydantic BaseModel ignores or forbids extras depending on config — if it silently ignores, the tests fail on "did not raise", which is equally a failing start)
 
 - [ ] **Step 3: Implement**
@@ -1371,7 +1371,7 @@ def _enrich_with_oracle(
     `row["attribution_oracle"] = {"status": "unavailable", ...}` and leaves
     the baseline (ambiguous) attribution -- visible, never silent. Headline
     metrics are untouched; only eval.json instances change."""
-    from pitchlab_core.attribution import attribute_switches
+    from matchlab_core.attribution import attribute_switches
 
     by_name = {c.name: c for c in candidates}
     completed = {
@@ -1413,7 +1413,7 @@ def _enrich_with_oracle(
 
 - [ ] **Step 4: Run validation tests**
 
-Run: `uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py -q -k oracle_candidate`
+Run: `uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py -q -k oracle_candidate`
 Expected: all PASS
 
 - [ ] **Step 5: Append the failing end-to-end enrichment test**
@@ -1473,7 +1473,7 @@ def test_benchmark_oracle_enrichment_end_to_end(tmp_path):
 
 - [ ] **Step 6: Run the end-to-end test**
 
-Run: `uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py::test_benchmark_oracle_enrichment_end_to_end -q`
+Run: `uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py::test_benchmark_oracle_enrichment_end_to_end -q`
 Expected: PASS after Step 3's implementation (it was written before this test; if it fails, fix the implementation, not the assertion — with one allowed exception: if the stub run on the demo clip yields zero switches, follow the `test_benchmark_end_to_end` pattern and keep the structural asserts only)
 
 - [ ] **Step 7: Run the full train suite + core/server suites**
@@ -1484,7 +1484,7 @@ Expected: all PASS
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/pitchlab_train/src/pitchlab_train/experiments/benchmark.py packages/pitchlab_train/tests/test_benchmark_runner.py
+git add packages/matchlab_train/src/matchlab_train/experiments/benchmark.py packages/matchlab_train/tests/test_benchmark_runner.py
 git commit -m "Benchmark runner: explicit oracle_candidate pairing + eval enrichment (SPO-19)"
 ```
 

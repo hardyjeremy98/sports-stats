@@ -6,7 +6,7 @@
 ## Context
 
 Per-frame identity is unstable because crop quality, pose, occlusion, and visible attributes change
-continuously. Some players become identifiable only after an earlier ambiguous passage. PitchLab
+continuously. Some players become identifiable only after an earlier ambiguous passage. MatchLab
 processes uploaded video offline and is not constrained to emit final identities in real time.
 
 ## Decision

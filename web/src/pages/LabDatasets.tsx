@@ -51,7 +51,7 @@ export default function LabDatasets() {
     <div>
       <PageTitle
         title="Datasets"
-        sub="Labelled training data on disk (data/experiments/datasets) — downloaded via pitchlab-train."
+        sub="Labelled training data on disk (data/experiments/datasets) — downloaded via matchlab-train."
       />
       {(datasets.data ?? []).length === 0 ? (
         <EmptyState

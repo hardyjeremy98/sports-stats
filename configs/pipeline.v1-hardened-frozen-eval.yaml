@@ -14,7 +14,7 @@
 #
 # The calibrate slot (yolo-pitch-local) still needs ultralytics at runtime
 # (AGPL, local-eval only) even though detect no longer does. Run with:
-#   uv run --with ultralytics pitchlab-train run <benchmark config>
+#   uv run --with ultralytics matchlab-train run <benchmark config>
 name: v1-hardened-frozen-eval
 description: >
   Phase 3 comparator (SPO-30): SPO-22 hardened BoT-SORT over frozen reference

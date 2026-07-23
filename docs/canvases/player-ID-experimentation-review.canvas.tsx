@@ -86,7 +86,7 @@ function Assessment() {
   return (
     <Stack gap={18}>
       <Callout tone="info" title="Bottom line">
-        PitchLab is a well-shaped v1 research platform for tracker and cross-tracklet association
+        MatchLab is a well-shaped v1 research platform for tracker and cross-tracklet association
         experiments. It is not yet able to prove that face, body, gait or multimodal identity
         improves true player identification, because the semantic identity output is downstream of
         association and absent from evaluation.
@@ -130,7 +130,7 @@ function Assessment() {
                   onClick={() =>
                     action({
                       type: "openFile",
-                      path: "packages/pitchlab_core/src/pitchlab_core/stages/associate/global_embed.py",
+                      path: "packages/matchlab_core/src/matchlab_core/stages/associate/global_embed.py",
                       selection: { startLineNumber: 1, startColumn: 1, endLineNumber: 16, endColumn: 1 },
                     })
                   }
@@ -160,7 +160,7 @@ function Assessment() {
                   onClick={() =>
                     action({
                       type: "openFile",
-                      path: "packages/pitchlab_core/src/pitchlab_core/stages/identity/face.py",
+                      path: "packages/matchlab_core/src/matchlab_core/stages/identity/face.py",
                       selection: { startLineNumber: 69, startColumn: 1, endLineNumber: 152, endColumn: 1 },
                     })
                   }
@@ -354,7 +354,7 @@ export default function PlayerIDExperimentationReview() {
       <Stack gap={18}>
         <Stack gap={7}>
           <Text size="small" tone="tertiary">
-            PITCHLAB · REPOSITORY REVIEW
+            MATCHLAB · REPOSITORY REVIEW
           </Text>
           <H1>Player ID experimentation readiness</H1>
           <Text tone="secondary">

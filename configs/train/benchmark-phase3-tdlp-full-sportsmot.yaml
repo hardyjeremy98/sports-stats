@@ -3,7 +3,7 @@
 # Answers (a) SOTA-vs-SOTA TDLP-full vs CAMELTrack and (b) marginal value of
 # appearance WITHIN TDLP (bbox vs full on the same input). Both reference_only /
 # as_published (CAMELTrack's own detector+pose+reid; SportsMOT-trained weights =
-# selection-only, non-shippable). Run: uv run pitchlab-train run <this>
+# selection-only, non-shippable). Run: uv run matchlab-train run <this>
 name: benchmark-phase3-tdlp-full-sportsmot
 task: benchmark
 description: SPO-34 evidence -- full TDLP vs TDLP-bbox on identical CAMELTrack features (SportsMOT held-out).

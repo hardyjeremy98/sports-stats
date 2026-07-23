@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: pitchlab
-      POSTGRES_PASSWORD: pitchlab
-      POSTGRES_DB: pitchlab
+      POSTGRES_USER: matchlab
+      POSTGRES_PASSWORD: matchlab
+      POSTGRES_DB: matchlab
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pitchlab"]
+      test: ["CMD-SHELL", "pg_isready -U matchlab"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -19,10 +19,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    command: uvicorn pitchlab_server.app:app --host 0.0.0.0 --port 8000
+    command: uvicorn matchlab_server.app:app --host 0.0.0.0 --port 8000
     environment:
-      PITCHLAB_DATABASE_URL: postgresql+psycopg://pitchlab:pitchlab@db:5432/pitchlab
-      PITCHLAB_DATA_DIR: /data
+      MATCHLAB_DATABASE_URL: postgresql+psycopg://matchlab:matchlab@db:5432/matchlab
+      MATCHLAB_DATA_DIR: /data
       ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY:-}
     ports:
       - "8000:8000"
@@ -38,11 +38,11 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    command: pitchlab-worker
+    command: matchlab-worker
     environment:
-      PITCHLAB_DATABASE_URL: postgresql+psycopg://pitchlab:pitchlab@db:5432/pitchlab
-      PITCHLAB_DATA_DIR: /data
-      PITCHLAB_DEVICE: ${PITCHLAB_DEVICE:-auto}
+      MATCHLAB_DATABASE_URL: postgresql+psycopg://matchlab:matchlab@db:5432/matchlab
+      MATCHLAB_DATA_DIR: /data
+      MATCHLAB_DEVICE: ${MATCHLAB_DEVICE:-auto}
       ROBOFLOW_API_KEY: ${ROBOFLOW_API_KEY:-}
     volumes:
       - appdata:/data

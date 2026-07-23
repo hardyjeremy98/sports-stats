@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* PitchLab palette: green-cast near-black + volt accent. */
+  /* MatchLab palette: green-cast near-black + volt accent. */
   --color-turf-950: #0b0f0d;
   --color-turf-900: #101512;
   --color-turf-850: #141a16;

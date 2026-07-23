@@ -6,7 +6,7 @@
 #
 # The frozen stage resolves data/exchange/frozen-detections/soccernet/<seq>/det.txt
 # per sequence. Calibrate (yolo-pitch-local) needs ultralytics at runtime:
-#   uv run --with ultralytics pitchlab-train run \
+#   uv run --with ultralytics matchlab-train run \
 #     configs/train/benchmark-phase3-comparator-soccernet.yaml
 name: benchmark-phase3-comparator-soccernet
 task: benchmark

@@ -15,7 +15,7 @@ existing evaluation-set and embedder-provenance gates (`check_evaluation_set`,
 `reid_ablation._sweep_one`), which this mirrors (pure functions; refuse loudly naming the
 offender).
 
-### New module: `pitchlab_core/licensing.py`
+### New module: `matchlab_core/licensing.py`
 
 - `classify_axis(value) -> AxisVerdict` (`PERMISSIVE` / `NON_PERMISSIVE` / `UNKNOWN`).
   Fail-closed, with three rules:
@@ -48,11 +48,11 @@ offender).
 
 ## Tests (TDD, all green)
 
-- `packages/pitchlab_core/tests/test_licensing.py` (37): token classification per class,
+- `packages/matchlab_core/tests/test_licensing.py` (37): token classification per class,
   non-permissive-marker precedence, unknown-is-fail-closed, per-axis component certification,
   stack walking + finding attribution, undeclared-license fail-closed, model-free-stage no-op,
   refusal-names-the-offender.
-- `packages/pitchlab_train/tests/test_benchmark_task9.py` (+5): summary carries stage+license;
+- `packages/matchlab_train/tests/test_benchmark_task9.py` (+5): summary carries stage+license;
   clean shipping stack passes; NC axis refused (names candidate/stage/axis); unnamed reference
   exempt; named-candidate-with-no-rows refused. No golden/provenance regressions (167 train
   tests + provenance suite green).

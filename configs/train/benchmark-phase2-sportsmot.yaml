@@ -8,7 +8,7 @@
 # Both candidates need ultralytics at runtime: yolox-frozen's shared
 # calibrate slot (yolo-pitch-local) uses it, and incumbent-hardened's detect
 # (yolo-local) uses it too. Run with:
-#   uv run --with ultralytics pitchlab-train run configs/train/benchmark-phase2-sportsmot.yaml
+#   uv run --with ultralytics matchlab-train run configs/train/benchmark-phase2-sportsmot.yaml
 name: benchmark-phase2-sportsmot
 task: benchmark
 description: >

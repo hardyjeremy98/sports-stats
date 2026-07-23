@@ -19,7 +19,7 @@ real implementation.
 
 ## Problem Statement
 
-PitchLab can track and associate players, but it cannot answer **"what happened, and when"** —
+MatchLab can track and associate players, but it cannot answer **"what happened, and when"** —
 it has no action/event spotting. The `StageKind.SPOTTING` slot has been a registered but
 empty v2 seam since v1 (only a disabled `NoSpotting` stub), and there is no way to run a real
 action spotter, no ground truth for timed events, and no metric to score one.
@@ -164,7 +164,7 @@ PRD.
   tolerance-window matching (predictions matched to GT events within ±tolerance, greedy by
   descending confidence, one GT per prediction), per-class AP, and the mean. Wired into
   `evaluation.py` → `eval.json` → `runs.metrics` → `GET /api/benchmark`.
-- **SoccerNet Ball-Action ingest** — a `pitchlab_train` adapter + `ingest-soccernet-ball` CLI
+- **SoccerNet Ball-Action ingest** — a `matchlab_train` adapter + `ingest-soccernet-ball` CLI
   that reads SoccerNet ball-action label files and produces the event-GT JSON + a registered
   `Video` with its `gt_path`. Plus `configs/datasets/soccernet-ball.json` tier manifest
   (eval-only, non-commercial).

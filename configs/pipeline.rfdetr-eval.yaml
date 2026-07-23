@@ -9,7 +9,7 @@
 # identity -- the detector is the only variable.
 #
 # rfdetr is Apache-2.0 but not a declared dependency; run with:
-#   uv run --with rfdetr pitchlab-train run configs/train/benchmark-spo36-<tier>.yaml
+#   uv run --with rfdetr matchlab-train run configs/train/benchmark-spo36-<tier>.yaml
 name: rfdetr-eval
 description: >
   Permissive RF-DETR base person detector (SPO-36), stride 1, minimal

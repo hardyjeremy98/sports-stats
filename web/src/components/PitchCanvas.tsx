@@ -6,7 +6,7 @@ import { floorRow } from "../lib/artifacts";
 import { teamColor } from "../lib/colors";
 import type { MinimapFrame } from "../lib/types";
 
-// Pitch geometry in cm — mirrors pitchlab_core.pitch.SOCCER_PITCH.
+// Pitch geometry in cm — mirrors matchlab_core.pitch.SOCCER_PITCH.
 const L = 12000;
 const W = 7000;
 const PBL = 2015;

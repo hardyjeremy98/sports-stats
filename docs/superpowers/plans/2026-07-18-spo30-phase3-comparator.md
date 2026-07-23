@@ -6,12 +6,12 @@
 
 **Architecture:** Three code units then a run. (1) A new `frozen` detect stage replays exported `det.txt` so every in-repo Phase 3 candidate eats byte-identical detections. (2) A geometry-gated crop-yield evaluator computes approved-crops-per-player from `tracklets.json` (no pixels) — the tracker-attributable component of identity-evidence yield, since all candidates share identical frozen boxes. (3) The benchmark runner records wall-clock and peak VRAM per pipeline run. Then a benchmark config runs the comparator on both tiers.
 
-**Tech Stack:** Python 3.12, pydantic, pytest, motmetrics, torch (CUDA), the existing `pitchlab_core` stage registry + `pitchlab_train` benchmark runner.
+**Tech Stack:** Python 3.12, pydantic, pytest, motmetrics, torch (CUDA), the existing `matchlab_core` stage registry + `matchlab_train` benchmark runner.
 
 ## Global Constraints
 
 - Line length 100 (`ruff`, config in root `pyproject.toml`).
-- Detect stages implement `pitchlab_core.interfaces.Detector` (`detect(ctx) -> DetectOutput`); register with `@register(StageKind.DETECT, "<name>")`.
+- Detect stages implement `matchlab_core.interfaces.Detector` (`detect(ctx) -> DetectOutput`); register with `@register(StageKind.DETECT, "<name>")`.
 - Detect stages MUST iterate `ctx.frames()` so the track stage's CMC can walk the video in lockstep (see `stages/track/botsort.py:155-157`).
 - The offline `global-reid` associator is FROZEN — reuse its threshold values, never modify it.
 - Artifacts index by source video `frame_idx`; `det.txt` is 1-based MOT, so `frame_idx = mot_frame - 1`.
@@ -23,12 +23,12 @@
 ### Task 1: `frozen` det-replay detect stage
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/stages/detect/frozen.py`
-- Modify: `packages/pitchlab_core/src/pitchlab_core/stages/detect/__init__.py` (add import so it self-registers)
-- Test: `packages/pitchlab_core/tests/test_detect_frozen.py`
+- Create: `packages/matchlab_core/src/matchlab_core/stages/detect/frozen.py`
+- Modify: `packages/matchlab_core/src/matchlab_core/stages/detect/__init__.py` (add import so it self-registers)
+- Test: `packages/matchlab_core/tests/test_detect_frozen.py`
 
 **Interfaces:**
-- Consumes: `Detector`, `DetectOutput`, `StageContext` from `pitchlab_core.interfaces`; `Detection`, `FrameDetections`, `DetectionClass` from `pitchlab_core.schemas`; `Box` from `pitchlab_core.schemas.geometry`; `register`, `StageKind`.
+- Consumes: `Detector`, `DetectOutput`, `StageContext` from `matchlab_core.interfaces`; `Detection`, `FrameDetections`, `DetectionClass` from `matchlab_core.schemas`; `Box` from `matchlab_core.schemas.geometry`; `register`, `StageKind`.
 - Produces: registered detect impl name `"frozen"`, `Params(det_path: str, cls: str = "player")`, `provenance()` surfacing the `det.txt` sha256.
 
 - [ ] **Step 1: Write the failing test**
@@ -38,8 +38,8 @@
 import json
 from pathlib import Path
 
-from pitchlab_core.registry import build
-from pitchlab_core.schemas.run import StageKind
+from matchlab_core.registry import build
+from matchlab_core.schemas.run import StageKind
 
 
 def _write_det_txt(p: Path) -> None:
@@ -83,7 +83,7 @@ def test_frozen_replays_det_txt_by_frame(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_detect_frozen.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_detect_frozen.py -q`
 Expected: FAIL — `frozen` not registered (`KeyError`/`ValueError` from `build`).
 
 - [ ] **Step 3: Write minimal implementation**
@@ -101,12 +101,12 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from pitchlab_core.interfaces import Detector, DetectOutput, StageContext
-from pitchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
-from pitchlab_core.registry import register
-from pitchlab_core.schemas import Detection, DetectionClass, FrameDetections
-from pitchlab_core.schemas.geometry import Box
-from pitchlab_core.schemas.run import StageKind
+from matchlab_core.interfaces import Detector, DetectOutput, StageContext
+from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
+from matchlab_core.registry import register
+from matchlab_core.schemas import Detection, DetectionClass, FrameDetections
+from matchlab_core.schemas.geometry import Box
+from matchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
@@ -141,7 +141,7 @@ class FrozenDetector(Detector):
         if not path.exists():
             raise RuntimeError(
                 f"Frozen detector: det.txt not found at {path}. Export it with "
-                "`pitchlab-train export-detections` first."
+                "`matchlab-train export-detections` first."
             )
         self._by_frame = _parse_det_txt(path)
 
@@ -178,11 +178,11 @@ class FrozenDetector(Detector):
         return DetectOutput(frames=frames_out, ball=[])
 ```
 
-Then add to `stages/detect/__init__.py`: `from pitchlab_core.stages.detect import frozen  # noqa: F401` (match how sibling detect impls are imported — check the file; if it imports each module, add `frozen` alongside).
+Then add to `stages/detect/__init__.py`: `from matchlab_core.stages.detect import frozen  # noqa: F401` (match how sibling detect impls are imported — check the file; if it imports each module, add `frozen` alongside).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_detect_frozen.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_detect_frozen.py -q`
 Expected: PASS.
 
 - [ ] **Step 5: Add a provenance test**
@@ -197,15 +197,15 @@ def test_frozen_provenance_hashes_det_file(tmp_path):
     assert prov[0].architecture == "frozen-detections"
 ```
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_detect_frozen.py -q` → PASS.
+Run: `uv run pytest packages/matchlab_core/tests/test_detect_frozen.py -q` → PASS.
 
 - [ ] **Step 6: Lint + commit**
 
 ```bash
-uv run ruff check packages/pitchlab_core
-git add packages/pitchlab_core/src/pitchlab_core/stages/detect/frozen.py \
-        packages/pitchlab_core/src/pitchlab_core/stages/detect/__init__.py \
-        packages/pitchlab_core/tests/test_detect_frozen.py
+uv run ruff check packages/matchlab_core
+git add packages/matchlab_core/src/matchlab_core/stages/detect/frozen.py \
+        packages/matchlab_core/src/matchlab_core/stages/detect/__init__.py \
+        packages/matchlab_core/tests/test_detect_frozen.py
 git commit -m "feat(detect): frozen det-replay stage for Phase 3 input parity (SPO-30)"
 ```
 
@@ -214,9 +214,9 @@ git commit -m "feat(detect): frozen det-replay stage for Phase 3 input parity (S
 ### Task 2: Crop-yield guardrail metric in the evaluator
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/crop_yield.py`
-- Modify: `packages/pitchlab_core/src/pitchlab_core/evaluation.py` (call it in `evaluate_run` after the purity block ~:218; add headline key in `headline_metrics` ~:635)
-- Test: `packages/pitchlab_core/tests/test_crop_yield.py`
+- Create: `packages/matchlab_core/src/matchlab_core/crop_yield.py`
+- Modify: `packages/matchlab_core/src/matchlab_core/evaluation.py` (call it in `evaluate_run` after the purity block ~:218; add headline key in `headline_metrics` ~:635)
+- Test: `packages/matchlab_core/tests/test_crop_yield.py`
 
 **Interfaces:**
 - Consumes: `tracklets_by_id: dict[int, list[tuple[int, list[float]]]]` (tid → [(frame_idx, [x,y,w,h])]), `gt_by_frame: dict[int, list[tuple[int, list[float]]]]`, `eval_frames: list[int]`, `iou_threshold: float`. Reuses `_iou_distance` from `evaluation.py` for GT assignment.
@@ -228,7 +228,7 @@ Thresholds `min_box_height_px=60`, `min_crops_per_tracklet=2` copied verbatim fr
 
 ```python
 # test_crop_yield.py
-from pitchlab_core.crop_yield import crop_yield
+from matchlab_core.crop_yield import crop_yield
 
 
 def test_height_gate_and_per_player_mean():
@@ -252,7 +252,7 @@ def test_height_gate_and_per_player_mean():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_crop_yield.py -q`
+Run: `uv run pytest packages/matchlab_core/tests/test_crop_yield.py -q`
 Expected: FAIL — module `crop_yield` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -271,7 +271,7 @@ tracker-attributable component of crop yield. Associator stays frozen; only
 its threshold *values* are reused here."""
 from __future__ import annotations
 
-from pitchlab_core.evaluation import _iou_distance
+from matchlab_core.evaluation import _iou_distance
 
 
 def _majority_gt(frames, gt_by_frame, iou_threshold):
@@ -340,14 +340,14 @@ def crop_yield(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_crop_yield.py -q` → PASS.
+Run: `uv run pytest packages/matchlab_core/tests/test_crop_yield.py -q` → PASS.
 
 - [ ] **Step 5: Wire into `evaluate_run` + `headline_metrics`**
 
 In `evaluation.py`, after the `result["purity"] = {...}` block (~:218) add:
 
 ```python
-    from pitchlab_core.crop_yield import crop_yield
+    from matchlab_core.crop_yield import crop_yield
     result["crop_yield"] = crop_yield(
         tracklets_by_id, gt_by_frame, eval_frames, iou_threshold
     )
@@ -363,18 +363,18 @@ In `headline_metrics` before `return heads` (~:641) add:
 
 - [ ] **Step 6: Extend the evaluator integration test**
 
-Add to `packages/pitchlab_core/tests/test_gt_eval.py` an assertion in the existing full-run test that `result["crop_yield"]["approved_per_gt_player_mean"]` is present and `>= 0`, and `headline_metrics(result)["crop_yield_per_player"]` exists.
+Add to `packages/matchlab_core/tests/test_gt_eval.py` an assertion in the existing full-run test that `result["crop_yield"]["approved_per_gt_player_mean"]` is present and `>= 0`, and `headline_metrics(result)["crop_yield_per_player"]` exists.
 
-Run: `uv run pytest packages/pitchlab_core/tests/test_crop_yield.py packages/pitchlab_core/tests/test_gt_eval.py -q` → PASS.
+Run: `uv run pytest packages/matchlab_core/tests/test_crop_yield.py packages/matchlab_core/tests/test_gt_eval.py -q` → PASS.
 
 - [ ] **Step 7: Lint + commit**
 
 ```bash
-uv run ruff check packages/pitchlab_core
-git add packages/pitchlab_core/src/pitchlab_core/crop_yield.py \
-        packages/pitchlab_core/src/pitchlab_core/evaluation.py \
-        packages/pitchlab_core/tests/test_crop_yield.py \
-        packages/pitchlab_core/tests/test_gt_eval.py
+uv run ruff check packages/matchlab_core
+git add packages/matchlab_core/src/matchlab_core/crop_yield.py \
+        packages/matchlab_core/src/matchlab_core/evaluation.py \
+        packages/matchlab_core/tests/test_crop_yield.py \
+        packages/matchlab_core/tests/test_gt_eval.py
 git commit -m "feat(eval): quality-approved crop-yield guardrail metric (SPO-30)"
 ```
 
@@ -383,8 +383,8 @@ git commit -m "feat(eval): quality-approved crop-yield guardrail metric (SPO-30)
 ### Task 3: Runtime + peak-VRAM row columns in the benchmark runner
 
 **Files:**
-- Modify: `packages/pitchlab_train/src/pitchlab_train/experiments/benchmark.py` (time+VRAM around `runner.run()` ~:250; add params to `_row_from_run` ~:1046)
-- Test: `packages/pitchlab_train/tests/test_benchmark_runner.py` (extend)
+- Modify: `packages/matchlab_train/src/matchlab_train/experiments/benchmark.py` (time+VRAM around `runner.run()` ~:250; add params to `_row_from_run` ~:1046)
+- Test: `packages/matchlab_train/tests/test_benchmark_runner.py` (extend)
 
 **Interfaces:**
 - Produces: `_row_from_run(..., runtime_s: float | None = None, peak_vram_mb: float | None = None)`; row gains `runtime_s`, `peak_vram_mb` keys (present on completed pipeline rows, `None` for import/failed).
@@ -393,7 +393,7 @@ git commit -m "feat(eval): quality-approved crop-yield guardrail metric (SPO-30)
 
 ```python
 # in test_benchmark_runner.py
-from pitchlab_train.experiments.benchmark import _row_from_run
+from matchlab_train.experiments.benchmark import _row_from_run
 
 def test_row_carries_runtime_and_vram(minimal_manifest_completed, minimal_eval):
     row = _row_from_run(
@@ -408,7 +408,7 @@ def test_row_carries_runtime_and_vram(minimal_manifest_completed, minimal_eval):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py -k runtime_and_vram -q`
+Run: `uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py -k runtime_and_vram -q`
 Expected: FAIL — `_row_from_run` has no `runtime_s` kwarg (`TypeError`).
 
 - [ ] **Step 3: Implement**
@@ -460,15 +460,15 @@ def _read_cuda_peak(device: str) -> float | None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py -k runtime_and_vram -q` → PASS.
+Run: `uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py -k runtime_and_vram -q` → PASS.
 
 - [ ] **Step 5: Full suite + lint + commit**
 
 ```bash
-uv run pytest packages/pitchlab_train/tests/test_benchmark_runner.py -q
-uv run ruff check packages/pitchlab_train
-git add packages/pitchlab_train/src/pitchlab_train/experiments/benchmark.py \
-        packages/pitchlab_train/tests/test_benchmark_runner.py
+uv run pytest packages/matchlab_train/tests/test_benchmark_runner.py -q
+uv run ruff check packages/matchlab_train
+git add packages/matchlab_train/src/matchlab_train/experiments/benchmark.py \
+        packages/matchlab_train/tests/test_benchmark_runner.py
 git commit -m "feat(benchmark): record runtime_s + peak_vram_mb per pipeline run (SPO-30)"
 ```
 
@@ -495,7 +495,7 @@ Copy `configs/pipeline.v1-hardened-eval.yaml` to `configs/pipeline.v1-hardened-f
 - [ ] **Step 3: Verify det.txt ↔ sequence wiring on one sequence (dry check)**
 
 Run the comparator on ONE SoccerNet held-out sequence first:
-`uv run pitchlab-train run configs/train/benchmark-phase3-comparator.yaml` (scoped to 1 seq via `max_sequences: 1` temporarily).
+`uv run matchlab-train run configs/train/benchmark-phase3-comparator.yaml` (scoped to 1 seq via `max_sequences: 1` temporarily).
 Confirm: run completes, `result.json` row has `metrics.tracklet_purity`, `metrics.mixed_track_seconds`, `metrics.crop_yield_per_player`, `runtime_s`, `peak_vram_mb`, and provenance stamped with the frozen-detections sha256. Sanity: `n_tracklets > 1` (frozen dets are firing).
 
 - [ ] **Step 4: Full run both tiers**

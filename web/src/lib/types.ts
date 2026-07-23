@@ -1,4 +1,4 @@
-// Mirrors packages/pitchlab_core/src/pitchlab_core/schemas/ + server API models.
+// Mirrors packages/matchlab_core/src/matchlab_core/schemas/ + server API models.
 
 export type Team = "home" | "away" | "referee" | "unknown";
 export type DetectionClass = "ball" | "goalkeeper" | "player" | "referee";
@@ -248,7 +248,7 @@ export interface RunManifest {
   status: string;
   error: string | null;
   // Optional because the server serves old manifests as raw JSON without
-  // pydantic revalidation (pitchlab_server/api/runs.py's `_detail`, a plain
+  // pydantic revalidation (matchlab_server/api/runs.py's `_detail`, a plain
   // `json.loads`), so pre-provenance-feature manifests have no `provenance`
   // key at all -- see the SPO-15 optional-`source` precedent on
   // `TrackletFrame` above.

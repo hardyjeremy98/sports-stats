@@ -4,7 +4,7 @@
 # isolates the marginal value of online appearance. Data-collection run; the
 # SPO-34 gate applies the pre-registered success metric (within-team switch
 # reduction on SoccerNet + total switch/mixed-track reduction). Run:
-#   uv run --with ultralytics pitchlab-train run \
+#   uv run --with ultralytics matchlab-train run \
 #     configs/train/benchmark-phase3-spo31-sportsmot.yaml
 name: benchmark-phase3-spo31-sportsmot
 task: benchmark

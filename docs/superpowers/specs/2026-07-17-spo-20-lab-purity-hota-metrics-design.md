@@ -152,7 +152,7 @@ same screen. This mirrors the existing `IDENTITY_METRIC_KEYS` idiom in
 
 ### 5. Benchmark metric list + naming collision
 
-Add to `BENCHMARK_METRIC_KEYS` (`pitchlab_server/api/benchmark.py`) and `METRICS`
+Add to `BENCHMARK_METRIC_KEYS` (`matchlab_server/api/benchmark.py`) and `METRICS`
 (`LabBenchmark.tsx`): `hota_entity`, `hota_tracklet`, `tracklet_purity`,
 `mixed_track_seconds` (lower-is-better). Also add `merge_precision`, which
 `headline_metrics` already emits and the benchmark silently drops.

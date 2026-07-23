@@ -10,39 +10,39 @@ make dev                      # API :8000 + worker + web :5173 together (SQLite,
 make demo                     # seed a synthetic run so the UI has data
 
 uv run pytest packages -q                                  # all tests
-uv run pytest packages/pitchlab_core/tests/test_gt_eval.py::test_load_soccernet_sequence -q
+uv run pytest packages/matchlab_core/tests/test_gt_eval.py::test_load_soccernet_sequence -q
 uv run ruff check packages    # lint (line-length 100; config in root pyproject.toml)
 
 cd web && npm run build      # tsc --noEmit + vite build (this is the frontend typecheck)
 
 # Run a pipeline outside the server/worker:
-uv run --with ultralytics pitchlab-run --video data/clips/x.mp4 \
+uv run --with ultralytics matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.v1-local-eval.yaml --device cuda --run-id my-run
 
 # Register MOT-style tracking sequences as Lab videos with ground truth:
-uv run pitchlab-train ingest-soccernet --split test --limit 8
-uv run pitchlab-train ingest-sportsmot --split val --limit 8
-uv run pitchlab-train ingest-soccertrack --limit 8
+uv run matchlab-train ingest-soccernet --split test --limit 8
+uv run matchlab-train ingest-sportsmot --split val --limit 8
+uv run matchlab-train ingest-soccertrack --limit 8
 
 # Register SoccerNet Ball Action Spotting matches as Lab videos with timed-event ground
 # truth (SPO-47; data must already be downloaded under data/soccernet/ball/, see
 # configs/datasets/README.md):
-uv run pitchlab-train ingest-soccernet-ball --split test --limit 8
+uv run matchlab-train ingest-soccernet-ball --split test --limit 8
 
 # Reference action-spotting stage (SPO-45/46, docs/prds/reference-action-spotting-tdeed.md):
 # smoke config runs the tdeed stage against the permissive in-repo reference CLI (no GPU, no
 # real model); the eval config targets the real, human-gated external-spotters/ T-DEED env
 # (see docs/reference/external-spotters-setup.md) — never run unattended.
-uv run pitchlab-run --video data/clips/x.mp4 \
+uv run matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.tdeed-spotting-smoke.yaml --run-id my-spotting-smoke
 
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
-uv run pitchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
-uv run pitchlab-train import-tracklets --mot external.txt --sidecar sidecar.json \
+uv run matchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
+uv run matchlab-train import-tracklets --mot external.txt --sidecar sidecar.json \
   --out data/runs/<id>-external --fps 25 --frame-count 750
 
-uv run pitchlab-train run <experiment.yaml>   # config-driven experiments (pitchlab_train/experiments/)
+uv run matchlab-train run <experiment.yaml>   # config-driven experiments (matchlab_train/experiments/)
 ```
 
 ### Dependency groups — sync them together
@@ -82,7 +82,7 @@ Read `README.md` first for the pipeline diagram. The pieces that span multiple f
 
 ### Stage registry and configs
 
-`pitchlab_core` defines fixed stage slots (`StageKind` in `schemas/run.py`: detect, track,
+`matchlab_core` defines fixed stage slots (`StageKind` in `schemas/run.py`: detect, track,
 team, calibrate, associate, identity, fuse, events, spotting, annotate). Each implementation
 registers under a slot name; a YAML in `configs/` picks one impl + params per slot, plus
 top-level `video:` options (`sample_stride` etc.). `PipelineRunner` executes the slots in
@@ -92,7 +92,7 @@ frame**; the associate stage groups tracklets into `PlayerEntity` records offlin
 ### The run-directory contract
 
 Everything downstream reads plain files from `data/runs/<run_id>/`, mapped by
-`pitchlab_core/artifacts.py::ARTIFACT_FILES` (manifest.json, tracklets.json, players.json,
+`matchlab_core/artifacts.py::ARTIFACT_FILES` (manifest.json, tracklets.json, players.json,
 eval.json, association.json, annotated.mp4, …). The server serves them by logical name at
 `GET /api/runs/{id}/artifacts/{name}`; the Lab UI fetches the JSON ones and draws overlays
 client-side (`web/src/components/VideoOverlay.tsx` + frame-indexed maps built in
@@ -106,14 +106,14 @@ server (the endpoint resolves via the map), `web/src/lib/types.ts` + `artifacts.
 
 ### Server, jobs, and evaluation
 
-`pitchlab_server` is FastAPI + a SQLAlchemy job table + a polling worker (`worker.py`) —
+`matchlab_server` is FastAPI + a SQLAlchemy job table + a polling worker (`worker.py`) —
 deliberately no cloud vendor SDK; any box that reaches the DB and data volume can be a
-worker. SQLite at `data/pitchlab.db` by default; **there is no migration framework** — new
+worker. SQLite at `data/matchlab.db` by default; **there is no migration framework** — new
 columns are patched in `db.py::_micro_migrations` (additive ALTERs run by `init_db`).
 
 Ground truth belongs to a **video, not a run** (`videos.gt_path` → a
-`pitchlab_core/gt.py::GroundTruth` JSON). When a run's video has GT, the worker auto-scores
-it after completion (`pitchlab_core/evaluation.py`, motmetrics): IDF1/MOTA at two levels —
+`matchlab_core/gt.py::GroundTruth` JSON). When a run's video has GT, the worker auto-scores
+it after completion (`matchlab_core/evaluation.py`, motmetrics): IDF1/MOTA at two levels —
 raw tracklets vs post-association entities — plus a third semantic-identity layer (ADR 004:
 cluster purity/completeness against GT via per-entity argmax assignment, plus label coverage
 and abstention) — writes `eval.json` (incl. per-instance ID switches for the Lab's failure
@@ -128,9 +128,9 @@ don't switch back to `mm.distances.iou_matrix`.
 
 ### Training package
 
-`pitchlab_train` is a registry of config-driven experiments (`@register("name")` in
-`experiments/`) run via `pitchlab-train run <yaml>`, plus dataset adapters in `datasets/`
-(roboflow downloads, SoccerNet ingest, QA-label export). It may import `pitchlab_server`
+`matchlab_train` is a registry of config-driven experiments (`@register("name")` in
+`experiments/`) run via `matchlab-train run <yaml>`, plus dataset adapters in `datasets/`
+(roboflow downloads, SoccerNet ingest, QA-label export). It may import `matchlab_server`
 lazily (DB access) but server never imports train.
 
 ## Product and identity direction
@@ -138,7 +138,7 @@ lazily (DB access) but server never imports train.
 Canonical source: [`docs/player-identity-vision.md`](docs/player-identity-vision.md) and the
 accepted ADRs in [`docs/decisions/`](docs/decisions/). Non-negotiable invariants:
 
-- PitchLab produces player-by-player analytics from ordinary single-camera amateur footage.
+- MatchLab produces player-by-player analytics from ordinary single-camera amateur footage.
 - **Player identity must work without jersey OCR**, numbered kits, special cameras, or
   wearable hardware (ADR 001). OCR is optional benchmark/reference evidence, never the
   identity foundation.
@@ -187,6 +187,6 @@ without runnable code.
 `data/` is gitignored: `data/videos/` (uploaded + ingested, with `.gt.json` ground truth),
 `data/runs/<id>/`, `data/clips/`, `data/weights/` (local YOLO weights from roboflow/sports),
 `data/soccernet/tracking/{train,test}/` and `data/sportsmot/<split>/` (MOT sequences),
-`data/pitchlab.db`.
+`data/matchlab.db`.
 `configs/datasets/<tier>.json` (checked in, not gitignored) declares each dataset tier's tuning
 vs. held-out sequence roles over that gitignored data — see `configs/datasets/README.md`.

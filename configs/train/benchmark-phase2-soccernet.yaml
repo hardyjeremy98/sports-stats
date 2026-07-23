@@ -1,6 +1,6 @@
 # SPO-26 Phase 2: freeze the hosted incumbent detector's responses on the
 # SoccerNet tier via the hosted-detection response cache
-# (pitchlab_core/stages/detect/hosted_cache.py), so the SoccerNet tier's
+# (matchlab_core/stages/detect/hosted_cache.py), so the SoccerNet tier's
 # reference detections become replayable inputs instead of live network
 # calls. Single candidate, no `compare` block -- this is a data-capture run
 # (freezing the incumbent for the tier), not a comparison between two
@@ -13,7 +13,7 @@
 #
 # ROBOFLOW_API_KEY must be loaded for the (first, readwrite) run:
 #   set -a && source .env && set +a && \
-#   uv run pitchlab-train run configs/train/benchmark-phase2-soccernet.yaml
+#   uv run matchlab-train run configs/train/benchmark-phase2-soccernet.yaml
 # calibrate (yolo-pitch-local) needs ultralytics at runtime -- LOCAL EVAL
 # ONLY, never shipped (same as every other *-eval.yaml pipeline in this repo).
 name: benchmark-phase2-soccernet

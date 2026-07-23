@@ -4,7 +4,7 @@
 
 **Goal:** A registered `botsort-reid` track stage that adds a quality-gated body-appearance cost to BoT-SORT's first-association, so we can measure whether online appearance reduces within-team switches — vs its own bbox-only twin, on identical frozen detections.
 
-**Architecture:** Vendor-and-extend the Apache-2.0 `trackers` BoT-SORT. Copy **only the two files we modify** (`tracker.py`, `tracklet.py`) into `pitchlab_core/vendor/botsort_reid/`; import the stable KF/state/CMC/util modules from the installed `trackers` package unchanged. The stage computes per-detection OSNet embeddings online (cropping from the frame it already walks for CMC), rides them through `update()` on `sv.Detections.data` (the existing `source_idx` mechanism), and the vendored first-association blends a cosine-similarity boost into the fused-IoU similarity — **boost-only**, so appearance re-ranks among IoU-feasible pairs but can never force or veto a match.
+**Architecture:** Vendor-and-extend the Apache-2.0 `trackers` BoT-SORT. Copy **only the two files we modify** (`tracker.py`, `tracklet.py`) into `matchlab_core/vendor/botsort_reid/`; import the stable KF/state/CMC/util modules from the installed `trackers` package unchanged. The stage computes per-detection OSNet embeddings online (cropping from the frame it already walks for CMC), rides them through `update()` on `sv.Detections.data` (the existing `source_idx` mechanism), and the vendored first-association blends a cosine-similarity boost into the fused-IoU similarity — **boost-only**, so appearance re-ranks among IoU-feasible pairs but can never force or veto a match.
 
 **Tech Stack:** Python 3.12, `trackers==2.4.0`, supervision, numpy, the existing OSNet embedder registry + crop quality gate, pytest.
 
@@ -42,15 +42,15 @@ Per-track feature EMA (vendored `tracklet.py`): `smooth_feat ← normalize(feat_
 ### Task 1: Vendor the two BoT-SORT files unmodified (baseline parity)
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/botsort_reid/__init__.py`
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/botsort_reid/tracklet.py` (copy of `trackers/core/botsort/tracklet.py`)
-- Create: `packages/pitchlab_core/src/pitchlab_core/vendor/botsort_reid/tracker.py` (copy of `trackers/core/botsort/tracker.py`)
-- Test: `packages/pitchlab_core/tests/test_vendor_botsort_parity.py`
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/botsort_reid/__init__.py`
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/botsort_reid/tracklet.py` (copy of `trackers/core/botsort/tracklet.py`)
+- Create: `packages/matchlab_core/src/matchlab_core/vendor/botsort_reid/tracker.py` (copy of `trackers/core/botsort/tracker.py`)
+- Test: `packages/matchlab_core/tests/test_vendor_botsort_parity.py`
 
 **Interfaces:**
-- Produces: `pitchlab_core.vendor.botsort_reid.tracker.BoTSORTReidTracker`, `...tracklet.BoTSORTReidTracklet`.
+- Produces: `matchlab_core.vendor.botsort_reid.tracker.BoTSORTReidTracker`, `...tracklet.BoTSORTReidTracklet`.
 
-Copy both files verbatim first. Rewrite only their intra-package imports: in the vendored `tracker.py`, `from .tracklet import BoTSORTTracklet` → `from pitchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet`; keep every other import pointing at the installed package (`from trackers.core.botsort.cmc import ...`, `from trackers.core.botsort.utils import _fuse_score, get_alive_tracklets`, `from trackers.core.sort.utils import _get_iou_matrix`, `from trackers.core.base import BaseTracker`, `from trackers.utils... import ...`). Rename the classes to `BoTSORTReidTracker` / `BoTSORTReidTracklet`. Apache-2.0 provenance header on each.
+Copy both files verbatim first. Rewrite only their intra-package imports: in the vendored `tracker.py`, `from .tracklet import BoTSORTTracklet` → `from matchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet`; keep every other import pointing at the installed package (`from trackers.core.botsort.cmc import ...`, `from trackers.core.botsort.utils import _fuse_score, get_alive_tracklets`, `from trackers.core.sort.utils import _get_iou_matrix`, `from trackers.core.base import BaseTracker`, `from trackers.utils... import ...`). Rename the classes to `BoTSORTReidTracker` / `BoTSORTReidTracklet`. Apache-2.0 provenance header on each.
 
 - [ ] **Step 1: Copy + import-rewrite + rename** (both files), add headers.
 - [ ] **Step 2: Parity test — vendored tracker == installed tracker with appearance off**
@@ -71,7 +71,7 @@ def _seq():
 
 def test_vendored_matches_installed_when_appearance_absent():
     trackers = pytest.importorskip("trackers")
-    from pitchlab_core.vendor.botsort_reid.tracker import BoTSORTReidTracker
+    from matchlab_core.vendor.botsort_reid.tracker import BoTSORTReidTracker
     kw = dict(frame_rate=25.0, lost_track_buffer=25, enable_cmc=False)
     up = trackers.BoTSORTTracker(**kw); vd = BoTSORTReidTracker(**kw)
     for det in _seq():
@@ -80,7 +80,7 @@ def test_vendored_matches_installed_when_appearance_absent():
         assert np.allclose(ru.xyxy, rv.xyxy)
 ```
 
-- [ ] **Step 3: Run** `uv run python -m pytest packages/pitchlab_core/tests/test_vendor_botsort_parity.py -q` → PASS (vendored == upstream before any appearance change).
+- [ ] **Step 3: Run** `uv run python -m pytest packages/matchlab_core/tests/test_vendor_botsort_parity.py -q` → PASS (vendored == upstream before any appearance change).
 - [ ] **Step 4: Commit** `feat(vendor): vendor trackers BoT-SORT (tracker+tracklet) for ReID extension (SPO-31)`
 
 ---
@@ -95,7 +95,7 @@ def test_vendored_matches_installed_when_appearance_absent():
 
 ```python
 def test_tracklet_feature_ema():
-    from pitchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet
+    from matchlab_core.vendor.botsort_reid.tracklet import BoTSORTReidTracklet
     import numpy as np
     from trackers.utils.state_representations import XCYCWHStateEstimator
     t = BoTSORTReidTracklet(np.array([0,0,10,20], float), 0.9, XCYCWHStateEstimator)
@@ -159,7 +159,7 @@ def test_low_quality_crop_contributes_no_appearance():
 ### Task 4: `botsort-reid` track stage (online embedding + wiring)
 
 **Files:**
-- Create: `packages/pitchlab_core/src/pitchlab_core/stages/track/botsort_reid.py`
+- Create: `packages/matchlab_core/src/matchlab_core/stages/track/botsort_reid.py`
 - Modify: `stages/__init__.py` (register), `stages/track/_assembly.py` (an embedding-aware assembly variant OR an `embeddings_provider` hook — see below)
 - Test: `test_track_botsort_reid.py`
 
@@ -189,7 +189,7 @@ Assembly: the stage needs, per frame, to (a) get the frame image (it already wal
 - Modify: `configs/train/benchmark-phase3-ladder-{soccernet,sportsmot}.yaml` (add `botsort-reid` candidate)
 - Create: `docs/reports/2026-07-18-spo31-botsort-reid-run.md`
 
-- [ ] **Step 1:** pipeline config; **Step 2:** add candidate to both ladders; **Step 3:** run both tiers `uv run --with ultralytics pitchlab-train run …`; **Step 4:** record vs the bbox-only twin — within-team switch reduction (SoccerNet), total switch/mixed-track/purity deltas both tiers, crop-yield/runtime/VRAM guardrails; **Step 5:** commit.
+- [ ] **Step 1:** pipeline config; **Step 2:** add candidate to both ladders; **Step 3:** run both tiers `uv run --with ultralytics matchlab-train run …`; **Step 4:** record vs the bbox-only twin — within-team switch reduction (SoccerNet), total switch/mixed-track/purity deltas both tiers, crop-yield/runtime/VRAM guardrails; **Step 5:** commit.
 
 ---
 

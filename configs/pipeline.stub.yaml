@@ -1,6 +1,6 @@
 # Keyless/GPU-less recipe: deterministic synthetic detections + dependency-free
-# stages. Runs anywhere `pitchlab-core` installs; powers `make demo`, tests,
-# and UI development. Pair with a video rendered by `pitchlab-demo` so the
+# stages. Runs anywhere `matchlab-core` installs; powers `make demo`, tests,
+# and UI development. Pair with a video rendered by `matchlab-demo` so the
 # detections match the pixels.
 name: stub-synthetic
 description: Synthetic detector + IoU tracker + kit-color teams + static camera. No models, no keys, no GPU.

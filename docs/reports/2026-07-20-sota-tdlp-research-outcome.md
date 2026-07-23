@@ -21,7 +21,7 @@ appearance → **TDLP-full** link-prediction head (released `tdlp_sportsmot` wei
 **Where it runs:** the full stack runs in the isolated `~/code/sport-stats/external-trackers/`
 environment (heavy deps — tracklab/KPR, motrack, mmdet — are NOT vendored into the lab repo).
 The lab repo holds the vendored TDLP head architecture, the MOT import adapter, and the Lab now
-displays/scores the imported results. **It is not a native `pitchlab-run` in-repo stage.**
+displays/scores the imported results. **It is not a native `matchlab-run` in-repo stage.**
 
 ## Measured results (in the Lab)
 

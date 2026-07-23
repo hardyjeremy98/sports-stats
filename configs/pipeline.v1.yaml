@@ -1,5 +1,5 @@
 # The v1 production recipe: roboflow/sports hosted models + BoT-SORT.
-# Requires ROBOFLOW_API_KEY and `pip install 'pitchlab-core[cv]'`
+# Requires ROBOFLOW_API_KEY and `pip install 'matchlab-core[cv]'`
 # (+ [face] extra for the identity stage — or set identity impl to "none").
 name: v1-default
 description: >

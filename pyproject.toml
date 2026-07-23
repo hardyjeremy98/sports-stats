@@ -1,12 +1,12 @@
 [project]
-name = "pitchlab-workspace"
+name = "matchlab-workspace"
 version = "0.1.0"
-description = "PitchLab monorepo workspace root"
+description = "MatchLab monorepo workspace root"
 requires-python = ">=3.11"
 dependencies = [
-    "pitchlab-core",
-    "pitchlab-server",
-    "pitchlab-train",
+    "matchlab-core",
+    "matchlab-server",
+    "matchlab-train",
 ]
 
 [tool.uv]
@@ -14,15 +14,15 @@ package = false
 
 [tool.uv.workspace]
 members = [
-    "packages/pitchlab_core",
-    "packages/pitchlab_server",
-    "packages/pitchlab_train",
+    "packages/matchlab_core",
+    "packages/matchlab_server",
+    "packages/matchlab_train",
 ]
 
 [tool.uv.sources]
-pitchlab-core = { workspace = true }
-pitchlab-server = { workspace = true }
-pitchlab-train = { workspace = true }
+matchlab-core = { workspace = true }
+matchlab-server = { workspace = true }
+matchlab-train = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -32,11 +32,11 @@ dev = [
     "httpx>=0.27",
 ]
 # Real CV stages (GPU workers): uv sync --group cv
-cv = ["pitchlab-core[cv]"]
-# Face identity path (see license note in pitchlab_core pyproject)
-face = ["pitchlab-core[face]"]
+cv = ["matchlab-core[cv]"]
+# Face identity path (see license note in matchlab_core pyproject)
+face = ["matchlab-core[face]"]
 # MOT evaluation against ground truth: uv sync --group eval
-eval = ["pitchlab-core[eval]"]
+eval = ["matchlab-core[eval]"]
 
 [tool.ruff]
 line-length = 100
@@ -46,7 +46,7 @@ target-version = "py311"
 # upstream's style to keep diffs against upstream minimal and auditable.
 extend-exclude = [
     "**/_vendor/**",
-    "packages/pitchlab_core/src/pitchlab_core/vendor/**",
+    "packages/matchlab_core/src/matchlab_core/vendor/**",
 ]
 
 [tool.ruff.lint]

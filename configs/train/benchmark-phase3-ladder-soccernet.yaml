@@ -5,7 +5,7 @@
 # The SPO-34 gate applies the pre-registered deltas
 # (docs/reports/2026-07-18-phase3-preregistration.md) to these rows; this config
 # is data-collection (no auto pass/fail tolerances), `compare` records deltas.
-# Run: uv run --with ultralytics pitchlab-train run \
+# Run: uv run --with ultralytics matchlab-train run \
 #   configs/train/benchmark-phase3-ladder-soccernet.yaml
 name: benchmark-phase3-ladder-soccernet
 task: benchmark

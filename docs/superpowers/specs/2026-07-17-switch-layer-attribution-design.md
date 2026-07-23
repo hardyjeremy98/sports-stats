@@ -17,7 +17,7 @@ to a specific layer when evidence is insufficient.
 ## Approaches considered
 
 1. **Pure post-pass module over eval payloads (chosen).** A new
-   `pitchlab_core/attribution.py` whose single entry point takes an already-computed eval
+   `matchlab_core/attribution.py` whose single entry point takes an already-computed eval
    result dict (plus, optionally, an oracle run's eval result) and (re)writes each
    instance's attribution in place. `evaluate_run` always calls it (single-run evidence
    only), so every freshly written eval.json satisfies the gate; callers that have an
@@ -72,8 +72,8 @@ oracle instance so the Lab user can inspect the claim.
 
 Matching tolerance `tol_s = 1.0` (same default as `diff_switch_instances`). The greedy
 nearest-`t` one-to-one matcher currently private to
-`pitchlab_server/evaluation.py::diff_switch_instances` moves into
-`pitchlab_core.attribution` as a shared helper; the server diff keeps its behavior and
+`matchlab_server/evaluation.py::diff_switch_instances` moves into
+`matchlab_core.attribution` as a shared helper; the server diff keeps its behavior and
 imports it (one matcher, two callers).
 
 ### Artifact shape (eval.json)
@@ -109,7 +109,7 @@ re-attribution:
 
 ### API
 
-`pitchlab_core/attribution.py`:
+`matchlab_core/attribution.py`:
 
 - `attribute_switches(result, *, oracle_eval=None, oracle_run_id=None, tol_s=1.0) -> None`
   — recomputes every instance's attribution from scratch (idempotent; drops prior
@@ -127,14 +127,14 @@ re-attribution:
 
 ## Integration points
 
-### `evaluate_run` (pitchlab_core)
+### `evaluate_run` (matchlab_core)
 
 After building `instances`, seed the context block from the manifest and call
 `attribute_switches(result)`. Every new eval.json therefore satisfies the gate
 unconditionally. Old eval.json files (no attribution) stay valid; the Lab shows them as
 unattributed and offers re-evaluate (existing button).
 
-### Benchmark runner (pitchlab_train)
+### Benchmark runner (matchlab_train)
 
 `PipelineCandidate` gains `oracle_candidate: str | None = None` — an explicit, per-candidate
 declaration of which candidate is its oracle counterpart. Nothing is inferred.
@@ -155,7 +155,7 @@ oracle_run_id=<oracle row run_id>)`, rewrite the row's eval.json, and stamp
 sequence records `row["attribution_oracle"] = {"status": "unavailable", "reason": ...}` and
 leaves the baseline (ambiguous) attribution — visible, never silent.
 
-### Server (pitchlab_server)
+### Server (matchlab_server)
 
 `POST /api/runs/{run_id}/evaluate` gains optional `oracle_run_id`. When given: the oracle
 run must belong to the same video and already have an eval.json (422 otherwise, telling the
@@ -181,7 +181,7 @@ carries. (The AC requires display, not in-Lab oracle orchestration.)
 
 ## Testing (handcrafted sequences with known causes)
 
-New `packages/pitchlab_core/tests/test_attribution.py`, following the PRD's testing
+New `packages/matchlab_core/tests/test_attribution.py`, following the PRD's testing
 decisions (assert external behavior; tiny hand-computed sequences):
 
 - Pure `attribute_switches` on hand-built payloads: entity-only → `offline_association`;
