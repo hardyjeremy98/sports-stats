@@ -26,7 +26,7 @@ from matchlab_core.interfaces import StageContext, Tracker
 from matchlab_core.provenance import LicenseAxes, ModelProvenance
 from matchlab_core.registry import register
 from matchlab_core.schemas import FrameDetections, Tracklet
-from matchlab_core.schemas.run import StageKind
+from matchlab_core.schemas.run import ArtifactName, StageKind
 from matchlab_core.stages.track.tdlp_full import bridge
 
 
@@ -228,6 +228,19 @@ class TdlpFullTracker(Tracker):
             )
         tracklets = bridge.parse_tracker_output(mot_file, layout.local_to_source)
         prog(f"TDLP-full: {len(tracklets)} tracklets")
+
+        # Persist the bridge's per-frame KPR embeddings + pose keypoints as the
+        # frame_features artifact (SPO-51) — the re-ID engine's input layer —
+        # before the work dir (and its pkls) can be cleaned up.
+        features = bridge.join_features_to_tracklets(
+            tracklets,
+            feat_dir,
+            layout.local_to_source,
+            width=layout.width,
+            height=layout.height,
+        )
+        features.save(ctx.store.path(ArtifactName.FRAME_FEATURES))
+        prog(f"TDLP-full: {len(features)} feature rows exported")
 
         if not params.keep_work:
             shutil.rmtree(work, ignore_errors=True)

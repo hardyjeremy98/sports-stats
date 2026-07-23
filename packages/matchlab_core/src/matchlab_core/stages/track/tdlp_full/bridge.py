@@ -26,13 +26,16 @@ feature pkls) and keep `local_to_source` to invert it on the way out.
 from __future__ import annotations
 
 import os
+import pickle
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from matchlab_core.exchange import _parse_mot_tracklets
+from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.schemas import FrameDetections, Tracklet
 from matchlab_core.video import Frame
 
@@ -241,6 +244,119 @@ def run_external(
             + f"\n--- stderr (last 25 lines) ---\n{tail}"
         )
     return proc.stdout or ""
+
+
+def _iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """IoU of one xyxy box `a` against (M, 4) xyxy boxes `b`."""
+    x1 = np.maximum(a[0], b[:, 0])
+    y1 = np.maximum(a[1], b[:, 1])
+    x2 = np.minimum(a[2], b[:, 2])
+    y2 = np.minimum(a[3], b[:, 3])
+    inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    union = area_a + area_b - inter
+    return np.where(union > 0, inter / union, 0.0)
+
+
+def join_features_to_tracklets(
+    tracklets: list[Tracklet],
+    feat_dir: Path,
+    local_to_source: list[int],
+    *,
+    width: int,
+    height: int,
+    min_iou: float = 0.5,
+) -> FrameFeatures:
+    """Join the gen_features per-frame pkls (one `{local:06d}.pkl` per decoded
+    frame, each a list of per-detection dicts with W/H-normalised `bbox_xywh`)
+    to the remapped tracklets, producing the FrameFeatures artifact.
+
+    The tracker links detections but its MOT output only carries boxes, so the
+    join is by geometry: within each frame, tracklet boxes claim detections
+    greedily by IoU (best match first, each detection consumed once, matches
+    below `min_iou` dropped). Tracklet frames with no surviving match simply
+    have no feature row — downstream consumers treat missing evidence as
+    neutral. Frames index by *source* frame_idx in the result."""
+    source_to_local = {src: i for i, src in enumerate(local_to_source)}
+
+    # Per local frame: (M, 4) pixel xyxy boxes + the raw per-detection dicts.
+    cache: dict[int, tuple[np.ndarray, list[dict]]] = {}
+
+    def frame_features(local: int) -> tuple[np.ndarray, list[dict]] | None:
+        if local in cache:
+            return cache[local]
+        path = feat_dir / f"{local:06d}.pkl"
+        if not path.exists():
+            return None
+        with open(path, "rb") as f:
+            dets = pickle.load(f)
+        if not dets:
+            cache[local] = (np.empty((0, 4)), [])
+            return cache[local]
+        ltwh = np.array([d["bbox_xywh"] for d in dets], dtype=np.float64)
+        ltwh *= np.array([width, height, width, height])
+        xyxy = np.column_stack(
+            [ltwh[:, 0], ltwh[:, 1], ltwh[:, 0] + ltwh[:, 2], ltwh[:, 1] + ltwh[:, 3]]
+        )
+        cache[local] = (xyxy, dets)
+        return cache[local]
+
+    # Gather all candidate (iou, tid, source frame, det dict) matches per frame,
+    # then resolve greedily so each detection feeds at most one tracklet frame.
+    by_frame: dict[int, list[tuple[float, int, int, int]]] = {}
+    det_lookup: dict[int, list[dict]] = {}
+    for t in tracklets:
+        for tf in t.frames:
+            local = source_to_local.get(tf.frame_idx)
+            if local is None:
+                continue
+            feats = frame_features(local)
+            if feats is None or not feats[1]:
+                continue
+            boxes, dets = feats
+            det_lookup[local] = dets
+            box = np.array([tf.box.x1, tf.box.y1, tf.box.x2, tf.box.y2])
+            ious = _iou(box, boxes)
+            j = int(np.argmax(ious))
+            if ious[j] >= min_iou:
+                by_frame.setdefault(local, []).append(
+                    (float(ious[j]), t.tracklet_id, tf.frame_idx, j)
+                )
+
+    tids: list[int] = []
+    fidxs: list[int] = []
+    rows: list[dict] = []
+    for local, candidates in by_frame.items():
+        used: set[int] = set()
+        for _iou_val, tid, fidx, j in sorted(candidates, reverse=True):
+            if j in used:
+                continue  # detection already claimed by a better-matching box
+            used.add(j)
+            tids.append(tid)
+            fidxs.append(fidx)
+            rows.append(det_lookup[local][j])
+
+    n = len(rows)
+    if n:
+        emb = np.array([r["appearance_embeddings"] for r in rows], dtype=np.float32)
+        vis = np.array([r["appearance_visibility"] for r in rows], dtype=np.float32)
+        kpts = np.array([r["keypoints_xyc"] for r in rows], dtype=np.float32)
+        kconf = np.array([r["keypoints_conf"] for r in rows], dtype=np.float32)
+    else:
+        emb = np.empty((0, 0, 0), dtype=np.float32)
+        vis = np.empty((0, 0), dtype=np.float32)
+        kpts = np.empty((0, 0, 3), dtype=np.float32)
+        kconf = np.empty((0,), dtype=np.float32)
+    return FrameFeatures(
+        tracklet_ids=np.array(tids, dtype=np.int64),
+        frame_idxs=np.array(fidxs, dtype=np.int64),
+        embeddings=emb,
+        visibility=vis,
+        keypoints_xyc=kpts,
+        keypoints_conf=kconf,
+        meta={"width": width, "height": height, "source": "tdlp-full"},
+    )
 
 
 def parse_tracker_output(mot_path: Path, local_to_source: list[int]) -> list[Tracklet]:
