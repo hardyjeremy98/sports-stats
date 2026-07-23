@@ -146,6 +146,15 @@ def evaluate_run(
         for t in scored_tracks
     }
 
+    # Per-track GT boxes ({source frame -> xywh}) + image dims feed the
+    # persistent-switch frame-exit exemption; width/height of 0 (unknown)
+    # disables exemption rather than guessing.
+    gt_track_boxes: dict[int, dict[int, list[float]]] = {
+        t.track_id: {f.frame_idx: _xywh(f.box.model_dump()) for f in t.frames}
+        for t in scored_tracks
+    }
+    gt_frame_size = (gt.width, gt.height)
+
     # Score only frames the pipeline actually sampled; GT is dense per-frame.
     eval_frames = [f for f in range(0, frame_count, stride) if f in gt_by_frame]
 
@@ -177,7 +186,11 @@ def evaluate_run(
         levels[level] = {k: _num(row[k]) for k in _METRICS}
         instances.extend(_switch_instances(acc, level, fps, gt_label))
         persistent_levels[level] = persistent_switch_counts(
-            _matched_id_sequences(acc), seconds_per_frame
+            _matched_id_sequences(acc),
+            seconds_per_frame,
+            stride=stride,
+            gt_boxes=gt_track_boxes,
+            frame_size=gt_frame_size,
         )
 
         pred_scored = {f: preds.get(f, []) for f in eval_frames}

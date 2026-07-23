@@ -147,7 +147,10 @@ def test_evaluate_run_association_gain(tmp_path):
     ps = result["persistent_switches"]
     assert ps["threshold_headline_s"] == 1.0
     for level in ("tracklet", "entity"):
-        assert ps[level] == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+        assert ps[level] == {
+            "t_0.5s": 0, "t_1s": 0, "t_2s": 0,
+            "frame_exit": {"t_0.5s": 0, "t_1s": 0, "t_2s": 0},
+        }
     assert heads["idsw_persistent_tracklet"] == 0
     assert heads["idsw_persistent_entity"] == 0
     # Crop-yield guardrail (SPO-30): every scored run reports approved crops
@@ -1235,3 +1238,52 @@ def test_unknown_frame_size_never_exempts():
     )
     assert counts["t_1s"] == 1
     assert counts["frame_exit"]["t_1s"] == 0
+
+
+def test_evaluate_run_frame_exit_not_charged(tmp_path):
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    # 300-frame sequence: GT track 1 sits at the left border for frames
+    # 0-99, is absent (out of frame) for 100-199 (4 s), and returns at the
+    # border for 200-299. The tracker covers it with two different ids.
+    seq = tmp_path / "SNMOT-002"
+    (seq / "gt").mkdir(parents=True)
+    (seq / "seqinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-002\nimDir=img1\nframeRate=25\nseqLength=300\n"
+        "imWidth=1920\nimHeight=1080\nimExt=.jpg\n"
+    )
+    (seq / "gameinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-002\nnum_tracklets=1\n"
+        "trackletID_1= player team left;10\n"
+    )
+    rows = []
+    for frame in list(range(1, 101)) + list(range(201, 301)):  # 1-based
+        rows.append(f"{frame},1,0,500,40,120,1,-1,-1,-1")  # x=0: left border
+    (seq / "gt" / "gt.txt").write_text("\n".join(rows))
+    gt = load_soccernet_sequence(seq)
+
+    tracklets = [
+        _tracklet(10, [(f, 0, 500) for f in range(0, 100)]),
+        _tracklet(11, [(f, 0, 500) for f in range(200, 300)]),
+    ]
+    players = [
+        {"player_id": 1, "tracklet_ids": [10]},
+        {"player_id": 2, "tracklet_ids": [11]},
+    ]
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    manifest = {"video": {"fps": 25.0, "frame_count": 300, "sample_stride": 1}}
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+    (run_dir / "tracklets.json").write_text(json.dumps(tracklets))
+    (run_dir / "players.json").write_text(json.dumps(players))
+
+    result = evaluate_run(run_dir, gt)
+
+    ps = result["persistent_switches"]
+    # Raw IDsw still charges the re-entry break; the persistent count exempts
+    # it as a frame exit and reports it under frame_exit instead.
+    assert result["levels"]["tracklet"]["num_switches"] == 1
+    for level in ("tracklet", "entity"):
+        assert ps[level]["t_1s"] == 0
+        assert ps[level]["frame_exit"]["t_1s"] == 1
