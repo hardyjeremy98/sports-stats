@@ -27,6 +27,10 @@ BENCHMARK_METRIC_KEYS = (
     "mota_entity",
     "idsw_tracklet",
     "idsw_entity",
+    # Flicker-insensitive (>=1s persistence) switch counts; spec:
+    # docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md.
+    "idsw_persistent_tracklet",
+    "idsw_persistent_entity",
     "assoc_idf1_gain",
     "merge_precision",
     "identity_coverage",

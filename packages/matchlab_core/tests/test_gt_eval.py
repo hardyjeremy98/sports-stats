@@ -133,11 +133,23 @@ def test_evaluate_run_association_gain(tmp_path):
     heads = headline_metrics(result)
     assert set(heads) == {
         "idf1_tracklet", "idf1_entity", "mota_entity",
-        "idsw_tracklet", "idsw_entity", "hota_tracklet", "hota_entity",
+        "idsw_tracklet", "idsw_entity",
+        "idsw_persistent_tracklet", "idsw_persistent_entity",
+        "hota_tracklet", "hota_entity",
         "assoc_idf1_gain", "merge_precision",
         "tracklet_purity", "mixed_track_seconds",
         "crop_yield_per_player",
     }
+    # Persistent-switch wiring: 10 frames at 25 fps means every constant-ID
+    # run is 0.2 s -- under every threshold, so all counts are 0 even though
+    # raw tracklet IDsw is 1 (the 10->11 fragmentation above is "flicker" at
+    # this clip length).
+    ps = result["persistent_switches"]
+    assert ps["threshold_headline_s"] == 1.0
+    for level in ("tracklet", "entity"):
+        assert ps[level] == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+    assert heads["idsw_persistent_tracklet"] == 0
+    assert heads["idsw_persistent_entity"] == 0
     # Crop-yield guardrail (SPO-30): every scored run reports approved crops
     # per GT player from its output boxes; present and non-negative here.
     assert result["crop_yield"]["approved_per_gt_player_mean"] >= 0.0
@@ -1058,3 +1070,73 @@ def test_offline_association_change_leaves_raw_tracklet_metrics_identical(tmp_pa
     assert ra["crop_yield"] == rb["crop_yield"]
     # Sanity: the two associations genuinely differ, so the entity layer moved.
     assert ra["levels"]["entity"] != rb["levels"]["entity"]
+
+
+# --- persistent_switch_counts (flicker-insensitive IDsw; spec:
+# docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md) -------
+
+SPF_25 = 1 / 25.0  # seconds per frame at 25 fps, stride 1
+
+
+def test_persistent_flicker_revert_counts_zero():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # A for 2 s, B for 0.2 s, back to A for 2 s: raw IDsw would be 2; the
+    # flicker and its reversion both vanish at every threshold.
+    seq = [1] * 50 + [2] * 5 + [1] * 50
+    counts = persistent_switch_counts({7: seq}, SPF_25)
+    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+
+
+def test_persistent_flicker_then_handoff_counts_one():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # A (2 s), brief B (0.2 s), then C (2 s): identity genuinely moved via a
+    # brief intermediary -> exactly one persistent switch at every threshold.
+    seq = [1] * 50 + [2] * 5 + [3] * 50
+    counts = persistent_switch_counts({7: seq}, SPF_25)
+    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1}
+
+
+def test_persistent_boundary_run_survives():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # Two runs of exactly 1.0 s (25 frames at 25 fps): >= threshold survives,
+    # so t_1s counts the transition; t_2s drops both runs.
+    seq = [1] * 25 + [2] * 25
+    counts = persistent_switch_counts({7: seq}, SPF_25)
+    assert counts == {"t_0.5s": 1, "t_1s": 1, "t_2s": 0}
+
+
+def test_persistent_stride_normalized():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # The same 2 s + 2 s real-time handoff sampled at stride 1 (50+50 frames,
+    # 0.04 s/frame) and stride 2 (25+25 frames, 0.08 s/frame) must agree.
+    stride1 = persistent_switch_counts({7: [1] * 50 + [2] * 50}, 1 / 25.0)
+    stride2 = persistent_switch_counts({7: [1] * 25 + [2] * 25}, 2 / 25.0)
+    assert stride1 == stride2 == {"t_0.5s": 1, "t_1s": 1, "t_2s": 1}
+
+
+def test_persistent_sums_over_gt_tracks():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    handoff = [1] * 50 + [2] * 50
+    counts = persistent_switch_counts({7: handoff, 8: list(handoff)}, SPF_25)
+    assert counts["t_1s"] == 2
+
+
+def test_persistent_unknown_fps_abstains():
+    from matchlab_core.evaluation import persistent_switch_counts
+
+    # seconds_per_frame 0 (fps unknown): every run is dropped -> 0 everywhere,
+    # never a fabricated count.
+    counts = persistent_switch_counts({7: [1] * 50 + [2] * 50}, 0.0)
+    assert counts == {"t_0.5s": 0, "t_1s": 0, "t_2s": 0}
+
+
+def test_persistent_headline_none_for_legacy_payload():
+    from matchlab_core.evaluation import _persistent_headline
+
+    # eval.json written before the metric existed -> None, not a crash or 0.
+    assert _persistent_headline({}, "tracklet") is None

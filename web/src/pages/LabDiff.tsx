@@ -327,7 +327,9 @@ function switchMarker(
 const IDENTITY_METRIC_ROWS: {
   key: string;
   label: string;
-  get: (ev: EvalResult) => number;
+  // null = the metric is absent from this eval payload (predates the layer;
+  // re-evaluate to backfill) -- rendered as an em dash, never coerced to 0.
+  get: (ev: EvalResult) => number | null;
   higherIsBetter: boolean;
   ratio?: boolean;
 }[] = [
@@ -355,6 +357,18 @@ const IDENTITY_METRIC_ROWS: {
     key: "idsw_entity",
     label: "IDSW (entity)",
     get: (ev) => ev.levels.entity.num_switches,
+    higherIsBetter: false,
+  },
+  {
+    key: "idsw_persistent_tracklet",
+    label: "IDSW ≥1s (tracklet)",
+    get: (ev) => ev.persistent_switches?.tracklet["t_1s"] ?? null,
+    higherIsBetter: false,
+  },
+  {
+    key: "idsw_persistent_entity",
+    label: "IDSW ≥1s (entity)",
+    get: (ev) => ev.persistent_switches?.entity["t_1s"] ?? null,
     higherIsBetter: false,
   },
   {
@@ -412,20 +426,24 @@ function IdentityMetricsTable({ evalA, evalB }: { evalA: EvalResult; evalB: Eval
         {IDENTITY_METRIC_ROWS.map((row) => {
           const a = row.get(evalA);
           const b = row.get(evalB);
-          const delta = b - a;
-          const good = row.higherIsBetter ? delta > 0 : delta < 0;
-          const bad = row.higherIsBetter ? delta < 0 : delta > 0;
+          const delta = a != null && b != null ? b - a : null;
+          const good = delta != null && (row.higherIsBetter ? delta > 0 : delta < 0);
+          const bad = delta != null && (row.higherIsBetter ? delta < 0 : delta > 0);
           return (
             <tr key={row.key} className="border-b border-white/5 last:border-0">
               <td className="py-1.5 text-ink-400">{row.label}</td>
-              <td className="py-1.5 text-right font-mono text-ink-100">{fmt(a, row.ratio)}</td>
-              <td className="py-1.5 text-right font-mono text-ink-100">{fmt(b, row.ratio)}</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {a != null ? fmt(a, row.ratio) : "—"}
+              </td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {b != null ? fmt(b, row.ratio) : "—"}
+              </td>
               <td
                 className={`py-1.5 pl-3 text-right font-mono text-[12px] ${
                   good ? "text-volt-400" : bad ? "text-team-away" : "text-ink-500"
                 }`}
               >
-                {Math.abs(delta) > (row.ratio ? 0.0005 : 0.5)
+                {delta != null && Math.abs(delta) > (row.ratio ? 0.0005 : 0.5)
                   ? `${delta > 0 ? "+" : ""}${fmt(delta, row.ratio)}`
                   : "—"}
               </td>

@@ -484,6 +484,13 @@ export interface EvalResult {
   // backfill.
   hota?: { tracklet: EvalHotaMetrics; entity: EvalHotaMetrics };
   purity?: { tracklet: EvalPurityLevel; entity: EvalPurityLevel };
+  // Flicker-insensitive ID switches (keys "t_0.5s" | "t_1s" | "t_2s");
+  // threshold_headline_s names the threshold runs.metrics headlines use.
+  persistent_switches?: {
+    threshold_headline_s: number;
+    tracklet: Record<string, number>;
+    entity: Record<string, number>;
+  };
   association: {
     idf1_gain: number;
     idsw_delta: number;

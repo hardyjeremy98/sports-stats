@@ -239,10 +239,10 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   every player but abstains on the referee reports coverage < 1.0, not 1.0.
 - Run-grouping benchmark: `GET /api/benchmark` aggregates completed, GT-scored runs by
   `(config_name, normalized-config hash)` into a config × GT-video matrix of per-cell
-  mean/range across the fifteen benchmark metric keys (idf1 at tracklet and entity level,
-  mota at entity level, idsw at tracklet and entity level, association gain, merge precision,
-  identity coverage, cluster purity, hota at tracklet and entity level, tracklet purity,
-  mixed-track seconds, detection AP and recall).
+  mean/range across the seventeen benchmark metric keys (idf1 at tracklet and entity level,
+  mota at entity level, idsw at tracklet and entity level, persistent idsw at tracklet and
+  entity level, association gain, merge precision, identity coverage, cluster purity, hota at
+  tracklet and entity level, tracklet purity, mixed-track seconds, detection AP and recall).
 - A fourth, orthogonal layer (`eval.json`'s `purity` block, tracklet-modernization SPO-6): direct
   per-tracklet GT-contamination measurement, at both tracklet and post-association entity level —
   where `merge_quality`'s majority-vote already discards exactly this signal. Per tracklet: GT
@@ -260,6 +260,22 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   numpy-2 patched (`np.float` removed alias)). Scores the same per-frame GT/prediction structures
   the motmetrics IDF1/MOTA accumulators use; the two backends are never reconciled against each
   other. `headline_metrics` gains `hota_tracklet` and `hota_entity`.
+- Persistent (flicker-insensitive) ID switches (`eval.json`'s `persistent_switches` block):
+  raw motmetrics IDsw charges every matched-ID change, so a 3-frame occlusion flicker
+  (A→B→A) costs 2 — the same as a permanent identity handoff. This layer segments each GT
+  track's matched-prediction-ID sequence (from the same motmetrics event stream, so the two
+  counts never disagree about matching) into constant-ID runs, drops runs shorter than a
+  persistence threshold, and counts only transitions between surviving runs with different
+  IDs — a flicker and its reversion both vanish; a handoff via a brief intermediary still
+  counts once. Run duration is stride-normalized (`frames × stride / fps`); runs are compared
+  across unmatched gaps (a handoff across occlusion is the real failure); computed at both
+  levels for thresholds 0.5 s / 1 s / 2 s, with 1 s the headline (`idsw_persistent_tracklet`,
+  `idsw_persistent_entity` in `runs.metrics`; the Lab dashboard's switch column shows the
+  persistent entity count — raw IDsw stays in eval.json, the benchmark matrix, and the diff
+  view). Measured on the imported TDLP-full runs (2026-07-23 re-score): SoccerNet SNMOT-125
+  oracle-dets raw IDsw 118 → 23 persistent@1s (~80 % flicker); SportsMOT runs barely move
+  (9→3, 6→4, 7→5). Design:
+  [`docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md`](superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
 - A sixth, LEVEL-INDEPENDENT layer (`eval.json`'s `detection` block, SPO-9): scores the
   detector itself rather than the tracker, computed once per run (not per tracklet/entity
   level) via a standalone pure-numpy module (`matchlab_core/detection_eval.py`, no

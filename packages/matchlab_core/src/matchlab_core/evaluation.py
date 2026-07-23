@@ -157,7 +157,9 @@ def evaluate_run(
 
     levels: dict[str, Any] = {}
     hota_levels: dict[str, Any] = {}
+    persistent_levels: dict[str, Any] = {}
     instances: list[dict] = []
+    seconds_per_frame = (stride / fps) if fps else 0.0
     for level, preds in (("tracklet", pred_tracklet), ("entity", pred_entity)):
         acc = mm.MOTAccumulator(auto_id=False)
         for f in eval_frames:
@@ -174,6 +176,9 @@ def evaluate_run(
         row = summary.loc[level]
         levels[level] = {k: _num(row[k]) for k in _METRICS}
         instances.extend(_switch_instances(acc, level, fps, gt_label))
+        persistent_levels[level] = persistent_switch_counts(
+            _matched_id_sequences(acc), seconds_per_frame
+        )
 
         pred_scored = {f: preds.get(f, []) for f in eval_frames}
         hota_levels[level] = compute_hota(gt_scored, pred_scored)
@@ -188,6 +193,11 @@ def evaluate_run(
         "n_gt_tracks_excluded": len(gt.tracks) - len(scored_tracks),
         "levels": levels,
         "hota": hota_levels,
+        "persistent_switches": {
+            "threshold_headline_s": _PERSISTENCE_HEADLINE_S,
+            "tracklet": persistent_levels["tracklet"],
+            "entity": persistent_levels["entity"],
+        },
         "association": {
             "idf1_gain": round(levels["entity"]["idf1"] - levels["tracklet"]["idf1"], 4),
             "idsw_delta": levels["entity"]["num_switches"] - levels["tracklet"]["num_switches"],
@@ -613,6 +623,15 @@ def _distribution_summary(values: list[int]) -> dict:
     }
 
 
+def _persistent_headline(result: dict, level: str) -> int | None:
+    """Headline-threshold persistent-switch count, None for eval payloads
+    written before the metric existed (re-evaluate to backfill)."""
+    ps = result.get("persistent_switches")
+    if ps is None:
+        return None
+    return int(ps[level][_threshold_key(_PERSISTENCE_HEADLINE_S)])
+
+
 def headline_metrics(result: dict) -> dict[str, float | int | None]:
     """The few numbers worth a dashboard column / diff delta."""
     lv = result["levels"]
@@ -622,6 +641,8 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
         "mota_entity": round(lv["entity"]["mota"], 3),
         "idsw_tracklet": int(lv["tracklet"]["num_switches"]),
         "idsw_entity": int(lv["entity"]["num_switches"]),
+        "idsw_persistent_tracklet": _persistent_headline(result, "tracklet"),
+        "idsw_persistent_entity": _persistent_headline(result, "entity"),
         "hota_tracklet": result["hota"]["tracklet"]["hota"],
         "hota_entity": result["hota"]["entity"]["hota"],
         "assoc_idf1_gain": result["association"]["idf1_gain"],
@@ -794,6 +815,68 @@ def _num(v) -> float | int:
     if f != f:  # NaN (e.g. no matches at all)
         return 0
     return int(f) if f.is_integer() else round(f, 4)
+
+
+# Persistence thresholds for the flicker-insensitive switch count; 1 s is the
+# headline (see docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
+_PERSISTENCE_THRESHOLDS_S = (0.5, 1.0, 2.0)
+_PERSISTENCE_HEADLINE_S = 1.0
+
+
+def persistent_switch_counts(
+    id_sequences: dict[int, list[int]],
+    seconds_per_frame: float,
+    thresholds_s: tuple[float, ...] = _PERSISTENCE_THRESHOLDS_S,
+) -> dict[str, int]:
+    """Flicker-insensitive ID-switch count. Raw motmetrics IDsw charges every
+    matched-ID change, so a 3-frame occlusion flicker (A->B->A) costs 2 -- the
+    same as a permanent handoff. Here each GT track's matched-ID sequence is
+    segmented into runs of constant ID, runs shorter than the threshold are
+    dropped as flicker, and only transitions between surviving runs with
+    *different* IDs count -- so A->B->A with a short B is 0 (the reversion
+    vanishes with the flicker), while A->B->C with a short B is 1 (identity
+    genuinely moved, via a brief intermediary).
+
+    `id_sequences` holds, per GT track, the matched prediction id at each
+    evaluated frame where a match existed, in frame order. Unmatched frames
+    are simply absent: runs are compared across occlusion gaps, because a
+    handoff across an occlusion is precisely the real failure.
+
+    A run's duration is `frames x seconds_per_frame` (`stride / fps`), so
+    counts are comparable across sampling strides. A boundary-length run
+    (exactly the threshold) survives. `seconds_per_frame == 0` (unknown fps)
+    drops every run: the result is 0 everywhere rather than a fabricated
+    count -- raw IDsw remains the number to read in that case.
+    """
+    counts = {_threshold_key(t): 0 for t in thresholds_s}
+    for seq in id_sequences.values():
+        runs: list[list] = []  # [hyp_id, n_frames]
+        for hid in seq:
+            if runs and runs[-1][0] == hid:
+                runs[-1][1] += 1
+            else:
+                runs.append([hid, 1])
+        for t in thresholds_s:
+            surviving = [r for r in runs if r[1] * seconds_per_frame >= t]
+            counts[_threshold_key(t)] += sum(
+                1 for a, b in zip(surviving, surviving[1:]) if a[0] != b[0]
+            )
+    return counts
+
+
+def _threshold_key(t: float) -> str:
+    return f"t_{t:g}s"
+
+
+def _matched_id_sequences(acc) -> dict[int, list[int]]:
+    """Per GT track, the matched hypothesis id at each evaluated frame with a
+    match, in frame order -- from the same motmetrics event stream raw IDsw is
+    computed from, so the two never disagree about matching."""
+    seqs: dict[int, list[int]] = {}
+    for (_frame_idx, _), ev in acc.mot_events.iterrows():
+        if ev["Type"] in ("MATCH", "SWITCH"):
+            seqs.setdefault(int(ev["OId"]), []).append(int(ev["HId"]))
+    return seqs
 
 
 def _switch_instances(acc, level: str, fps: float, gt_label: dict[int, str]) -> list[dict]:

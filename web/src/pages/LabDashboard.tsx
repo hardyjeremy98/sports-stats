@@ -7,9 +7,12 @@ import { useRuns, useVideos } from "../lib/hooks";
 import type { Run, RunStatus } from "../lib/types";
 import { Button, Card, EmptyState, Mono, PageTitle, Spinner, StatusChip } from "../components/ui";
 
-// idf1/idsw only exist for runs on ground-truth-labelled videos.
-const METRIC_KEYS = ["n_tracklets", "n_players", "n_events", "n_qa_items", "idf1_entity", "idsw_entity"] as const;
-const METRIC_LABELS: Record<string, string> = { idf1_entity: "idf1", idsw_entity: "idsw" };
+// idf1/idsw only exist for runs on ground-truth-labelled videos. The switch
+// column is the persistent (flicker-insensitive, >=1s) count, not raw IDsw --
+// runs evaluated before that metric existed show an empty cell until
+// re-evaluated. Raw IDsw stays available on the Benchmark and Diff views.
+const METRIC_KEYS = ["n_tracklets", "n_players", "n_events", "n_qa_items", "idf1_entity", "idsw_persistent_entity"] as const;
+const METRIC_LABELS: Record<string, string> = { idf1_entity: "idf1", idsw_persistent_entity: "idsw (1s)" };
 
 type SortKey = (typeof METRIC_KEYS)[number] | "created_at" | "took";
 

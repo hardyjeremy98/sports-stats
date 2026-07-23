@@ -24,6 +24,10 @@ const METRICS: MetricDef[] = [
   { key: "hota_entity", label: "HOTA (entity)", higherIsBetter: true },
   { key: "hota_tracklet", label: "HOTA (tracklet)", higherIsBetter: true },
   { key: "idsw_entity", label: "IDSW (entity)", higherIsBetter: false, idsw: true },
+  // Flicker-insensitive: only switches where the new identity persists >=1s
+  // count (spec: docs/superpowers/specs/2026-07-23-persistent-idsw-metric-design.md).
+  { key: "idsw_persistent_entity", label: "IDSW ≥1s (entity)", higherIsBetter: false, idsw: true },
+  { key: "idsw_persistent_tracklet", label: "IDSW ≥1s (tracklet)", higherIsBetter: false, idsw: true },
   { key: "mota_entity", label: "MOTA (entity)", higherIsBetter: true },
   { key: "assoc_idf1_gain", label: "Assoc gain", higherIsBetter: true },
   // Not backfillable: a null merge_precision means the associator merged
@@ -51,6 +55,8 @@ const BACKFILLABLE_METRIC_KEYS = new Set([
   "hota_tracklet",
   "tracklet_purity",
   "mixed_track_seconds",
+  "idsw_persistent_entity",
+  "idsw_persistent_tracklet",
 ]);
 
 function fmtMetric(def: MetricDef, v: number): string {
