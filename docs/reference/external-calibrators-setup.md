@@ -89,6 +89,22 @@ deactivate
 (The adapter only needs `torch`, `torchvision`, `opencv-python`, `numpy`, `PyYAML`, and
 `Pillow` on top of PnLCalib's own modules — all covered by `requirements.txt`.)
 
+**Torch build variants.** Plain `pip install -r requirements.txt` on Linux pulls the default
+PyPI `torch==2.3.1` wheel, which is the **CUDA 12.1** build. Inference also works with no GPU
+at all (`device: cpu` in the job manifest/config), just slowly. To pick a different build,
+install torch/torchvision from the matching index *before* `requirements.txt` (pip will then
+see them already satisfied):
+
+```bash
+# CPU-only
+pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+
+# CUDA 11.8 (older driver)
+pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu118
+
+pip install -r requirements.txt   # remaining deps; torch/torchvision already satisfied
+```
+
 ### 3. Download the weights
 
 The single-view base weights are GitHub Release assets on the PnLCalib repo
@@ -227,6 +243,27 @@ vertices through the (smoothed) homography — on a good calibration they land o
 circle, halfway line, and penalty boxes; the minimap dots sit on plausible pitch positions.
 `calibration.jsonl` rows carry `status` (`fresh`/`smoothed`/`interpolated`/`absent`).
 
+**Orientation check (required — "keypoints on the lines" cannot catch a 180°-flip or
+mirror; see Troubleshooting).** Do both:
+
+1. **Static cue.** Freeze on one frame. Pick a player standing near a landmark you can see
+   unambiguously in the video — a corner flag, a penalty box, a goal — and note which side of
+   the *screen* they're on (e.g. "left-hand goal, near post"). Find that same player's dot on
+   the minimap and confirm it sits in the *same* half/end of the pitch template, consistent
+   with the camera's known orientation (e.g. if the camera looks such that the left-of-screen
+   goal is the near/bottom-left goal, that player's minimap dot must be near minimap `x ≈ 0`,
+   not `x ≈ 105`). If it's on the wrong end or the wrong side, the calibration is flipped even
+   though the keypoints look correctly on the lines.
+2. **Motion cue.** Scrub a few seconds where a player or the ball makes a clear, sustained
+   run in one screen direction (e.g. clearly running screen-right). Confirm the minimap dot
+   moves in the direction consistent with that run given the camera's orientation (e.g. if
+   the camera looks along the pitch's +y axis, a player running screen-right should move in
+   +x on the minimap). Motion in the *opposite* direction on the minimap means the
+   corresponding axis is mirrored.
+
+If either check fails, apply the fix in Troubleshooting → "Mirrored or 180°-rotated
+calibration" below and re-run this step.
+
 ## Troubleshooting
 
 - **`CalibrationBridgeError: ... exited N: ...`** — the adapter crashed; its stderr is
@@ -238,9 +275,17 @@ circle, halfway line, and penalty boxes; the minimap dots sit on plausible pitch
 - **`PnLCalib clone not found at ...`** — the adapter can't find the `PnLCalib/` checkout;
   clone it beside `pnlcalib_cli.py` or set `PNLCALIB_ROOT`.
 - **Overlay keypoints land off the lines / minimap looks warped** — verify the config sets
-  `pitch: fifa` (mapping onto the roboflow template warps ~10–14%). If the pitch looks
-  mirrored or rotated 180°, that is a coordinate-orientation issue in the adapter's
-  world→cm mapping — recheck against the "Coordinate convention" section above.
+  `pitch: fifa` (mapping onto the roboflow template warps ~10–14%).
+- **Mirrored or 180°-rotated calibration (keypoints-on-lines does NOT catch this)** — FIFA
+  pitch markings are symmetric under 180° rotation about the centre spot (and near-symmetric
+  left/right about the halfway line), so a calibration that is flipped or rotated 180° still
+  reprojects every keypoint exactly onto a real line — "keypoints land on the lines" is
+  **not evidence of correct orientation**, only of correct scale/shape. You must check
+  orientation with a direction-bearing cue instead (see "Orientation check" in Verification →
+  step 3 below). If it's flipped: negate the corresponding axis in the adapter's world→cm
+  landmark pairing in `pnlcalib_cli.py` (`_homography_image_to_cm`) — `x_m → 105 − x_m` and/or
+  `y_m → 68 − y_m` on the `cm_pts` side of the correspondence — then re-run the one-clip
+  verification and re-check orientation.
 - **Many `absent` rows / low coverage** — PnLCalib returned `null` (or was rejected as an
   outlier) on long stretches; check that the footage actually shows enough pitch markings,
   and consider a lower `kp_threshold` / `line_threshold`. Absent past `max_gap_frames` is by

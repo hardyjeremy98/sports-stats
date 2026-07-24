@@ -106,6 +106,10 @@ _GRID_NY = 6
 # Resolution PnLCalib's HRNet backbone expects.
 _MODEL_HW = (540, 960)
 
+# Set the first time a successful frame's cam params are missing "rep_err", so the
+# one-line stderr warning below fires at most once per process (not once per frame).
+_warned_missing_rep_err = False
+
 
 def _load_manifest(job_path: Path) -> dict:
     manifest = json.loads(job_path.read_text())
@@ -199,7 +203,7 @@ def _infer_frame(
     h_orig, w_orig = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     tensor = F.to_tensor(Image.fromarray(rgb)).float().unsqueeze(0)
-    if tensor.shape[-1] != _MODEL_HW[1]:
+    if tuple(tensor.shape[-2:]) != _MODEL_HW:
         tensor = T.Resize(_MODEL_HW)(tensor)
     tensor = tensor.to(device)
     _, _, h, w = tensor.shape
@@ -232,6 +236,15 @@ def _infer_frame(
     # Confidence from the calibration reprojection error (smaller error -> higher
     # confidence), bounded to [0, 1]. The pipeline-side offline smoother uses it
     # only as a relative weight, so the exact mapping is not load-bearing.
+    global _warned_missing_rep_err
+    if "rep_err" not in final_params_dict and not _warned_missing_rep_err:
+        print(
+            "pnlcalib_cli: warning: 'rep_err' missing from PnLCalib camera params; "
+            "falling back to confidence=1.0 for affected frames, which flattens "
+            "outlier weighting in the offline smoother",
+            file=sys.stderr,
+        )
+        _warned_missing_rep_err = True
     rep_err = float(final_params_dict.get("rep_err", 0.0))
     confidence = 1.0 / (1.0 + max(rep_err, 0.0))
     return homography, confidence, n_points
