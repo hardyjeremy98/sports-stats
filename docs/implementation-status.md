@@ -76,7 +76,7 @@ project in Linear.
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
-| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`) and the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance). Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
+| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`) and the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance). Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging (the measured default; similarity-only merging is disabled by default after failing the gate even at its calibrated 0.95 threshold) improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
@@ -644,6 +644,23 @@ Measured local findings recorded by the repository guidance:
 - Kit-colour association is ineffective for player-level identity.
 - Remaining ID switches are substantially a tracker-level problem that simple post-association
   cannot repair.
+- **B2 re-ID engine benchmark (SPO-59, 2026-07-24; SoccerNet tier, TDLP-full substrate,
+  oracle detections; held-out SNMOT-124–127; report
+  [`2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md)):**
+  (a) **Anchor-driven merging is the only associate-layer merge signal measured to be
+  contamination-free** — do-no-harm PASSED with entity purity delta exactly 0.0 per held-out
+  sequence and entity IDF1/HOTA +0.040/+0.027 vs no-op; colour, body-ReID, and tuned
+  KPR-similarity merging all regress purity. (b) **Appearance-similarity post-association
+  cannot clear do-no-harm at any threshold** (extends the kit-colour finding to KPR
+  part-based features): same-player and different-player affinity distributions overlap in
+  the upper tail (same p10 0.938 vs diff p90 0.912 on tuning), so even the calibrated 0.95
+  threshold admits wrong merges; similarity-only merging is therefore disabled by default.
+  (c) **Anchor economics: coverage buys coverage, not precision** — naming precision stays
+  ~1.0 across coverage 0.1–1.0 at zero noise (abstention 0.95→0.57) and noise is absorbed
+  primarily as abstention; a real anchor stream with ≥25% coverage and ≤5% label noise
+  clears ≥0.96 naming precision on this substrate. (d) **ADR 005's own removal condition
+  fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity,
+  removal/dustbin follow-up filed.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
