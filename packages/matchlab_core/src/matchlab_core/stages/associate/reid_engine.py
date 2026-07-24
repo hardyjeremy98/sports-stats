@@ -55,8 +55,13 @@ from matchlab_core.schemas.run import StageKind
 
 class Params(BaseModel):
     # Minimum part-aware similarity between tracklet representations to
-    # consider a merge.
-    min_similarity: float = 0.6
+    # consider a merge. Calibrated on the SoccerNet tuning sequences
+    # (SPO-59, 2026-07-24): same-player pairs score 0.94-0.98 while
+    # different-player pairs reach 0.91 (p90) — at the old 0.6 default,
+    # similarity-only merges were 15% precise and every wrong merge paired an
+    # unanchored tracklet into an anchored thread. 0.95 keeps 16/21 true
+    # pairs and admits 3/150 false ones on that tier.
+    min_similarity: float = 0.95
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
     # Representation (SPO-54): view-prototype cap, the cosine threshold that

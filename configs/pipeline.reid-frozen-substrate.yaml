@@ -35,7 +35,7 @@ stages:
   associate:
     impl: reid-engine
     params:
-      min_similarity: 0.6
+      min_similarity: 0.95
       overlap_tolerance_frames: 2
       max_prototypes: 4
       view_threshold: 0.7

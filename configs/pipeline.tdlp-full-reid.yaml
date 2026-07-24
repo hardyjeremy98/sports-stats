@@ -39,7 +39,7 @@ stages:
   associate:
     impl: reid-engine
     params:
-      min_similarity: 0.6
+      min_similarity: 0.95
       overlap_tolerance_frames: 2
       # Representation (SPO-54)
       max_prototypes: 4
