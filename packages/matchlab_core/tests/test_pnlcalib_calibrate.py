@@ -522,3 +522,50 @@ def test_smoke_config_loads_and_selects_pnlcalib():
     assert config.stages[StageKind.CALIBRATE].impl == "pnlcalib"
     command = config.stages[StageKind.CALIBRATE].params["command"]
     assert command[-1] == "matchlab_core.calib.reference_cli"
+
+
+def test_stage_persists_raw_estimates_artifact(tmp_path):
+    """The raw per-frame bridge output must survive as calibration_raw.jsonl so
+    smoothing can be iterated offline without re-running the calibrator, and
+    re-smoothing the raw rows must reproduce the shipped calibration.jsonl."""
+    from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
+    from matchlab_core.schemas.run import ArtifactName
+
+    ctx = _make_ctx(tmp_path)
+    stage = build(
+        StageKind.CALIBRATE, "pnlcalib",
+        {"command": [sys.executable, "-m", "matchlab_core.calib.reference_cli"]},
+    )
+    out = stage.calibrate(ctx)
+    assert out  # sanity
+
+    raw_path = ctx.store.path(ArtifactName.CALIBRATION_RAW)
+    assert raw_path.exists(), "calibration_raw.jsonl not written"
+    raw_rows = [json.loads(line) for line in raw_path.read_text().splitlines()]
+    assert len(raw_rows) == len(out)
+    assert {r["frame_idx"] for r in raw_rows} == {c.frame_idx for c in out}
+    for r in raw_rows:
+        assert set(r) >= {"frame_idx", "t", "homography", "confidence", "n_points"}
+
+    # Re-smoothing the persisted raws reproduces the shipped homographies.
+    frame_size = None
+    for c in out:
+        if c.homography is not None:
+            frame_size = True
+            break
+    assert frame_size, "expected at least one homography"
+    estimates = [
+        RawEstimate(frame_idx=r["frame_idx"], homography=r["homography"],
+                    confidence=r["confidence"])
+        for r in raw_rows
+    ]
+    # Reference CLI frames come from _make_ctx's demo video (1280x720).
+    resmoothed = smooth_homography_trajectory(estimates, frame_size=(1280, 720))
+    by_idx = {c.frame_idx: c for c in out}
+    for s in resmoothed:
+        c = by_idx[s.frame_idx]
+        assert (s.homography is None) == (c.homography is None)
+        if s.homography is not None:
+            import numpy as np
+            a, b = np.array(s.homography), np.array(c.homography)
+            assert np.allclose(a / a[2, 2], b / b[2, 2], atol=1e-6)

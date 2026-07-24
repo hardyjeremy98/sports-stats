@@ -71,3 +71,12 @@ class ExternalHomography(BaseModel):
         if len(value) != 3 or any(len(row) != 3 for row in value):
             raise ValueError("homography must be a 3×3 matrix when not null")
         return value
+
+
+class RawCalibrationRecord(ExternalHomography):
+    """A persisted raw (pre-smoothing) calibrator estimate — one row of the
+    calibration_raw.jsonl artifact. Extends the exchange record with the
+    frame's timestamp so smoothing can be iterated offline on the recorded
+    estimates without re-running the external model."""
+
+    t: float = 0.0

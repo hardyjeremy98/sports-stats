@@ -64,6 +64,9 @@ class ArtifactName(StrEnum):
     TRACKLETS = "tracklets"          # tracklets.json — list[Tracklet]
     TEAMS = "teams"                  # teams.json — list[TeamAssignment]
     CALIBRATION = "calibration"      # calibration.jsonl — FrameCalibration rows
+    CALIBRATION_RAW = "calibration_raw"  # calibration_raw.jsonl — raw per-frame external
+    # calibrator estimates (pre-smoothing), so smoothing can be iterated offline
+    # without re-running the GPU model
     PLAYERS = "players"              # players.json — list[PlayerEntity]
     MINIMAP = "minimap"              # minimap.jsonl — MinimapFrame rows
     POSSESSION = "possession"        # possession.json — list[PossessionSegment]

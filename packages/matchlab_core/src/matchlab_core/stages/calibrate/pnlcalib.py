@@ -36,8 +36,9 @@ from matchlab_core.interfaces import Calibrator, StageContext
 from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from matchlab_core.registry import register
 from matchlab_core.schemas import FrameCalibration
+from matchlab_core.schemas.calibration import RawCalibrationRecord
 from matchlab_core.schemas.geometry import Point
-from matchlab_core.schemas.run import StageKind
+from matchlab_core.schemas.run import ArtifactName, StageKind
 
 # Runnable out of the box with no real model or GPU: the permissive reference
 # calibrator CLI. An operator points `command` at a real external calibrator
@@ -127,8 +128,27 @@ class PnLCalibCalibrator(Calibrator):
             # subprocess handoff — never a tracked run-dir artifact.
             shutil.rmtree(work_dir, ignore_errors=True)
 
-        # Collect every raw estimate first (whole clip), then smooth offline.
+        # Persist the raw estimates as an artifact BEFORE smoothing: smoothing
+        # is a pure offline function, so with the raws on disk it can be
+        # iterated (thresholds, windows, algorithm changes) without re-running
+        # the external model.
         by_idx = {r.frame_idx: r for r in records}
+        ctx.store.write_jsonl(
+            ArtifactName.CALIBRATION_RAW,
+            (
+                RawCalibrationRecord(
+                    frame_idx=frame_idx,
+                    t=frame_meta[frame_idx],
+                    homography=(rec.homography if rec is not None else None),
+                    confidence=(rec.confidence if rec is not None else 0.0),
+                    n_points=(rec.n_points if rec is not None else 0),
+                )
+                for frame_idx in order
+                for rec in (by_idx.get(frame_idx),)
+            ),
+        )
+
+        # Collect every raw estimate (whole clip), then smooth offline.
         estimates: list[RawEstimate] = []
         for frame_idx in order:
             rec = by_idx.get(frame_idx)
