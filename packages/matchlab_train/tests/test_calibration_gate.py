@@ -325,3 +325,25 @@ def test_cli_passes_predictor_params_through_to_job_manifest(tmp_path, monkeypat
     assert seen["weights_kp"] == "W_KP_MARKER"
     assert seen["device"] == "cuda:0"
     assert seen["mode"] == "camera"
+
+
+def test_run_gate1_ignores_non_image_metadata_jsons(tmp_path):
+    # Real SoccerNet calibration splits ship match_info.json / per_match_info.json
+    # beside the per-image <id>.json GT; they must not enter the completeness
+    # denominator (they have no image and can never be predicted).
+    sn = tmp_path / "soccernet" / "calibration"
+    _make_soccernet_split(sn, ["00001", "00002"], with_images=True)
+    (sn / "test" / "match_info.json").write_text(json.dumps({"matches": []}))
+    (sn / "test" / "per_match_info.json").write_text(json.dumps({}))
+
+    rec = run_gate1_calibration_eval(
+        soccernet_dir=sn,
+        split="test",
+        thresholds=[5],
+        out_dir=tmp_path / "reports",
+        predictor_command=[sys.executable, "-c", _STUB_PREDICT],
+        scorer_command=[sys.executable, "-c", _STUB_SCORE],
+        tolerance=0.03,
+    )
+    assert rec["n_images"] == 2
+    assert rec["measured"]["5"]["completeness"] == pytest.approx(1.0)

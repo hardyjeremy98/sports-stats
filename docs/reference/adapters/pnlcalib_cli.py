@@ -344,6 +344,14 @@ def _run_camera_mode(manifest, frames_dir, model, model_l, params, device) -> No
         )
         if final_params_dict is None:
             continue
+        # Official SN23 abstention (PnLCalib scripts/inference_sn.py): drop
+        # predictions whose reprojection error exceeds max_reproj_err. The
+        # paper's SN23 run uses 38; disabled when the param is absent.
+        max_reproj_err = params.get("max_reproj_err")
+        if max_reproj_err is not None and (
+            float(final_params_dict.get("rep_err", 0.0)) > float(max_reproj_err)
+        ):
+            continue
         cam = final_params_dict["cam_params"]
         camera_json = {key: cam[key] for key in _CAMERA_JSON_KEYS if key in cam}
         (out_dir / f"camera_{path.stem}.json").write_text(json.dumps(camera_json))

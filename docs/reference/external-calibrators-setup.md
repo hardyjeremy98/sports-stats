@@ -402,10 +402,18 @@ uv run matchlab-train gate1-calibration-eval \
       $HOME/code/MatchDay/external-calibrators/sn_calibration_eval_cli.py" \
   --predictor-params "{\"weights_kp\": \"$HOME/code/MatchDay/external-calibrators/PnLCalib/weights/MV_kp\",
       \"weights_line\": \"$HOME/code/MatchDay/external-calibrators/PnLCalib/weights/MV_lines\",
-      \"kp_threshold\": 0.3434, \"line_threshold\": 0.7867, \"pnl_refine\": true,
-      \"device\": \"cuda:0\"}" \
+      \"kp_threshold\": 0.0712, \"line_threshold\": 0.2571, \"pnl_refine\": true,
+      \"max_reproj_err\": 38, \"device\": \"cuda:0\"}" \
   --out data/reports/gate1-calibration
 ```
+
+**Operating point matters.** These are the paper's official SN23 parameters
+(`PnLCalib/scripts/run_pipeline_sn23.sh`: `KP_TH=0.0712`, `LINE_TH=0.2571`,
+`MAX_REPROJ_ERR=38`) — NOT the repo's generic inference defaults (0.3434 / 0.7867, tuned
+for the WC14-style single-view setting). Running the generic defaults on SN23-test measures
+a different, worse operating point (first attempt measured JaC@5 75.8 / completeness 76.8 /
+FS 58.2 with them). `max_reproj_err` is the paper's abstention filter: predictions with
+reprojection error above it are dropped, trading completeness for accuracy.
 
 `--predictor-params` is a JSON object merged into the job manifest's `params` — this is
 where the **MV weights** go (the published SN23 targets are MV; see the caveat above). The

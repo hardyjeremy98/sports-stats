@@ -79,7 +79,9 @@ def run(args) -> None:
     thresholds = [int(t) for t in args.thresholds.split(",")]
 
     records = []
-    for gt_path in sorted(gt_dir.glob("*.json")):
+    # Per-image GT is <id>.json (numeric id); skip split metadata files like
+    # match_info.json / per_match_info.json.
+    for gt_path in sorted(p for p in gt_dir.glob("*.json") if p.stem.isdigit()):
         frame_id = gt_path.stem
         pred_path = pred_dir / f"camera_{frame_id}.json"
         if not pred_path.exists():

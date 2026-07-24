@@ -297,7 +297,10 @@ def run_gate1_calibration_eval(
             f"SoccerNet-Calibration split directory not found: {split_dir}"
         )
 
-    gt_files = sorted(split_dir.glob("*.json"))
+    # Per-image GT is <id>.json with a numeric id; splits also ship metadata
+    # files (match_info.json, per_match_info.json) that must not enter the
+    # completeness denominator.
+    gt_files = sorted(p for p in split_dir.glob("*.json") if p.stem.isdigit())
     if not gt_files:
         raise FileNotFoundError(
             f"no ground-truth annotation JSON files in {split_dir}"
