@@ -252,8 +252,12 @@ mirror; see Troubleshooting).** Do both:
    the minimap and confirm it sits in the *same* half/end of the pitch template, consistent
    with the camera's known orientation (e.g. if the camera looks such that the left-of-screen
    goal is the near/bottom-left goal, that player's minimap dot must be near minimap `x ≈ 0`,
-   not `x ≈ 105`). If it's on the wrong end or the wrong side, the calibration is flipped even
-   though the keypoints look correctly on the lines.
+   not `x ≈ 105`). Then check the width axis the same way: note which *touchline* the player
+   is closer to (near-side = bottom of the broadcast frame, far-side = top) and confirm the
+   minimap dot is on the matching y-side of the halfway band — a width-only mirror leaves both
+   ends correct, so the end check alone cannot catch it. If the dot is on the wrong end or the
+   wrong touchline side, the calibration is flipped even though the keypoints look correctly
+   on the lines.
 2. **Motion cue.** Scrub a few seconds where a player or the ball makes a clear, sustained
    run in one screen direction (e.g. clearly running screen-right). Confirm the minimap dot
    moves in the direction consistent with that run given the camera's orientation (e.g. if
