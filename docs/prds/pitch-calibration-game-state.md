@@ -88,9 +88,14 @@ Three phases, two hard gates:
   not just for this PRD.
 
 Both gates are **hard**: human sign-off on the measured numbers before the phase is called
-done. Amateur single-camera footage (the actual product target, which has no ground truth)
-gets a **non-blocking qualitative review** on a small clip panel, recorded as a known
-finding either way.
+done.
+
+> **Scope change (2026-07-25, owner):** the amateur-footage qualitative check originally
+> planned here (SPO-71) is **removed from this PRD entirely**, consistent with the
+> current development scope (CLAUDE.md): development and evaluation run against
+> broadcast-style benchmark data, the team owns no phone/amateur footage, and
+> phone-footage validation is an explicit later phase. Everything amateur-related below
+> is retained only where struck through or marked removed, for record.
 
 ## User Stories
 
@@ -144,10 +149,9 @@ finding either way.
 17. As a Lab researcher, I want the smoother usable as a pure library function on recorded
     homography estimates, so that I can iterate on smoothing parameters offline without
     re-running the GPU model.
-18. As a Lab researcher, I want a qualitative amateur-footage review recorded as an
-    explicit known finding, so that the transfer question ("does broadcast-trained
-    calibration survive amateur footage?") has a documented answer instead of an
-    assumption.
+18. ~~As a Lab researcher, I want a qualitative amateur-footage review recorded as an
+    explicit known finding.~~ *(Removed 2026-07-25 — see Scope change note; number kept so
+    later story references stay stable.)*
 19. As a future developer, I want the pitch geometry (dimensions, keypoint vertices, line
     segments) defined in exactly one spec consumed by core, evaluation, and the web
     renderer, so that a geometry change can never half-apply.
@@ -244,10 +248,9 @@ The gate itself is thresholds over those metrics plus sign-off.
   and finalized (with justification) during implementation; the gate closes with a
   before/after review of the Game state view on the same clips.
 
-**Non-blocking amateur check.** A small panel of amateur single-camera clips is run
-through the full stack and reviewed qualitatively; the outcome (works / degrades / fails,
-with examples) is recorded as a known finding in the implementation-status doc. It does
-not block either gate.
+**~~Non-blocking amateur check~~ — removed.** *(2026-07-25 scope change: no amateur
+footage exists and phone-footage validation is a later phase; SPO-71 cancelled. See the
+Scope change note at the top.)*
 
 **Operational posture.** Real-model runs (GPU, external env) are human-initiated, mirroring
 the external-spotters convention — smoke configs against the reference CLI are the only
@@ -281,9 +284,9 @@ coverage is later wanted.
 
 ## Out of Scope
 
-- **Making amateur footage pass a hard gate.** The amateur panel is a recorded finding,
-  not a gate; closing the broadcast→amateur domain gap (fine-tuning, augmentation, or a
-  different model) is future work informed by that finding.
+- **Amateur footage — entirely.** (Broadened 2026-07-25: originally only the *hard gate*
+  was out of scope with a non-blocking check retained; the check itself is now removed
+  too. Phone-footage validation is a later development phase per the repo scope note.)
 - **Training or fine-tuning any model.** This PRD imports pretrained weights only.
 - **Ball tracking / ball game-state improvements.** The ball dot renders as today;
   improving ball detection or smoothing is separate work.
