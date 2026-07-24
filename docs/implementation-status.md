@@ -1,7 +1,7 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-19  
+**Last verified:** 2026-07-24  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
@@ -74,7 +74,7 @@ project in Linear.
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Multi-cue learned tracking (in-repo `tdlp-shippable`, legacy name) | Superseded — **CLOSED, not the default, not maintained** | A partial in-repo TDLP rebuild from the retired SPO-36–44 rebuild program (closed 2026-07-20 by the research-mode pivot; TDLP-full — see the callout above — replaced it outright). This stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT. `tdlp-shippable` (`StageKind.TRACK`): RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder in place of KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). Runs end-to-end on arbitrary video (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint; only a preliminary eval-tier-trained head exists (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover). The once-planned permissive-data retrain (SPO-39/40) was **canceled, not blocked** — with TDLP-full implemented there is nothing left to rebuild. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
-| Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
+| Camera calibration | Implemented | Static, Roboflow keypoint (online EMA/carry-and-decay), local YOLO (online EMA/carry-and-decay), and `pnlcalib` (offline) variants. `pnlcalib` calibrates via a subprocess exchange seam to any contract-conforming external calibrator (`matchlab_core/calib/bridge.py`, typed `CalibrationBridgeError`, stdlib `matchlab_core/calib/reference_cli.py` reference implementation) and applies a whole-clip offline global homography smoother (`matchlab_core/calib/smoother.py`, point-correspondence parameterization, per-frame `fresh`/`smoothed`/`interpolated`/`absent` provenance `status`) instead of online EMA/carry-and-decay. **The real external PnLCalib environment (SPO-65) is not yet built** — `pnlcalib` currently exercises only the in-repo permissive reference calibrator CLI, runnable end-to-end via `configs/pipeline.pnlcalib-smoke.yaml`. | `matchlab_core/stages/calibrate/`, `matchlab_core/calib/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
 | **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`) and the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance). Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
@@ -100,6 +100,18 @@ stated.
 this field existed still parse — currently always `"observed"` from the in-repo tracker
 implementations; no stage yet writes `predicted`/`interpolated` frames.
 
+`FrameCalibration` (`schemas/calibration.py`) carries a `status` provenance field —
+`"fresh"`/`"smoothed"`/`"interpolated"`/`"absent"`, `None` for calibrators that predate it (the
+online EMA/carry-and-decay calibrators `yolo-pitch-local` and `roboflow-keypoints`, which still
+only set the legacy `smoothed` bool) — set by the `pnlcalib` stage's offline whole-clip smoother
+(`matchlab_core/calib/smoother.py`) after a subprocess calibrator run. `smoothed` is now a
+derived legacy bool (`status not in ("fresh", "absent")`) kept for back-compat with pre-`status`
+JSONL rows and consumers that predate `status`. A pipeline config's `pitch:` field (`roboflow`
+default — the non-physical 120×70 m template `yolo-pitch-local` was trained on; `fifa` — real
+105×68 m geometry, for accurate calibrators) selects the `PitchSpec` wired into
+`StageContext.pitch` (`matchlab_core/pitch.py::get_pitch`) and is recorded verbatim in
+`manifest.json`'s `config` block.
+
 ## Provenance and reproducibility
 
 - **Run provenance recorder** (SPO-10 part 1): every `manifest.json` written by
@@ -112,8 +124,8 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   Every declared field is always present — unknown values are the literal string
   `"unknown"` (or `null` where the schema allows it), never an absent key. `Stage.
   provenance()` is a hook (default `[]`), overridden by `yolo-local` detect,
-  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, the
-  `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
+  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, `pnlcalib`
+  calibrate, the `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
   identity — each reports architecture, local weights path + streaming SHA-256 (when
   applicable), lineage, and per-axis (`code`/`weights`/`training_data`) license status.
   `evaluation_set_hash` is `"unknown"` on every manifest as written by the pipeline runner
@@ -429,6 +441,27 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   - The `soccernet-ball` tier's licensing note is an **inference**, not a confirmed reading
     of SoccerNet's ball-action-specific terms. It is recorded as provenance only and does not
     qualify capability status (research posture); do not redistribute the data regardless.
+- Game-state (pitch-space calibration) metrics (SPO-69): a pure module
+  (`matchlab_core/gamestate_eval.py`) that projects a video's GROUND-TRUTH tracks
+  (player/goalkeeper/referee; ball excluded — it routinely exceeds human speed caps) through a
+  **run's own calibration** homographies and scores the geometry the calibration implies, not
+  tracker quality. Reports coverage (fraction of GT-covered sampled frames carrying a usable,
+  non-`absent` homography), an implausible-speed rate (consecutive-sampled-frame projected
+  steps whose implied speed exceeds a 12 m/s threshold), a teleport count (step displacement
+  over 2 m; plus a `teleports_at_refresh` subset where the two frames' `FrameCalibration.status`
+  differ), and an in-bounds rate (projected positions within a 500 cm margin of the pitch
+  rectangle). Per-step `dt` is derived from the pair's actual sampled-frame indices, not a
+  constant stride/fps, so a missing calibration row can't understate elapsed time and mask an
+  implausible speed. Thresholds are provisional and **NOT gates** — SPO-70 finalizes them; this
+  module reports rates only. Folded into `eval.json` under a `gamestate` key by `evaluate_run`
+  (`matchlab_core/evaluation.py`), with four headline `runs.metrics` keys (`gs_coverage`,
+  `gs_implausible_speed_rate`, `gs_teleports`, `gs_in_bounds_rate`) surfaced as dashboard columns
+  (`web/src/pages/LabDashboard.tsx`) and benchmark matrix cells (`web/src/pages/LabBenchmark.tsx`,
+  `matchlab_server/api/benchmark.py`'s `BENCHMARK_METRIC_KEYS`); `web/src/lib/types.ts` gains a
+  `GameStateEval` mirror. Resolves the scored `PitchSpec` from the manifest's `config.pitch`
+  (default `roboflow`). Omitted entirely (`gamestate` stays absent, never a crash) for
+  tracking-only runs with no `calibration.jsonl`. **No benchmark numbers exist for this layer
+  yet** — capability and test coverage only (`test_gamestate_eval.py`).
 
 Primary locations:
 

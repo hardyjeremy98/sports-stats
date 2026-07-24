@@ -8,8 +8,9 @@ stream downstream consumes: EMA-blend each fresh homography with the previous
 smoothed one, and on a failed frame carry the last good homography for up to
 `max_carry_frames` frames with decaying confidence before giving up (null).
 
-Both `yolo-pitch-local` and `pnlcalib` share this so the smoothing behavior can
-never drift between calibrators.
+`yolo-pitch-local` is this module's stage consumer (`roboflow-keypoints` has its
+own inline EMA blend instead). `pnlcalib` does not use this online smoother — it
+applies the offline whole-clip smoother in `matchlab_core.calib.smoother`.
 """
 
 from __future__ import annotations
