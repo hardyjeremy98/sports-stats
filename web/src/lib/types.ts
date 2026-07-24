@@ -516,6 +516,29 @@ export interface PersistentSwitchLevel {
   transitions?: PersistentSwitchTransition[];
 }
 
+// Pitch-space game-state metrics (SPO-69): GT tracks projected through the
+// run's calibration. Optional — absent for tracking-only runs with no
+// calibration.jsonl, and for eval.json written before the metric existed
+// (re-evaluate to backfill). Rates are null when their denominator is zero.
+export interface GameStateEval {
+  pitch: string | null;
+  speed_threshold_mps: number;
+  teleport_threshold_m: number;
+  in_bounds_margin_cm: number;
+  n_sampled_frames: number;
+  n_sampled_frames_gt_covered: number;
+  n_frames_with_homography: number;
+  coverage: number | null;
+  n_projected_positions: number;
+  n_in_bounds: number;
+  in_bounds_rate: number | null;
+  n_steps: number;
+  n_implausible_steps: number;
+  implausible_speed_rate: number | null;
+  teleport_count: number;
+  teleports_at_refresh: number;
+}
+
 export interface EvalResult {
   source: string;
   sequence: string | null;
@@ -569,6 +592,7 @@ export interface EvalResult {
   };
   identity?: EvalIdentity | null;
   detection?: DetectionEval | null;
+  gamestate?: GameStateEval | null;
 }
 
 // ---- Benchmark matrix (config x GT-video, aggregating repeat runs) ----

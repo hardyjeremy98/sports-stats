@@ -267,6 +267,17 @@ def evaluate_run(
         result["detection"] = evaluate_detections(
             det_by_frame, gt_scored, iou_threshold=iou_threshold, stride=stride, fps=fps
         )
+
+    # SPO-69 game-state (pitch-space) metrics: project GT tracks through this
+    # run's calibration and score coverage / implausible speed / teleports /
+    # in-bounds. Omitted (no `gamestate` key) for tracking-only runs with no
+    # calibration.jsonl -- never a crash. Rides this shared entry point so the
+    # worker and POST /evaluate re-scoring pick it up without special-casing.
+    from matchlab_core.gamestate_eval import evaluate_gamestate
+
+    gamestate = evaluate_gamestate(run_dir, gt, manifest)
+    if gamestate is not None:
+        result["gamestate"] = gamestate
     return result
 
 
@@ -703,6 +714,12 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
     cy = result.get("crop_yield")
     if cy is not None:
         heads["crop_yield_per_player"] = cy["approved_per_gt_player_mean"]
+    gamestate = result.get("gamestate")
+    if gamestate is not None:
+        heads["gs_coverage"] = gamestate["coverage"]
+        heads["gs_implausible_speed_rate"] = gamestate["implausible_speed_rate"]
+        heads["gs_teleports"] = gamestate["teleport_count"]
+        heads["gs_in_bounds_rate"] = gamestate["in_bounds_rate"]
     return heads
 
 
