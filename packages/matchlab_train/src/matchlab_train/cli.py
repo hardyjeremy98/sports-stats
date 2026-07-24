@@ -132,6 +132,12 @@ def main() -> int:
         "--scorer-cmd", required=True,
         help="Official scorer command (sn-calibration adapter in the sibling checkout)",
     )
+    g1_p.add_argument(
+        "--predictor-params", default=None,
+        help="JSON object merged into the job manifest's params for the predictor "
+        '(e.g. weight paths: \'{"weights_kp": "...", "weights_line": "...", '
+        '"device": "cuda:0"}\')',
+    )
     g1_p.add_argument("--tolerance", type=float, default=0.03, help="Gate tolerance (absolute)")
     g1_p.add_argument("--resolution-width", type=int, default=960)
     g1_p.add_argument("--resolution-height", type=int, default=540)
@@ -151,6 +157,7 @@ def main() -> int:
             out_dir=Path(args.out),
             scorer_command=shlex.split(args.scorer_cmd),
             predictor_command=shlex.split(args.predictor_cmd) if args.predictor_cmd else None,
+            predictor_params=json.loads(args.predictor_params) if args.predictor_params else None,
             prediction_dir=args.prediction_dir,
             tolerance=args.tolerance,
             resolution_width=args.resolution_width,

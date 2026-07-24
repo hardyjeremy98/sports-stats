@@ -287,3 +287,41 @@ def test_run_gate1_raises_when_scorer_fails(tmp_path):
             prediction_dir=pred_dir,
             scorer_command=[sys.executable, "-c", "import sys; sys.exit(3)"],
         )
+
+
+def test_cli_passes_predictor_params_through_to_job_manifest(tmp_path, monkeypatch):
+    sn = tmp_path / "soccernet" / "calibration"
+    _make_soccernet_split(sn, ["00001"], with_images=True)
+    out_dir = tmp_path / "reports" / "gate1"
+    sentinel = tmp_path / "params_seen.json"
+
+    predict_py = tmp_path / "stub_predict.py"
+    predict_py.write_text(
+        _STUB_PREDICT + f"\nPath({str(sentinel)!r}).write_text(json.dumps(m['params']))\n"
+    )
+    score_py = tmp_path / "stub_score.py"
+    score_py.write_text(_STUB_SCORE)
+
+    from matchlab_train.cli import main
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "matchlab-train",
+            "gate1-calibration-eval",
+            "--soccernet-dir", str(sn),
+            "--split", "test",
+            "--thresholds", "5",
+            "--out", str(out_dir),
+            "--predictor-cmd", f"{sys.executable} {predict_py}",
+            "--scorer-cmd", f"{sys.executable} {score_py}",
+            "--predictor-params", '{"weights_kp": "W_KP_MARKER", "device": "cuda:0"}',
+        ],
+    )
+    rc = main()
+    assert rc in (0, 1)  # the gate verdict is irrelevant here; the stub scores low
+    seen = json.loads(sentinel.read_text())
+    assert seen["weights_kp"] == "W_KP_MARKER"
+    assert seen["device"] == "cuda:0"
+    assert seen["mode"] == "camera"

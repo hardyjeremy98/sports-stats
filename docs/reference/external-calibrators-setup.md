@@ -400,12 +400,18 @@ uv run matchlab-train gate1-calibration-eval \
       $HOME/code/MatchDay/external-calibrators/pnlcalib_cli.py" \
   --scorer-cmd "$HOME/code/MatchDay/external-calibrators/sn-calibration/.venv/bin/python \
       $HOME/code/MatchDay/external-calibrators/sn_calibration_eval_cli.py" \
+  --predictor-params "{\"weights_kp\": \"$HOME/code/MatchDay/external-calibrators/PnLCalib/weights/MV_kp\",
+      \"weights_line\": \"$HOME/code/MatchDay/external-calibrators/PnLCalib/weights/MV_lines\",
+      \"kp_threshold\": 0.3434, \"line_threshold\": 0.7867, \"pnl_refine\": true,
+      \"device\": \"cuda:0\"}" \
   --out data/reports/gate1-calibration
 ```
 
-Pass MV weights to the predictor via a params file / env as documented for the adapter, and
-set `device: cuda`. If predictions already exist, drop `--predictor-cmd` and pass
-`--prediction-dir <dir of camera_<id>.json>` instead.
+`--predictor-params` is a JSON object merged into the job manifest's `params` — this is
+where the **MV weights** go (the published SN23 targets are MV; see the caveat above). The
+adapter has no weight defaults, so `weights_kp`/`weights_line` are required. If predictions
+already exist, drop `--predictor-cmd` and pass `--prediction-dir <dir of camera_<id>.json>`
+instead.
 
 **Gate record.** The harness writes `data/reports/gate1-calibration/gate1_calibration.json`
 (machine-readable: measured vs. published per threshold, deltas, `passed`) and a
