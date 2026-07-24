@@ -297,9 +297,126 @@ calibration" below and re-run this step.
 - **`homography: null` on every frame** — usually the weights failed to load or the frames
   are unreadable; run the step-2 adapter check with a couple of frames and read the stderr.
 
+## Gate 1: SoccerNet-Calibration eval (SPO-67)
+
+SPO-60's **Gate 1 (hard)** requires reproducing PnLCalib's *published*
+SoccerNet-Calibration test-split accuracy under the **official challenge protocol** before the
+pipeline integration is trusted. This is a one-shot, human-run, GPU + NDA-gated measurement —
+independent of the per-clip `pnlcalib` stage above, which does not need it.
+
+### What the official metric is, and why a camera-output mode
+
+The official evaluator (`github.com/SoccerNet/sn-calibration`, `src/evaluate_camera.py`)
+consumes **camera parameters** (`camera_<id>.json`: pan/tilt/roll, focal lengths, principal
+point, position, distortion), reprojects the 3D pitch model through them, and scores per-line
+polyline matches at a pixel threshold. It does **not** consume a homography. So the harness
+drives the PnLCalib adapter in a **camera-output mode** (`params.mode: "camera"` in the job
+manifest → one `camera_<id>.json` per image), not the homography mode the `pnlcalib` stage
+uses. PnLCalib's own `cam_params` already carry exactly the SoccerNet camera-JSON schema, so
+the adapter simply serializes them.
+
+The metrics (`evaluate_camera.py`):
+
+- **JaC@t** (Jaccard at *t* pixels, per image) = `TP / (TP + FP + FN)` over the image's line
+  classes, at threshold *t* px;
+- **Completeness (CR)** = images with a prediction ÷ images total;
+- **Final Score (FS)** = completeness × mean-over-predicted-images(JaC@5).
+
+### Vendor vs. subprocess decision (provenance)
+
+The official evaluator ships **no LICENSE file** (verified: the repo root has no `LICENSE`;
+GitHub's license API returns null). It is therefore reached **only as a subprocess from a
+sibling checkout** — the same dependency-isolation posture as PnLCalib and `external-spotters/`
+— and is **not** copied into the lab tree. The lab side owns only the split-level aggregation
+(the official completeness × mean-JaC formula) and the published-number comparison, in
+`matchlab_train/calibration_gate.py` (unit-tested); the geometry-exact per-image scoring stays
+behind the scoring adapter `docs/reference/adapters/sn_calibration_eval_cli.py`.
+
+### Published targets to reproduce
+
+PnLCalib on **SoccerNet-Calibration SN23 test** (Gutiérrez-Pérez & Agudo,
+[arXiv:2404.08401v5](https://arxiv.org/abs/2404.08401), Table I row `Ours_MV + PnL`, and the
+points+lines ablation row P✓ L✓):
+
+| Metric | Published |
+| --- | --- |
+| JaC@5 | **78.7%** |
+| JaC@10 | 89.6% |
+| JaC@20 | 91.9% |
+| Completeness | 78.4% |
+| Final Score | **61.8%** |
+
+Without PnL refinement (MV only): JaC@5 73.1%, FS 58.6%.
+
+⚠️ **Weights provenance caveat.** This SN23-test headline uses the **multi-view** weights
+(`MV_kp`/`MV_lines`), not the single-view `SV_kp`/`SV_lines` base pair the `pnlcalib` stage
+defaults to. The paper's single-view rows (JaC@5 74.4 / +PnL 80.6, completeness ~99%) are on
+WC14-style data, a different benchmark. To reproduce 78.7 / 61.8 on SN23-test, download and
+point the adapter at the MV weights.
+
+### Dataset download (NDA-gated)
+
+The calibration data is gated behind SoccerNet's NDA. Fill the form linked from
+<https://www.soccer-net.org/data> to receive the password, then:
+
+```bash
+pip install SoccerNet
+python - <<'PY'
+from SoccerNet.Downloader import SoccerNetDownloader as SNdl
+dl = SNdl(LocalDirectory="data/soccernet/calibration")
+dl.password = "<NDA password>"   # required for the test/challenge splits
+dl.downloadDataTask(task="calibration-2023", split=["test"])
+PY
+```
+
+Unzip so the layout is `data/soccernet/calibration/test/<id>.jpg` + `<id>.json` (line-extremity
+ground truth). The images are 960×540, matching the evaluator's default resolution.
+
+### Set up the official evaluator checkout
+
+Beside the PnLCalib clone (same `external-calibrators/` sibling dir):
+
+```bash
+cd ~/code/MatchDay/external-calibrators
+git clone https://github.com/SoccerNet/sn-calibration.git
+cd sn-calibration && python -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip && pip install -r requirements.txt && deactivate
+# Install the scoring adapter beside the clone:
+cp ~/code/MatchDay/lab/docs/reference/adapters/sn_calibration_eval_cli.py \
+   ~/code/MatchDay/external-calibrators/sn_calibration_eval_cli.py
+```
+
+The predictor side reuses the existing PnLCalib env + adapter (steps 1–4 above); its camera
+mode needs no extra setup.
+
+### Run the gate
+
+```bash
+cd ~/code/MatchDay/lab
+uv run matchlab-train gate1-calibration-eval \
+  --soccernet-dir data/soccernet/calibration --split test \
+  --thresholds 5,10,20 \
+  --predictor-cmd "$HOME/code/MatchDay/external-calibrators/PnLCalib/.venv/bin/python \
+      $HOME/code/MatchDay/external-calibrators/pnlcalib_cli.py" \
+  --scorer-cmd "$HOME/code/MatchDay/external-calibrators/sn-calibration/.venv/bin/python \
+      $HOME/code/MatchDay/external-calibrators/sn_calibration_eval_cli.py" \
+  --out data/reports/gate1-calibration
+```
+
+Pass MV weights to the predictor via a params file / env as documented for the adapter, and
+set `device: cuda`. If predictions already exist, drop `--predictor-cmd` and pass
+`--prediction-dir <dir of camera_<id>.json>` instead.
+
+**Gate record.** The harness writes `data/reports/gate1-calibration/gate1_calibration.json`
+(machine-readable: measured vs. published per threshold, deltas, `passed`) and a
+`gate1_calibration.md` summary. The command exits non-zero when the gate is not met (measured
+JaC@5 and FS below published − tolerance, default 0.03). `data/` is gitignored; record the
+gate outcome (pass/fail + the JSON) wherever SPO-60 gate decisions are tracked.
+
 ## Notes
 
-- Never add `external-calibrators/` (or PnLCalib) to any `pyproject.toml` under `packages/`.
-  It is reached exclusively via the subprocess bridge.
-- The Gate 1 SoccerNet-Calibration benchmark (SPO-67) and its dataset download are a separate
-  task; they are **not** needed to run the `pnlcalib` stage described here.
+- Never add `external-calibrators/` (PnLCalib **or** sn-calibration) to any `pyproject.toml`
+  under `packages/`. Both are reached exclusively via the subprocess adapters.
+- The Gate 1 harness lives in `matchlab_train/calibration_gate.py`; the two reference adapters
+  it drives are in `docs/reference/adapters/` (`pnlcalib_cli.py` camera mode +
+  `sn_calibration_eval_cli.py`).

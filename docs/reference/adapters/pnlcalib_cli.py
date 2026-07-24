@@ -115,7 +115,11 @@ def _load_manifest(job_path: Path) -> dict:
     manifest = json.loads(job_path.read_text())
     if not isinstance(manifest, dict):
         raise ValueError(f"job manifest {job_path} must be a JSON object")
-    for key in ("frames_dir", "out_path", "params"):
+    # `homography` mode writes a single array to `out_path`; `camera` mode
+    # (Gate 1) writes one camera_<id>.json per frame into `out_dir`.
+    mode = (manifest.get("params") or {}).get("mode", "homography")
+    out_key = "out_dir" if mode == "camera" else "out_path"
+    for key in ("frames_dir", "params", out_key):
         if manifest.get(key) is None:
             raise ValueError(f"job manifest {job_path} missing required field {key!r}")
     return manifest
@@ -196,10 +200,15 @@ def _homography_image_to_cm(projection: np.ndarray) -> np.ndarray | None:
     return homography
 
 
-def _infer_frame(
+def _calibrate_frame(
     image_bgr: np.ndarray, model, model_l, params: dict, device: str
-) -> tuple[np.ndarray | None, float, int]:
-    """Return (homography image->cm | None, confidence, n_points) for one frame."""
+) -> tuple[dict | None, int]:
+    """Run PnLCalib on one frame and return (final_params_dict | None, n_points).
+
+    Shared by both output modes: ``homography`` (the default; derives an
+    image->cm homography from the recovered projection) and ``camera`` (Gate 1;
+    serializes PnLCalib's camera parameters straight to the SoccerNet-Calibration
+    ``camera_<id>.json`` schema)."""
     h_orig, w_orig = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     tensor = F.to_tensor(Image.fromarray(rgb)).float().unsqueeze(0)
@@ -225,6 +234,14 @@ def _infer_frame(
     cam = FramebyFrameCalib(iwidth=w_orig, iheight=h_orig, denormalize=True)
     cam.update(kp_dict, lines_dict)
     final_params_dict = cam.heuristic_voting(refine_lines=bool(params["pnl_refine"]))
+    return final_params_dict, n_points
+
+
+def _infer_frame(
+    image_bgr: np.ndarray, model, model_l, params: dict, device: str
+) -> tuple[np.ndarray | None, float, int]:
+    """Return (homography image->cm | None, confidence, n_points) for one frame."""
+    final_params_dict, n_points = _calibrate_frame(image_bgr, model, model_l, params, device)
     if final_params_dict is None:
         return None, 0.0, n_points
 
@@ -266,6 +283,10 @@ def run(job_path: Path) -> None:
 
     model, model_l = _load_models(params, device)
 
+    if params.get("mode") == "camera":
+        _run_camera_mode(manifest, frames_dir, model, model_l, params, device)
+        return
+
     records: list[dict] = []
     for frame_idx, path in _frame_files(frames_dir):
         image_bgr = cv2.imread(str(path))
@@ -284,6 +305,48 @@ def run(job_path: Path) -> None:
     out_path = Path(str(manifest["out_path"]))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(records))
+
+
+# SoccerNet-Calibration camera JSON keys (evaluate_camera.py / camera.py
+# from_json_parameters). PnLCalib's `cam_params` already carries exactly these
+# (plus an extra `rotation_matrix` the evaluator ignores) -- see PnLCalib
+# utils_calib.FramebyFrameCalib.get_cam_params.
+_CAMERA_JSON_KEYS = (
+    "pan_degrees", "tilt_degrees", "roll_degrees",
+    "x_focal_length", "y_focal_length", "principal_point", "position_meters",
+    "radial_distortion", "tangential_distortion", "thin_prism_distortion",
+)
+
+
+def _run_camera_mode(manifest, frames_dir, model, model_l, params, device) -> None:
+    """Gate 1 output mode: write one ``camera_<frame_id>.json`` per image (the
+    SoccerNet-Calibration prediction layout the official evaluator consumes).
+
+    Frames must be at the SoccerNet evaluation resolution (960x540) so the
+    emitted principal point matches what ``evaluate_camera.py`` reprojects
+    against. A frame PnLCalib cannot calibrate is simply skipped (no file) --
+    the official evaluator counts a missing prediction against completeness,
+    exactly the intended behaviour, so no null placeholder is written."""
+    out_dir = Path(str(manifest["out_dir"]))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # The SoccerNet split dir holds both <id>.jpg images and <id>.json GT, so
+    # select image files explicitly (do not reuse the digit-stem frame walker).
+    image_paths = sorted(
+        p for p in frames_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png")
+    )
+    for path in image_paths:
+        image_bgr = cv2.imread(str(path))
+        if image_bgr is None:
+            raise RuntimeError(f"could not read frame image {path}")
+        final_params_dict, _n_points = _calibrate_frame(
+            image_bgr, model, model_l, params, device
+        )
+        if final_params_dict is None:
+            continue
+        cam = final_params_dict["cam_params"]
+        camera_json = {key: cam[key] for key in _CAMERA_JSON_KEYS if key in cam}
+        (out_dir / f"camera_{path.stem}.json").write_text(json.dumps(camera_json))
 
 
 def main(argv: list[str] | None = None) -> int:

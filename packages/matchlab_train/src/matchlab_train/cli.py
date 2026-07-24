@@ -101,7 +101,65 @@ def main() -> int:
         help="Split-manifest role to record for newly ingested matches",
     )
 
+    g1_p = sub.add_parser(
+        "gate1-calibration-eval",
+        help="Gate 1 (SPO-60): reproduce PnLCalib's SoccerNet-Calibration test-split "
+        "accuracy under the official challenge protocol",
+    )
+    g1_p.add_argument(
+        "--soccernet-dir", default="data/soccernet/calibration",
+        help="SoccerNet-Calibration root (contains <split>/ with <id>.jpg + <id>.json)",
+    )
+    g1_p.add_argument("--split", default="test", choices=["train", "valid", "test", "challenge"])
+    g1_p.add_argument(
+        "--thresholds", default="5,10,20",
+        help="Comma-separated pixel thresholds for JaC@t (default 5,10,20)",
+    )
+    g1_p.add_argument(
+        "--out", default="data/reports/gate1-calibration",
+        help="Output directory for the gate record JSON + markdown summary",
+    )
+    g1_p.add_argument(
+        "--predictor-cmd", default=None,
+        help="Predictor command (camera-output mode); driven via the job-manifest "
+        "contract. Omit and pass --prediction-dir to score precomputed predictions.",
+    )
+    g1_p.add_argument(
+        "--prediction-dir", default=None,
+        help="Directory of precomputed camera_<id>.json predictions (skip prediction)",
+    )
+    g1_p.add_argument(
+        "--scorer-cmd", required=True,
+        help="Official scorer command (sn-calibration adapter in the sibling checkout)",
+    )
+    g1_p.add_argument("--tolerance", type=float, default=0.03, help="Gate tolerance (absolute)")
+    g1_p.add_argument("--resolution-width", type=int, default=960)
+    g1_p.add_argument("--resolution-height", type=int, default=540)
+
     args = parser.parse_args()
+
+    if args.command == "gate1-calibration-eval":
+        import shlex
+        from pathlib import Path
+
+        from matchlab_train.calibration_gate import run_gate1_calibration_eval
+
+        record = run_gate1_calibration_eval(
+            soccernet_dir=Path(args.soccernet_dir),
+            split=args.split,
+            thresholds=[int(t) for t in args.thresholds.split(",")],
+            out_dir=Path(args.out),
+            scorer_command=shlex.split(args.scorer_cmd),
+            predictor_command=shlex.split(args.predictor_cmd) if args.predictor_cmd else None,
+            prediction_dir=args.prediction_dir,
+            tolerance=args.tolerance,
+            resolution_width=args.resolution_width,
+            resolution_height=args.resolution_height,
+        )
+        print(json.dumps(record["measured"], indent=2))
+        print(f"gate passed: {record['passed']}")
+        print(f"gate record written under {args.out}")
+        return 0 if record["passed"] else 1
 
     if args.command == "tasks":
         for task in registry.available():
