@@ -14,6 +14,9 @@ class EventType(StrEnum):
     MISSED_PASS = "missed_pass"
     RESTART = "restart"
     POSSESSION_GAIN = "possession_gain"
+    # SPO-78: touch events derived from possession transitions. RECEPTION marks
+    # a player gaining the ball (the counterpart to PASS, losing it).
+    RECEPTION = "reception"
     # v2 seam: types the learned spotting/attribution stages will emit.
     # Present in the schema now so QA labels collected on them are usable later.
     SHOT = "shot"

@@ -25,6 +25,10 @@ from matchlab_core.schemas.run import (
     StageResult,
     StageStatus,
 )
+from matchlab_core.stages.possession.events_from_possession import (
+    events_to_spotted,
+    transition_to_events,
+)
 from matchlab_core.timeline import compute_timeline
 from matchlab_core.video import probe
 
@@ -161,17 +165,30 @@ class PipelineRunner:
             StageKind.POSSESSION,
             lambda s: s.estimate(ctx, tracklets, teams, detect_out.ball),
         )
+        poss_events = []
+        poss_spotted = []
         if possession is not None:
             store.write_json(ArtifactName.POSSESSION_TIMELINE, possession)
             self._index(ArtifactName.POSSESSION_TIMELINE)
             self._metric("n_possessor_frames", len(possession))
+            # SPO-78: shared, impl-agnostic rules turn the possessor timeline
+            # into attributed touch events; the bridge mirrors them as
+            # SpottedEvents for avg-mAP scoring.
+            poss_events = transition_to_events(possession)
+            poss_spotted = events_to_spotted(poss_events)
+            self._metric("n_possession_events", len(poss_events))
 
         events_out = self._exec(
             StageKind.EVENTS, lambda s: s.detect_events(ctx, minimap, players)
         )
         spotted = self._exec(StageKind.SPOTTING, lambda s: s.spot(ctx)) or []
+        # spotting.json: learned spotters (tdeed) write it themselves. If none
+        # did, fall back to the possession-derived touch events so passes are
+        # scored by the same avg-mAP path.
+        if not store.exists(ArtifactName.SPOTTING) and poss_spotted:
+            store.write_json(ArtifactName.SPOTTING, poss_spotted)
         self._index(ArtifactName.SPOTTING)  # written by tdeed-style stages, guarded by exists()
-        all_events = (events_out.events if events_out else []) + spotted
+        all_events = (events_out.events if events_out else []) + spotted + poss_events
         if events_out:
             store.write_json(ArtifactName.POSSESSION, events_out.possession)
             store.write_json(ArtifactName.STATS, events_out.stats)
