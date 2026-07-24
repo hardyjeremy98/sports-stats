@@ -169,23 +169,30 @@ class PnLCalibCalibrator(Calibrator):
         outside the frame or behind the image plane are dropped."""
         vertices = np.array(ctx.pitch.vertices, dtype=np.float64)  # (N, 2) cm
         w, h = ctx.video.width, ctx.video.height
-        margin = 0.1 * max(w, h)
+        margin = 0.05 * max(w, h)
         for cal in calibrations:
             if cal.homography is None:
                 continue
+            hm = np.array(cal.homography, dtype=np.float64)  # image -> cm
             try:
-                h_inv = np.linalg.inv(np.array(cal.homography, dtype=np.float64))
+                h_inv = np.linalg.inv(hm)
             except np.linalg.LinAlgError:
                 continue
+            # The image horizon is where the image->cm map sends points to
+            # infinity: hz . [x, y, 1] = 0. Pitch vertices on the far side of the
+            # horizon reproject into a meaningless cluster near the vanishing
+            # line, so keep only those on the foreground side — the same side as
+            # the image bottom-centre, which is always near-field.
+            hz = hm[2]  # [a, b, c]
+            fg = np.sign(hz[0] * (w / 2.0) + hz[1] * h + hz[2])
             pts: list[Point] = []
             for vx, vy in vertices:
                 p = h_inv @ np.array([vx, vy, 1.0])
-                # A homography is sign-invariant, so w may be negative for valid
-                # points; only a near-zero w (vertex on the horizon / at
-                # infinity) is unprojectable.
-                if abs(p[2]) < 1e-9:
+                if abs(p[2]) < 1e-9:  # vertex on the horizon / at infinity
                     continue
                 x, y = p[0] / p[2], p[1] / p[2]
+                if np.sign(hz[0] * x + hz[1] * y + hz[2]) != fg:  # behind the horizon
+                    continue
                 if -margin <= x <= w + margin and -margin <= y <= h + margin:
                     pts.append(Point(x=float(x), y=float(y)))
             cal.keypoints_image = pts
