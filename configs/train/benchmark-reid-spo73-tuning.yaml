@@ -1,0 +1,106 @@
+# SPO-73 (development): mutual-best + margin decision-rule grid on tuning
+# sequences, ANCHORLESS primary (anchor_source none) — the scope decision on
+# the SPO-73 Linear issue: this measures pure appearance-based merging;
+# roster naming is out of scope. Substrate: frozen TDLP-full tracklet replay
+# from the SPO-59 Phase A base runs, byte-identical across arms.
+# Grid: merge_min_margin {0.0, 0.02, 0.05, 0.1} x min_similarity floor
+# {0.5, 0.7, 0.8, 0.9, 0.95} (base candidates at floor 0.9; sweep adds the
+# rest). References: noop-per-tracklet (do-no-harm baseline), the v1
+# absolute-threshold rule anchorless at its calibrated 0.95, and one
+# mutual-best + oracle-anchor composition arm (secondary).
+name: benchmark-reid-spo73-tuning
+task: benchmark
+description: >
+  SPO-73 (development): anchorless mutual-best+margin rule grid on tuning
+  sequences over the frozen SPO-59 substrate.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: noop-per-tracklet
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: per-tracklet
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: v1-threshold-0.95-anchorless
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.min_similarity: 0.95
+      comparison_class: matched_data
+    - name: mb-m0.0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.0
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.02
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.02
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.05
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.05
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.1
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.1
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-anchor-composition
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.02
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+  sweeps:
+    - candidate: mb-m0.0
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.7, 0.8, 0.95]
+    - candidate: mb-m0.02
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.7, 0.8, 0.95]
+    - candidate: mb-m0.05
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.7, 0.8, 0.95]
+    - candidate: mb-m0.1
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.7, 0.8, 0.95]
+  device: cuda
+  iou_threshold: 0.5
+  compare:
+    baseline: noop-per-tracklet
+  tolerances:
+    entity_purity: 0.0
+    idf1_entity: 0.0
+    hota_entity: 0.0
+output_dir: data/experiments
