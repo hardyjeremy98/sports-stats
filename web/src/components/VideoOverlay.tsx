@@ -16,6 +16,7 @@ export interface LayerState {
   keypoints: boolean;
   events: boolean;
   spotting: boolean;
+  possessor: boolean;
   gt: boolean;
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_LAYERS: LayerState = {
   keypoints: false,
   events: true,
   spotting: true,
+  possessor: true,
   gt: true,
 };
 
@@ -44,6 +46,7 @@ const LAYER_DEFS: {
   { id: "keypoints", label: "Pitch keypoints", needs: (a) => !!a.calibration },
   { id: "events", label: "Events", needs: (a) => !!a.events },
   { id: "spotting", label: "Spotting", needs: (a) => !!a.spotting?.length },
+  { id: "possessor", label: "Possessor", needs: (a) => !!a.possessionTimeline?.length },
   { id: "gt", label: "Ground truth", needs: (_a, gt) => !!gt },
 ];
 
@@ -201,6 +204,39 @@ export const VideoOverlay = forwardRef<
             ctx.fillRect(b.box.x1, b.box.y1 - 15 * px, tw + 8 * px, 14 * px);
             ctx.fillStyle = isHl ? "#9BE532" : color;
             ctx.fillText(text, b.box.x1 + 4 * px, b.box.y1 - 4 * px);
+          }
+        }
+      }
+
+      // Image-space possessor (SPO-79/81): ring the player the heuristic thinks
+      // holds the ball this frame. Low confidence -> dashed + "?" (abstention-
+      // aware, per the PRD's honesty stance).
+      if (layers.possessor && artifacts.possessionTimeline) {
+        const row = floorRow(artifacts.possessionTimeline, frameIdx, (r) => r.frame_idx);
+        if (row && frameIdx - row.frame_idx <= 12 && row.possessor_tracklet_id != null) {
+          const pb = nearestFrameBoxes(artifacts, frameIdx).find(
+            (b) => b.tracklet_id === row.possessor_tracklet_id,
+          );
+          if (pb) {
+            const low = row.confidence < 0.45;
+            const color = low ? "#F5C518" : "#22D3EE";
+            const pad = 3 * px;
+            ctx.setLineDash(low ? [6 * px, 4 * px] : []);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 4 * px;
+            ctx.strokeRect(
+              pb.box.x1 - pad,
+              pb.box.y1 - pad,
+              pb.box.x2 - pb.box.x1 + 2 * pad,
+              pb.box.y2 - pb.box.y1 + 2 * pad,
+            );
+            ctx.setLineDash([]);
+            const tag = low ? "ball?" : "ball";
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = color;
+            ctx.fillRect(pb.box.x1 - pad, pb.box.y2 + pad, tw + 8 * px, 14 * px);
+            ctx.fillStyle = "rgba(11,15,13,0.95)";
+            ctx.fillText(tag, pb.box.x1 - pad + 4 * px, pb.box.y2 + pad + 11 * px);
           }
         }
       }

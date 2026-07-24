@@ -17,6 +17,7 @@ import type {
   MinimapFrame,
   NamingReport,
   PlayerEntity,
+  PossessorFrame,
   ReidDetailReport,
   SpottedEvent,
   StatSheet,
@@ -43,6 +44,7 @@ export interface RunArtifacts {
   minimap: MinimapFrame[] | null;
   events: MatchEvent[] | null;
   spotting: SpottedEvent[] | null;
+  possessionTimeline: PossessorFrame[] | null;
   stats: StatSheet | null;
   timeline: TimelineBucket[] | null;
   eval: EvalResult | null;
@@ -53,6 +55,7 @@ export interface RunArtifacts {
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
   entityByTracklet: Map<number, PlayerEntity>;
+  possessorByFrame: Map<number, PossessorFrame>; // image-space possessor per frame
   sortedFrameIdxs: number[]; // frames that have tracklet boxes, ascending
   loading: boolean;
 }
@@ -84,6 +87,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "minimap", fn: () => fetchJsonl<MinimapFrame>(api.artifactUrl(runId, "minimap")) },
   { key: "events", fn: () => fetchJson<MatchEvent[]>(api.artifactUrl(runId, "events")) },
   { key: "spotting", fn: () => fetchJson<SpottedEvent[]>(api.artifactUrl(runId, "spotting")) },
+  { key: "possession_timeline", fn: () => fetchJson<PossessorFrame[]>(api.artifactUrl(runId, "possession_timeline")) },
   { key: "stats", fn: () => fetchJson<StatSheet>(api.artifactUrl(runId, "stats")) },
   { key: "timeline", fn: () => fetchJson<TimelineBucket[]>(api.artifactUrl(runId, "timeline")) },
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
@@ -111,6 +115,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     minimap,
     events,
     spotting,
+    possessionTimeline,
     stats,
     timeline,
     evalResult,
@@ -145,6 +150,10 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
   for (const p of (players as PlayerEntity[] | null) ?? [])
     for (const tid of p.tracklet_ids) entityByTracklet.set(tid, p);
 
+  const possessorByFrame = new Map<number, PossessorFrame>();
+  for (const fr of (possessionTimeline as PossessorFrame[] | null) ?? [])
+    possessorByFrame.set(fr.frame_idx, fr);
+
   return {
     detections: detections as FrameDetections[] | null,
     ball: ball as BallObservation[] | null,
@@ -155,6 +164,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     minimap: minimap as MinimapFrame[] | null,
     events: events as MatchEvent[] | null,
     spotting: spotting as SpottedEvent[] | null,
+    possessionTimeline: possessionTimeline as PossessorFrame[] | null,
     stats: stats as StatSheet | null,
     timeline: timeline as TimelineBucket[] | null,
     eval: evalResult as EvalResult | null,
@@ -164,6 +174,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,
+    possessorByFrame,
     sortedFrameIdxs: [...trackletBoxesByFrame.keys()].sort((a, b) => a - b),
     loading: results.some((r) => r.isLoading),
   };

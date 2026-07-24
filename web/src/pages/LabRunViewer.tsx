@@ -260,6 +260,7 @@ export default function LabRunViewer() {
               timeline={artifacts.timeline}
               events={artifacts.events}
               spotting={artifacts.spotting}
+              possession={artifacts.possessionTimeline}
               duration={duration}
               signal={signal}
               onSeek={seek}
