@@ -1,0 +1,78 @@
+# Oracle-detection condition for the B2 re-ID engine (SPO-59 primary
+# condition, matching the existing TDLP-full run protocol): GT boxes stand in
+# for the detector so merging/naming quality is measured with detection
+# quality held perfect. Point at a GT-backed video (sibling `<video>.gt.json`,
+# e.g. ingested via `matchlab-train ingest-soccernet`). Calibrate is disabled
+# on purpose: a synthetic homography would feed bogus metric speeds into the
+# engine's opportunistic motion gate — no calibration means the gate honestly
+# falls back to the GMC pixel bound. Requires the external-trackers checkout
+# (see configs/pipeline.tdlp-full.yaml).
+name: tdlp-full-reid-oracle
+description: >
+  Oracle (GT-box) detections + SOTA TDLP-full tracker + reid-engine
+  association with oracle jersey anchors: the re-ID engine benchmark's
+  primary condition.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: tdlp-full
+    params:
+      device: cuda:0
+      timeout_s: 7200.0
+      keep_work: false
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    enabled: false
+  associate:
+    impl: reid-engine
+    params:
+      min_similarity: 0.6
+      overlap_tolerance_frames: 2
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
+      anchor_source: oracle-jersey
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+      min_posterior: 0.6
+      min_margin: 0.2
+      sinkhorn_iterations: 2
+      tier_auto_min_posterior: 0.85
+      tier_auto_min_margin: 0.5
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
