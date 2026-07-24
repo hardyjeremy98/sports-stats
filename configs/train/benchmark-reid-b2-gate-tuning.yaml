@@ -41,6 +41,13 @@ params:
         stages.associate.impl: global-reid
         stages.associate.params: {}
       comparison_class: matched_data
+    - name: reid-similarity-0.95
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.min_similarity: 0.95
+      comparison_class: matched_data
   sweeps: []
   device: cuda
   iou_threshold: 0.5

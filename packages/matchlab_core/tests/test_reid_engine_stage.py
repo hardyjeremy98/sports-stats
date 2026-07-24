@@ -80,12 +80,14 @@ def _run_stage(tmp_path, tracklets, teams, features: FrameFeatures | None, param
 
 
 def test_merges_similar_non_overlapping_and_abstains_identity(tmp_path):
+    # min_similarity set explicitly: the shipped default disables
+    # similarity-only merging (SPO-59 measurement, see stage Params).
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100), _tracklet(3, 0, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2, 3)]
     ff = _features(
         [(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05]), (3, 0, [0.0, 1.0])]
     )
-    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff)
+    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.95})
 
     groups = sorted(sorted(e.tracklet_ids) for e in entities)
     assert groups == [[1, 2], [3]]
@@ -98,7 +100,7 @@ def test_association_report_is_format_compatible(tmp_path):
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
-    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff)
+    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.95})
 
     report = AssociationReport.model_validate_json(
         ctx.store.path(ArtifactName.ASSOCIATION).read_text()

@@ -35,7 +35,13 @@ stages:
   associate:
     impl: reid-engine
     params:
-      min_similarity: 0.95
+      # >1.0 disables similarity-only merging: anchor-driven merges bypass this
+      # gate by design, so the engine merges on anchor evidence alone. SPO-59
+      # tuning measurement: similarity merging at its calibrated best (0.95)
+      # bought +0.004 entity IDF1 over anchor-only but failed do-no-harm on
+      # entity purity; anchor-only matched no-op purity exactly. Set 0.95 (the
+      # calibrated threshold) to re-enable similarity merging.
+      min_similarity: 1.01
       overlap_tolerance_frames: 2
       max_prototypes: 4
       view_threshold: 0.7
