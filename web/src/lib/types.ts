@@ -63,6 +63,11 @@ export interface FrameCalibration {
   keypoints_image: { x: number; y: number }[];
   keypoint_confidences: number[];
   confidence: number;
+  // Per-frame provenance, source of truth for the pnlcalib offline smoother.
+  // Optional/null: online EMA/carry calibrators (yolo-pitch-local,
+  // roboflow-keypoints) leave it null, and pre-`status` artifacts have no key at
+  // all -- fall back to the derived `smoothed` bool when it is absent.
+  status?: "fresh" | "smoothed" | "interpolated" | "absent" | null;
   smoothed: boolean;
 }
 

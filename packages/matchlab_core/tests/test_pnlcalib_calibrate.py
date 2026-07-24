@@ -110,6 +110,40 @@ def _scripted_calibrator(tmp_path: Path, homography: list[list[float]]) -> list[
     return [sys.executable, str(script)]
 
 
+def _mapped_calibrator(
+    tmp_path: Path, per_frame: dict[int, list[list[float]] | None]
+) -> list[str]:
+    """A stdlib calibrator emitting a chosen homography (or null, for a frame the
+    model "could not calibrate") per source frame_idx. Every sampled frame must be
+    a key — the bridge rejects a record set disagreeing with the manifest. Lets a
+    test script gaps and outliers into the raw trajectory the offline smoother
+    then has to classify (fresh / smoothed / interpolated / absent)."""
+    script = tmp_path / "mapped_calibrator.py"
+    keyed_json = json.dumps({str(k): v for k, v in per_frame.items()})
+    script.write_text(
+        "import json, re, sys\n"
+        "from pathlib import Path\n"
+        "job = sys.argv[sys.argv.index('--job') + 1]\n"
+        "m = json.loads(Path(job).read_text())\n"
+        "pat = re.compile(r'^(\\d+)\\.\\w+$')\n"
+        "fd = Path(m['frames_dir'])\n"
+        "idxs = sorted(int(pat.match(p.name).group(1)) for p in fd.iterdir()"
+        " if pat.match(p.name))\n"
+        f"H = json.loads({keyed_json!r})\n"
+        "recs = [{'frame_idx': i, 'homography': H.get(str(i)),"
+        " 'confidence': 0.8 if H.get(str(i)) is not None else 0.0,"
+        " 'n_points': 20 if H.get(str(i)) is not None else 0} for i in idxs]\n"
+        "Path(m['out_path']).write_text(json.dumps(recs))\n"
+    )
+    return [sys.executable, str(script)]
+
+
+# A valid, invertible identity-scale image->cm homography and a strongly
+# translated one used as a gross outlier (its projected anchors land ~700px away).
+_H_OK = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+_H_OUTLIER = [[1.0, 0.0, 500.0], [0.0, 1.0, 500.0], [0.0, 0.0, 1.0]]
+
+
 # --- bridge round-trip against the reference calibrator ----------------------
 
 
@@ -291,12 +325,14 @@ def test_calibrate_emits_one_smoothed_calibration_per_sampled_frame(tmp_path):
 
     sampled = list(range(0, ctx.video.frame_count, 2))
     assert [c.frame_idx for c in result] == sampled
-    # The reference calibrator returns a fresh homography for every frame, so
-    # every emitted calibration is a real (non-carried) invertible 3×3 with the
-    # reprojected pitch vertices populated as overlay keypoints.
+    # The reference calibrator returns a fresh homography for every frame, so the
+    # offline smoother marks every emitted calibration FRESH: a real (non-carried)
+    # invertible 3×3, provenance status "fresh", legacy `smoothed` bool False, with
+    # the reprojected pitch vertices populated as overlay keypoints.
     for c in result:
         assert c.homography is not None
         assert np.array(c.homography).shape == (3, 3)
+        assert c.status == "fresh"
         assert c.smoothed is False
         assert c.n_keypoints > 0
         assert len(c.keypoints_image) == c.n_keypoints == len(c.keypoint_confidences)
@@ -360,6 +396,111 @@ def test_calibrate_culls_behind_horizon_keypoints(tmp_path):
     # The stage keeps exactly the foreground-side, in-frame vertices — the
     # behind-horizon ones are culled even though they project inside the frame.
     assert len(result[0].keypoints_image) == foreground_inframe
+
+
+# --- offline smoother provenance through the stage ---------------------------
+
+
+def test_calibrate_interpolates_short_gap(tmp_path):
+    ctx = _make_ctx(tmp_path, fps=10.0, duration_s=0.6, stride=1)  # frames 0..5
+    per_frame = {0: _H_OK, 1: None, 2: None, 3: None, 4: _H_OK, 5: _H_OK}
+    stage = build(
+        StageKind.CALIBRATE,
+        "pnlcalib",
+        {"command": _mapped_calibrator(tmp_path, per_frame), "max_gap_frames": 10},
+    )
+
+    result = stage.calibrate(ctx)
+    by_idx = {c.frame_idx: c for c in result}
+
+    # Frames 1-3 sit in a gap of span 4 (<= cap 10) bracketed by fresh 0 and 4:
+    # interpolated with a valid homography, never null.
+    for idx in (1, 2, 3):
+        assert by_idx[idx].status == "interpolated"
+        assert by_idx[idx].homography is not None
+        assert by_idx[idx].smoothed is True
+    assert by_idx[0].status == "fresh"
+
+
+def test_calibrate_marks_long_gap_absent(tmp_path):
+    ctx = _make_ctx(tmp_path, fps=10.0, duration_s=0.6, stride=1)  # frames 0..5
+    per_frame = {0: _H_OK, 1: None, 2: None, 3: None, 4: _H_OK, 5: _H_OK}
+    stage = build(
+        StageKind.CALIBRATE,
+        "pnlcalib",
+        {"command": _mapped_calibrator(tmp_path, per_frame), "max_gap_frames": 2},
+    )
+
+    result = stage.calibrate(ctx)
+    by_idx = {c.frame_idx: c for c in result}
+
+    # Same trajectory, but the span-4 gap now exceeds the cap: no homography is
+    # invented for the missing frames.
+    for idx in (1, 2, 3):
+        assert by_idx[idx].status == "absent"
+        assert by_idx[idx].homography is None
+        assert by_idx[idx].smoothed is False
+
+
+def test_calibrate_flags_outlier_frame_smoothed(tmp_path):
+    ctx = _make_ctx(tmp_path, fps=10.0, duration_s=0.6, stride=1)  # frames 0..5
+    per_frame = {0: _H_OK, 1: _H_OK, 2: _H_OUTLIER, 3: _H_OK, 4: _H_OK, 5: _H_OK}
+    stage = build(
+        StageKind.CALIBRATE,
+        "pnlcalib",
+        {"command": _mapped_calibrator(tmp_path, per_frame), "outlier_threshold_px": 50.0},
+    )
+
+    result = stage.calibrate(ctx)
+    by_idx = {c.frame_idx: c for c in result}
+
+    # Frame 2's raw estimate is a gross outlier: rejected and reconstructed from
+    # its neighbours, so it is SMOOTHED (present raw, not fresh) with a valid H;
+    # the surrounding good frames stay FRESH.
+    assert by_idx[2].status == "smoothed"
+    assert by_idx[2].homography is not None
+    assert by_idx[2].smoothed is True
+    assert by_idx[1].status == "fresh"
+    assert by_idx[3].status == "fresh"
+
+
+def test_calibrate_does_not_carry_past_last_fresh_frame(tmp_path):
+    ctx = _make_ctx(tmp_path, fps=10.0, duration_s=0.6, stride=1)  # frames 0..5
+    per_frame = {0: _H_OK, 1: _H_OK, 2: _H_OK, 3: None, 4: None, 5: None}
+    stage = build(
+        StageKind.CALIBRATE,
+        "pnlcalib",
+        {"command": _mapped_calibrator(tmp_path, per_frame)},
+    )
+
+    result = stage.calibrate(ctx)
+    by_idx = {c.frame_idx: c for c in result}
+
+    # After the last fresh frame there is no bracketing right anchor: the trailing
+    # frames are ABSENT (homography None), never a decayed copy of the last good H
+    # — the old EMA/carry path is gone from this stage.
+    for idx in (3, 4, 5):
+        assert by_idx[idx].status == "absent"
+        assert by_idx[idx].homography is None
+
+
+# --- schema back-compat for the new `status` provenance field ----------------
+
+
+def test_frame_calibration_status_backcompat_and_roundtrip():
+    from matchlab_core.schemas import FrameCalibration
+
+    # A legacy row written before `status` existed still validates (status None).
+    legacy = FrameCalibration.model_validate(
+        {"frame_idx": 7, "t": 0.7, "homography": None, "smoothed": True}
+    )
+    assert legacy.status is None
+    assert legacy.smoothed is True
+
+    # A new row round-trips its status through JSON.
+    fresh = FrameCalibration(frame_idx=1, t=0.1, homography=_H_OK, status="fresh")
+    restored = FrameCalibration.model_validate_json(fresh.model_dump_json())
+    assert restored.status == "fresh"
 
 
 # --- registration regression -------------------------------------------------

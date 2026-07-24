@@ -7,8 +7,12 @@ This module is the *pipeline* side of the isolation boundary: it never imports
 the external model or torch, only the bridge (which itself knows nothing
 model-specific). It freezes the sampled frames, hands them to the external
 calibrator, and receives one fresh image→pitch-cm homography per frame — then
-applies the same EMA/carry smoothing (`stages.calibrate.smoothing`) the
-`yolo-pitch-local` calibrator uses, so downstream (minimap fusion) is unchanged.
+applies the *offline* whole-clip trajectory smoother
+(`matchlab_core.calib.smoother`), stamping each frame with a provenance
+`status` (fresh / smoothed / interpolated / absent). Unlike the streaming
+`yolo-pitch-local` calibrator's EMA/carry-and-decay, this stage never
+extrapolates: past a permissible gap the trajectory is `absent`, not a decayed
+copy of the last good homography.
 
 The external calibrator is responsible for emitting homographies already in the
 lab's pitch-cm convention (ctx.pitch, matchlab_core/pitch.py): image pixels →
@@ -27,18 +31,25 @@ import numpy as np
 from pydantic import BaseModel
 
 from matchlab_core.calib.bridge import CalibrationParams, run_calibrator
+from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
 from matchlab_core.interfaces import Calibrator, StageContext
 from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from matchlab_core.registry import register
 from matchlab_core.schemas import FrameCalibration
 from matchlab_core.schemas.geometry import Point
 from matchlab_core.schemas.run import StageKind
-from matchlab_core.stages.calibrate.smoothing import FreshCalibration, smooth_calibrations
 
 # Runnable out of the box with no real model or GPU: the permissive reference
 # calibrator CLI. An operator points `command` at a real external calibrator
 # entrypoint (its own isolated environment) to swap in the genuine model.
 _DEFAULT_COMMAND = [sys.executable, "-m", "matchlab_core.calib.reference_cli"]
+
+# Pitch landmarks the offline smoother tracks in image space (indices into
+# ctx.pitch.vertices, shared roboflow/FIFA vertex order). The four field corners
+# plus the centre-circle left/right points: well-spread across the whole pitch
+# with a central brace, so the DLT refit of each smoothed homography is
+# well-conditioned rather than dominated by one region.
+_ANCHOR_VERTEX_INDICES: tuple[int, ...] = (0, 5, 24, 29, 30, 31)
 
 
 class Params(BaseModel):
@@ -51,10 +62,10 @@ class Params(BaseModel):
     device: str = "cpu"
     frames_ext: str = "jpg"
     timeout_s: float = 3600.0
-    # Temporal smoothing (identical defaults to yolo-pitch-local).
-    ema_alpha: float = 0.9
-    max_carry_frames: int = 90
-    carry_decay: float = 0.97
+    # Offline trajectory smoother (matchlab_core.calib.smoother) — Task 3 defaults.
+    max_gap_frames: int = 150
+    outlier_threshold_px: float = 50.0
+    smoothing_window: int = 9
 
 
 @register(StageKind.CALIBRATE, "pnlcalib")
@@ -117,37 +128,49 @@ class PnLCalibCalibrator(Calibrator):
             # subprocess handoff — never a tracked run-dir artifact.
             shutil.rmtree(work_dir, ignore_errors=True)
 
+        # Collect every raw estimate first (whole clip), then smooth offline.
         by_idx = {r.frame_idx: r for r in records}
-        fresh: list[FreshCalibration] = []
+        estimates: list[RawEstimate] = []
         for frame_idx in order:
             rec = by_idx.get(frame_idx)
-            h = (
-                np.array(rec.homography, dtype=np.float64)
-                if rec is not None and rec.homography is not None
-                else None
-            )
-            fresh.append(
-                FreshCalibration(
+            estimates.append(
+                RawEstimate(
                     frame_idx=frame_idx,
-                    t=frame_meta[frame_idx],
-                    homography=h,
+                    homography=rec.homography if rec is not None else None,
                     confidence=rec.confidence if rec is not None else 0.0,
-                    n_keypoints=rec.n_points if rec is not None else 0,
                 )
             )
-            if len(fresh) % 20 == 0:
+            if len(estimates) % 20 == 0:
                 ctx.progress(
                     StageKind.CALIBRATE,
-                    min(len(fresh) / max(1, len(order)), 0.99),
-                    f"calibrate: frame {len(fresh)}",
+                    min(len(estimates) / max(1, len(order)), 0.99),
+                    f"calibrate: frame {len(estimates)}",
                 )
 
-        out = smooth_calibrations(
-            fresh,
-            ema_alpha=p.ema_alpha,
-            max_carry_frames=p.max_carry_frames,
-            carry_decay=p.carry_decay,
+        anchors = [ctx.pitch.vertices[i] for i in _ANCHOR_VERTEX_INDICES]
+        smoothed = smooth_homography_trajectory(
+            estimates,
+            pitch_points=anchors,
+            max_gap_frames=p.max_gap_frames,
+            outlier_threshold_px=p.outlier_threshold_px,
+            smoothing_window=p.smoothing_window,
         )
+
+        out: list[FrameCalibration] = []
+        for sf in smoothed:
+            status = sf.status.value
+            out.append(
+                FrameCalibration(
+                    frame_idx=sf.frame_idx,
+                    t=frame_meta[sf.frame_idx],
+                    homography=sf.homography,
+                    confidence=round(sf.confidence, 4),
+                    status=status,
+                    # Derived legacy flag: fresh and absent frames are not
+                    # smoothed-from-neighbours; the interpolated/outlier ones are.
+                    smoothed=status not in ("fresh", "absent"),
+                )
+            )
         self._fill_reprojected_keypoints(out, ctx)
         return out
 

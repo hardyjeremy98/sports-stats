@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, field_validator
 
 from matchlab_core.schemas.geometry import Point
@@ -10,8 +12,23 @@ class FrameCalibration(BaseModel):
 
     `homography` maps image pixels to pitch centimeters (row-major 3x3).
     The keypoint model is known to be fragile on non-broadcast footage, so
-    calibrators report per-frame confidence and whether the homography was
-    carried/smoothed from neighboring frames rather than estimated fresh.
+    calibrators report per-frame confidence and per-frame provenance for how the
+    homography was obtained.
+
+    Provenance fields:
+
+    * `status` is the source of truth (the pnlcalib offline smoother sets it):
+      - "fresh"        — a usable raw estimate for this frame was accepted;
+      - "smoothed"     — a raw estimate was present but rejected as an outlier and
+                         reconstructed from neighbours;
+      - "interpolated" — no raw estimate; filled from bracketing anchors inside a
+                         permissible gap;
+      - "absent"       — no output homography (gap too long / one-sided).
+    * `smoothed` is a derived legacy bool kept for artifact back-compat (older
+      runs' JSONL and consumers that predate `status`). New rows set BOTH:
+      `smoothed = status not in ("fresh", "absent")`. Online EMA/carry calibrators
+      (`yolo-pitch-local`, `roboflow-keypoints`) leave `status=None` and keep
+      writing `smoothed` as their fresh-vs-carried flag.
     """
 
     frame_idx: int
@@ -21,6 +38,7 @@ class FrameCalibration(BaseModel):
     keypoints_image: list[Point] = []
     keypoint_confidences: list[float] = []
     confidence: float = 0.0
+    status: Literal["fresh", "smoothed", "interpolated", "absent"] | None = None
     smoothed: bool = False
 
 
