@@ -5,6 +5,12 @@ Upload a single ground-level recording of a soccer match; get back a per-player 
 (passes, missed passes, possession, touches, restarts), a 2D minimap replay, and an
 annotated video — fully automated, no special hardware, no manual tagging.
 
+> **Current development scope:** the above is the product's eventual target, not the current
+> development input. Development and evaluation currently run against broadcast-style
+> benchmark footage (SportsMOT, SoccerNet) and simulated/ground-truth data; phone/amateur
+> footage support is an explicit later-phase goal, not yet owned or validated (see
+> [`docs/implementation-status.md`](docs/implementation-status.md)).
+
 > The market/feasibility research that motivated this build lives in
 > [`../docs/market_research/`](../docs/market_research/) and the engineering research in
 > [`../docs/technology/`](../docs/technology/README.md). That dated research shaped the initial architecture;

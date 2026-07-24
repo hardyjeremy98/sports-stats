@@ -147,7 +147,17 @@ lazily (DB access) but server never imports train.
 ## Product and identity direction
 
 Canonical source: [`../docs/player-identity-vision.md`](../docs/player-identity-vision.md) and the
-accepted ADRs in [`docs/decisions/`](docs/decisions/). Non-negotiable invariants:
+accepted ADRs in [`docs/decisions/`](docs/decisions/).
+
+**Current development scope:** the invariants below describe the product's eventual target
+(amateur phone footage). Development and evaluation currently run against broadcast-style
+benchmark data (SportsMOT, SoccerNet) and simulated/ground-truth data — the team owns no
+phone footage yet, and phone-footage validation is an explicit later phase (see
+[`docs/implementation-status.md`](docs/implementation-status.md) and
+[`docs/prds/tracklet-modernization.md`](docs/prds/tracklet-modernization.md)). Don't pull
+phone-footage-specific concerns into current design or implementation decisions.
+
+Non-negotiable invariants:
 
 - MatchLab produces player-by-player analytics from ordinary single-camera amateur footage.
 - **Player identity must work without jersey OCR**, numbered kits, special cameras, or
