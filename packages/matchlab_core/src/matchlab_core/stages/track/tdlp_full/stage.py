@@ -158,7 +158,10 @@ class TdlpFullTracker(Tracker):
         params = self.params
 
         seq = _sanitize(params.seq_name or ctx.store.run_dir.name)
-        work = ctx.store.run_dir / "_tdlp_work"
+        # Absolute: every path below is handed to subprocesses running with
+        # cwd=external_root, where a relative run dir (as passed by the
+        # matchlab-run CLI) would not resolve.
+        work = (ctx.store.run_dir / "_tdlp_work").resolve()
         # gen_features writes pkls into features_root/<seq>/; the tracker's
         # ExtraFeaturesReader resolves <feat-dir>/<scene>/<frame>.pkl, so it
         # takes the PARENT (features_root), not the per-sequence dir.

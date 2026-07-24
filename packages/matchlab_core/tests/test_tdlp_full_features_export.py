@@ -71,6 +71,12 @@ def _fake_external_root(tmp_path: Path) -> Path:
 def _fake_run_external(python_exe, script, args, *, cwd, timeout_s, label,
                        extra_pythonpath=None, progress=None):
     opts = dict(zip(args[::2], args[1::2]))
+    # The real subprocess runs with cwd=external_root; every path argument
+    # must be absolute or it silently resolves against the wrong directory
+    # (regression: relative run dirs from the matchlab-run CLI).
+    for key, value in opts.items():
+        if key in ("--img-dir", "--det-file", "--out-dir", "--data-root"):
+            assert Path(value).is_absolute(), f"{key} must be absolute, got {value}"
     if "feature generation" in label:
         img_dir = Path(opts["--img-dir"])
         out_dir = Path(opts["--out-dir"])
