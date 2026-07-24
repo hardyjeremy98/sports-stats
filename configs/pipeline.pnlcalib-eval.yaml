@@ -24,9 +24,6 @@ description: >
   PnLCalib (external sibling venv) for camera calibration in place of the
   YOLOv8x-pose pitch keypoint model.
 sport: soccer
-# PnLCalib calibrates to real pitch geometry, so use the physically-correct
-# FIFA pitch coordinate system (not the roboflow template yolo-pitch-local uses).
-pitch: fifa
 video:
   sample_stride: 2
   max_frames: null

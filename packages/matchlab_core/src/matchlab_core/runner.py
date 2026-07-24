@@ -11,7 +11,6 @@ from matchlab_core import registry
 from matchlab_core.artifacts import ArtifactStore
 from matchlab_core.config import PipelineConfig
 from matchlab_core.interfaces import ProgressFn, Stage, StageContext
-from matchlab_core.pitch import get_pitch
 from matchlab_core.provenance import (
     DEFAULT_PACKAGE_NAMES,
     RunProvenance,
@@ -70,7 +69,6 @@ class PipelineRunner:
             config=config,
             store=self.store,
             device=device,
-            pitch=get_pitch(config.pitch),
             progress=self._progress,
         )
         self.manifest = RunManifest(

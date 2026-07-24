@@ -7,9 +7,8 @@ from matchlab_core.schemas.team import Team
 
 class MinimapPlayer(BaseModel):
     player_id: int
-    # Pitch coordinates in centimeters; origin top-left, x along the length,
-    # y along the width. Extent depends on the run's pitch spec (config `pitch:`)
-    # — 12000x7000 for roboflow, 10500x6800 for fifa. See matchlab_core.pitch.
+    # Pitch coordinates in centimeters; origin top-left, x along the length
+    # (0..12000), y along the width (0..7000). See matchlab_core.pitch.
     x: float
     y: float
     team: Team

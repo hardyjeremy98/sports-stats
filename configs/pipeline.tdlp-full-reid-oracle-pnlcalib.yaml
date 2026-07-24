@@ -16,10 +16,6 @@ description: >
   association with oracle jersey anchors, plus PnLCalib pitch calibration
   (external sibling venv) surfaced in the Pitch keypoints overlay.
 sport: soccer
-# PnLCalib calibrates to real pitch geometry, so use the physically-correct
-# FIFA pitch coordinate system (keypoints, minimap, and reid metric speeds all
-# consistent). yolo-pitch-local runs keep the default roboflow template.
-pitch: fifa
 video:
   sample_stride: 1
   max_frames: null
