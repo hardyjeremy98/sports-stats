@@ -94,11 +94,17 @@ class PnLCalibCalibrator(Calibrator):
             # homography is in this run's frame-pixel space (post any resize).
             frame_meta: dict[int, float] = {}
             order: list[int] = []
+            frame_size: tuple[int, int] | None = None
             for frame in ctx.frames():
                 filename = f"{frame.frame_idx:08d}.{p.frames_ext}"
                 cv2.imwrite(str(frames_dir / filename), frame.image)
                 frame_meta[frame.frame_idx] = frame.t
                 order.append(frame.frame_idx)
+                if frame_size is None:
+                    # The homographies live in the frozen frames' pixel space
+                    # (post any resize) — NOT ctx.video's source resolution.
+                    h, w = frame.image.shape[:2]
+                    frame_size = (w, h)
 
             records = run_calibrator(
                 p.command,
@@ -142,10 +148,11 @@ class PnLCalibCalibrator(Calibrator):
 
         # The offline smoother parameterizes each homography by an image-space
         # grid, so it needs the frame's pixel dimensions (the space the frozen
-        # frames — and thus the calibrator's homographies — live in).
+        # frames — and thus the calibrator's homographies — live in). Fall back
+        # to source resolution only if no frame was ever read.
         smoothed = smooth_homography_trajectory(
             estimates,
-            frame_size=(ctx.video.width, ctx.video.height),
+            frame_size=frame_size or (ctx.video.width, ctx.video.height),
             max_gap_frames=p.max_gap_frames,
             outlier_threshold_cm=p.outlier_threshold_cm,
             smoothing_window=p.smoothing_window,
