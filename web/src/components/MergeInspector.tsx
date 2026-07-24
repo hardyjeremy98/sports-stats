@@ -103,6 +103,23 @@ export function MergeInspector({
                 {pair.reason ? pair.reason.replace(/_/g, " ") : "rejected"}
               </span>
             )}
+            {(() => {
+              const gtIds = artifacts.eval?.association?.gt_id_of_tracklet;
+              const ga = gtIds?.[String(pair.a)];
+              const gb = gtIds?.[String(pair.b)];
+              if (ga == null || gb == null) return null;
+              const same = ga === gb;
+              return (
+                <span
+                  title={`GT identities: T${pair.a} → track ${ga}, T${pair.b} → track ${gb}`}
+                  className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${
+                    same ? "bg-volt-400/15 text-volt-300" : "bg-team-away/15 text-team-away"
+                  }`}
+                >
+                  {same ? "GT: same player" : "GT: different players"}
+                </span>
+              );
+            })()}
             {pair.affinity != null && (
               <span className="font-mono text-[11px] text-ink-400">
                 affinity {pair.affinity.toFixed(3)}

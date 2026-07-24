@@ -461,6 +461,10 @@ def merge_quality(
         "n_pairs_unmatched": n_pairs_unmatched,
         "merge_precision": merge_precision,
         "merged_pairs": merged_pairs,
+        # Every tracklet's majority-vote GT identity (None = never matched a
+        # GT box). Published so consumers can verdict any pair decision —
+        # the Lab's Assoc tab flags wrong merges AND missed merges with it.
+        "gt_id_of_tracklet": gt_id_of_tracklet,
     }
 
 

@@ -1019,6 +1019,23 @@ function AssocTab({
 
   const visiblePairs = showAllPairs ? sortedPairs : sortedPairs.slice(0, 100);
 
+  // GT verdicts (evaluation layer, never the associate stage): flag wrong
+  // merges and rejected-but-same-player missed merges when the run is scored.
+  const gtIds = artifacts.eval?.association?.gt_id_of_tracklet ?? null;
+  const verdictOf = (p: AssociationPair): PairGtVerdict => {
+    if (!gtIds) return null;
+    const ga = gtIds[String(p.a)];
+    const gb = gtIds[String(p.b)];
+    if (ga == null || gb == null) return null;
+    if (p.decision === "merged") return ga === gb ? "correct" : "wrong";
+    return ga === gb ? "missed" : null;
+  };
+  const verdictCounts = { correct: 0, wrong: 0, missed: 0 };
+  for (const p of report.pairs) {
+    const v = verdictOf(p);
+    if (v) verdictCounts[v] += 1;
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
@@ -1028,6 +1045,19 @@ function AssocTab({
             {merged} merged · {rejected} rejected
           </span>
         </div>
+        {gtIds && (
+          <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
+            <span className="rounded-full bg-volt-400/15 px-2 py-0.5 text-volt-300">
+              ✓ {verdictCounts.correct} merges GT-correct
+            </span>
+            <span className={`rounded-full px-2 py-0.5 ${verdictCounts.wrong ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}>
+              ✗ {verdictCounts.wrong} wrong
+            </span>
+            <span className={`rounded-full px-2 py-0.5 ${verdictCounts.missed ? "bg-amber-400/15 text-amber-300" : "bg-turf-800 text-ink-500"}`}>
+              ◌ {verdictCounts.missed} missed (GT-same, rejected)
+            </span>
+          </div>
+        )}
         {Object.keys(report.params).length > 0 && (
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-500">
             {Object.entries(report.params).map(([k, v]) => (
@@ -1129,6 +1159,7 @@ function AssocTab({
             <AssocPairRow
               key={`${p.a}-${p.b}-${i}`}
               pair={p}
+              gtVerdict={verdictOf(p)}
               onClick={() => onSelectPair(p)}
               onInspect={artifacts.reidDetail ? () => onInspectPair(p) : undefined}
             />
@@ -1189,12 +1220,22 @@ function EntityPicker({
   );
 }
 
+type PairGtVerdict = "correct" | "wrong" | "missed" | null;
+
+const GT_BADGE: Record<Exclude<PairGtVerdict, null>, { label: string; cls: string; title: string }> = {
+  correct: { label: "✓ GT", cls: "bg-volt-400/15 text-volt-300", title: "GT: both tracklets are the same player — merge is correct" },
+  wrong: { label: "✗ GT", cls: "bg-team-away/15 text-team-away", title: "GT: different players — this merge is wrong" },
+  missed: { label: "◌ GT", cls: "bg-amber-400/15 text-amber-300", title: "GT: same player, but the pair was rejected — missed merge" },
+};
+
 function AssocPairRow({
   pair,
+  gtVerdict,
   onClick,
   onInspect,
 }: {
   pair: AssociationPair;
+  gtVerdict: PairGtVerdict;
   onClick: () => void;
   onInspect?: () => void;
 }) {
@@ -1223,6 +1264,14 @@ function AssocPairRow({
       ) : (
         <span className="shrink-0 rounded-full bg-team-away/15 px-2 py-0.5 font-mono text-[10px] text-team-away">
           {pair.reason ? pair.reason.replace(/_/g, " ") : "rejected"}
+        </span>
+      )}
+      {gtVerdict && (
+        <span
+          title={GT_BADGE[gtVerdict].title}
+          className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] ${GT_BADGE[gtVerdict].cls}`}
+        >
+          {GT_BADGE[gtVerdict].label}
         </span>
       )}
       <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-ink-500">

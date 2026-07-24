@@ -549,6 +549,10 @@ export interface EvalResult {
       gt_b: number | null;
       correct: boolean;
     }[];
+    // Majority-vote GT identity per tracklet (JSON keys are stringified
+    // tracklet ids; null = never matched a GT box). Lets the UI verdict any
+    // pair decision, including rejected-but-same-player missed merges.
+    gt_id_of_tracklet?: Record<string, number | null>;
   };
   instances: EvalInstance[];
   // SPO-19 context block: how attribution was derived for this payload.

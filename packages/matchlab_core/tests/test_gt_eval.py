@@ -422,6 +422,10 @@ def test_merge_quality_correct_merge(tmp_path):
     assert assoc["merged_pairs"] == [
         {"a": 10, "b": 11, "player_id": 1, "gt_a": 1, "gt_b": 1, "correct": True}
     ]
+    # The per-tracklet GT assignment is published so consumers (the Lab's
+    # Assoc tab) can verdict ANY pair — including rejected pairs that GT says
+    # were the same player (missed merges).
+    assert assoc["gt_id_of_tracklet"] == {10: 1, 11: 1, 12: 2}
 
     heads = headline_metrics(result)
     assert heads["merge_precision"] == 1.0
