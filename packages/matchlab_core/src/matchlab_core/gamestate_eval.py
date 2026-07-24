@@ -68,8 +68,6 @@ def compute_gamestate_metrics(
     if not calibration:
         return None
 
-    dt = (stride / fps) if fps else 0.0
-
     calib_by_frame = {c.frame_idx: c for c in calibration}
     sampled_frames = sorted(calib_by_frame)
 
@@ -116,7 +114,9 @@ def compute_gamestate_metrics(
 
     # Coverage: GT-covered sampled frames (any scored track present, snapped)
     # that carry a usable homography.
-    gt_covered = [sf for sf in sampled_frames if any(_snap(t.track_id, sf) is not None for t in tracks)]
+    gt_covered = [
+        sf for sf in sampled_frames if any(_snap(t.track_id, sf) is not None for t in tracks)
+    ]
     n_hom = sum(1 for sf in gt_covered if _usable(calib_by_frame[sf]))
     coverage = (n_hom / len(gt_covered)) if gt_covered else None
 
@@ -147,12 +147,15 @@ def compute_gamestate_metrics(
             if _in_bounds(*xy):
                 n_in_bounds += 1
 
-        # Steps between CONSECUTIVE sampled frames only.
+        # Steps between CONSECUTIVE sampled frames only. dt is derived from the
+        # actual frame indices (not a constant stride/fps) so a genuinely
+        # missing row doesn't silently understate the elapsed time.
         for a, b in zip(sampled_frames, sampled_frames[1:]):
             if a not in positions or b not in positions:
                 continue
             (ax, ay), (bx, by) = positions[a], positions[b]
             dist_m = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 / 100.0
+            dt = ((b - a) / fps) if fps else 0.0
             n_steps += 1
             if dt > 0 and (dist_m / dt) > SPEED_THRESHOLD_MPS:
                 n_implausible += 1

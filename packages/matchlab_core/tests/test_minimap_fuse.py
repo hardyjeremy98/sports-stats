@@ -70,7 +70,9 @@ def _calib(frame_idx, *, status, homography=SCALE_H, confidence=1.0):
 
 
 def test_legacy_status_none_pins_ema_and_confidence_blankout():
-    tr = _one_player_tracklet({0: (100.0, 200.0), 1: (110.0, 200.0), 2: (120.0, 200.0), 3: (130.0, 200.0)})
+    tr = _one_player_tracklet(
+        {0: (100.0, 200.0), 1: (110.0, 200.0), 2: (120.0, 200.0), 3: (130.0, 200.0)}
+    )
     calibration = [
         _calib(0, status=None),
         _calib(1, status=None),
