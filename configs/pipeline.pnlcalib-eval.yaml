@@ -1,0 +1,95 @@
+# Local-weights evaluation recipe, but with PnLCalib pitch registration instead
+# of the roboflow/sports YOLOv8x-pose keypoint model. Identical to
+# pipeline.v1-local-eval.yaml except for the `calibrate` stage.
+#
+# HUMAN-GATED external environment: `calibrate.command` targets the REAL
+# PnLCalib model (HRNet keypoints + lines + points-and-lines optimization)
+# living in the sibling `external-calibrators/` environment (its own torch-2.3
+# venv, GPL-2.0 code, SoccerNet-trained weights) reached only via a subprocess
+# CLI -- the same env-isolation pattern as external-spotters/ / external-trackers/.
+# See docs/reference/external-calibrators-setup.md for how to stand it up
+# (clone PnLCalib, create the venv, download the SV_kp/SV_lines weights) and the
+# exchange contract the CLI satisfies (`<command> --job <manifest.json>`).
+#
+# Without that external env, use `impl: pnlcalib` with NO `command` override:
+# the stage then falls back to the permissive in-repo reference calibrator
+# (matchlab_core.calib.reference_cli) -- deterministic, no GPU, for smoke only.
+#
+# Detection/tracking still use roboflow/sports AGPL weights via ultralytics
+# (LOCAL EVAL ONLY). No API key needed.
+name: pnlcalib-eval
+description: >
+  Real models, no API key: local fine-tuned YOLOv8x detection + BoT-SORT
+  tracking + kit-color teams + global association + heuristic possession, with
+  PnLCalib (external sibling venv) for camera calibration in place of the
+  YOLOv8x-pose pitch keypoint model.
+sport: soccer
+video:
+  sample_stride: 2
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.3
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.6
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: pnlcalib
+    params:
+      # Real PnLCalib entrypoint inside the sibling external-calibrators/ env.
+      # Relative to the repo root (the worker's cwd); see
+      # docs/reference/external-calibrators-setup.md for the CLI contract
+      # (`<command> --job <manifest.json>`). Drop this whole `command` list to
+      # fall back to the in-repo reference calibrator (smoke only).
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
