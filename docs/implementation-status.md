@@ -661,6 +661,22 @@ Measured local findings recorded by the repository guidance:
   clears ≥0.96 naming precision on this substrate. (d) **ADR 005's own removal condition
   fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity,
   removal/dustbin follow-up filed.
+- **Anchorless appearance merging fails do-no-harm under the GSR-recipe decision rule too
+  (SPO-73, 2026-07-24; same frozen substrate; report
+  [`2026-07-24-spo73-mutual-best-appearance-merge.md`](reports/2026-07-24-spo73-mutual-best-appearance-merge.md)):**
+  the mutual-best-match + margin rule (each side ranks the other first and beats its
+  runner-up by ≥ margin) has a zero-wrong tuning frontier (margin ≥ 0.09: 5 correct /
+  0 wrong edges, purity Δ 0.0) but on held-out merges exactly one pair — a wrong one, at
+  the *highest* confidence in the set (affinity 0.966, margins 0.24/0.14) — while all 21
+  true re-entry pairs fail some test (7 margin, 5 mutuality, 5 floor, 4 team-gate false
+  veto). The SPO-59 finding is thereby upgraded from "absolute threshold fails" to
+  **"anchorless merge decisions over tracker-frozen KPR embeddings fail under every
+  decision rule tested; the held-out decision statistics invert, locating the bottleneck
+  in the embedder"**. Next lever: soccer-finetuned embedder re-tested on the same
+  pre-registered harness. Secondary defects measured: kit-color team gate falsely vetoes
+  19% of true re-entry pairs; 24% of true pairs score below floor from degraded re-entry
+  crops. Similarity merging remains disabled by default (`min_similarity: 1.01`); the
+  rule + reject reasons (`not_mutual_best`, `margin_too_small`) remain as tested machinery.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —

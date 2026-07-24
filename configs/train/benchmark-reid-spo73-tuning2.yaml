@@ -1,0 +1,56 @@
+# SPO-73 (development, probe 2): fine margin scan 0.06-0.09 between the
+# tuning-measured frontier points (0.05: 3 wrong edges; 0.1: zero wrong,
+# purity delta 0.0). Anchorless, same frozen substrate as probe 1.
+name: benchmark-reid-spo73-tuning2
+task: benchmark
+description: >
+  SPO-73 (development): fine merge_min_margin scan, anchorless, frozen
+  substrate, tuning sequences.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: noop-per-tracklet
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: per-tracklet
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: mb-f0.9
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.06
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-f0.8
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.06
+        stages.associate.params.min_similarity: 0.8
+      comparison_class: matched_data
+  sweeps:
+    - candidate: mb-f0.9
+      param: stages.associate.params.merge_min_margin
+      values: [0.07, 0.08, 0.09]
+    - candidate: mb-f0.8
+      param: stages.associate.params.merge_min_margin
+      values: [0.07, 0.08, 0.09]
+  device: cuda
+  iou_threshold: 0.5
+  compare:
+    baseline: noop-per-tracklet
+  tolerances:
+    entity_purity: 0.0
+    idf1_entity: 0.0
+    hota_entity: 0.0
+output_dir: data/experiments

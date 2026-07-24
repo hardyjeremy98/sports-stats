@@ -1,0 +1,72 @@
+# SPO-73 held-out gate: anchorless mutual-best+margin rule at the
+# pre-registered operating point (margin 0.1, floor 0.9) vs no-op, on
+# SNMOT-124-127 over the frozen SPO-59 substrate. Declared shadow arms:
+# margin 0.09 (frontier check), v1 absolute threshold 0.95 anchorless
+# (reference), mutual-best + oracle-anchor composition (secondary). The
+# gate verdict reads the PRIMARY arm only (mb-primary). Grid values match
+# the pre-registration comment on the SPO-73 Linear issue (2026-07-24)
+# exactly; do not edit without re-registering.
+name: benchmark-reid-spo73-gate-heldout
+task: benchmark
+description: >
+  SPO-73 held-out gate: anchorless mutual-best+margin at the pre-registered
+  operating point vs no-op on held-out sequences.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: noop-per-tracklet
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: per-tracklet
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: mb-primary
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.1
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-shadow-m0.09
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.09
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: v1-threshold-0.95-anchorless
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_source: none
+        stages.associate.params.min_similarity: 0.95
+      comparison_class: matched_data
+    - name: mb-anchor-composition
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.1
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+  sweeps: []
+  device: cuda
+  iou_threshold: 0.5
+  compare:
+    baseline: noop-per-tracklet
+  tolerances:
+    entity_purity: 0.0
+    idf1_entity: 0.0
+    hota_entity: 0.0
+output_dir: data/experiments
