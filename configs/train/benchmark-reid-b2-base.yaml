@@ -1,0 +1,28 @@
+# SPO-59 Phase A: the tracked substrate for the B2 re-ID engine benchmark.
+# One full oracle-detections + TDLP-full + reid-engine run per SoccerNet tier
+# sequence (tuning AND held_out — the expensive TRACK stage is anchor-knob-
+# independent, so these 12 runs are tracked exactly once and every do-no-harm
+# arm and anchor-economics sweep point replays their tracklets.json +
+# frame_features.npz via the frozen-tracklets stage; see the SPO-59
+# pre-registered protocol on Linear). GPU + external-trackers env required.
+name: benchmark-reid-b2-base
+task: benchmark
+description: >
+  B2 re-ID engine base runs: oracle detections + TDLP-full + reid-engine
+  (oracle jersey anchors, full coverage, zero noise) over the full SoccerNet
+  tier. Produces the frozen tracklet/feature substrate for the SPO-59
+  do-no-harm gate and anchor-economics sweep.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning, held_out]
+  candidates:
+    - name: tdlp-reid-base
+      kind: pipeline
+      config: configs/pipeline.tdlp-full-reid-oracle.yaml
+      overrides: {}
+      comparison_class: matched_data
+  sweeps: []
+  device: cuda
+  iou_threshold: 0.5
+  tolerances: {}
+output_dir: data/experiments
