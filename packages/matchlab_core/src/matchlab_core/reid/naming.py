@@ -38,15 +38,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from matchlab_core.reid.anchors import Anchor, Roster
+from matchlab_core.schemas.naming import AnchorRecord, NamingDecision, ThreadNaming
+
 logger = logging.getLogger(__name__)
 
 # Column mass may legitimately exceed its budget (several disjoint fragments
 # of one player, all correctly anchored) — but past this factor the uniform
 # damping starts eroding correct beliefs, so make it visible (ADR 005).
 _COLUMN_OVERLOAD_WARN_FACTOR = 3.0
-
-from matchlab_core.reid.anchors import Anchor, Roster
-from matchlab_core.schemas.naming import AnchorRecord, NamingDecision, ThreadNaming
 
 
 def sinkhorn(matrix: np.ndarray, iterations: int = 2) -> np.ndarray:
