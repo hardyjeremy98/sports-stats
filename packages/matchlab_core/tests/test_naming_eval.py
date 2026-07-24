@@ -95,6 +95,9 @@ def test_naming_correct_wrong_and_abstained(tmp_path):
     heads = headline_metrics(result)
     assert heads["roster_precision"] == 0.5
     assert heads["naming_abstention"] == pytest.approx(1 / 3, abs=1e-3)
+    # SPO-59 do-no-harm gate metric: post-association contamination at the
+    # entity level, present as a headline number.
+    assert heads["entity_purity"] == result["purity"]["entity"]["post_filter"]["mean_purity"]
 
 
 def test_bare_jersey_number_labels_count_as_correct(tmp_path):

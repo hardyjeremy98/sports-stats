@@ -30,6 +30,7 @@ from matchlab_core.stages.team import kit_color, siglip  # noqa: F401
 from matchlab_core.stages.track import (  # noqa: F401
     botsort,
     botsort_reid,
+    frozen_tracklets,
     iou,
     learned_stub,
     ocsort,

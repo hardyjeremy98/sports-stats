@@ -137,7 +137,7 @@ def test_evaluate_run_association_gain(tmp_path):
         "idsw_persistent_tracklet", "idsw_persistent_entity",
         "hota_tracklet", "hota_entity",
         "assoc_idf1_gain", "merge_precision",
-        "tracklet_purity", "mixed_track_seconds",
+        "tracklet_purity", "mixed_track_seconds", "entity_purity",
         "crop_yield_per_player",
     }
     # Persistent-switch wiring: 10 frames at 25 fps means every constant-ID

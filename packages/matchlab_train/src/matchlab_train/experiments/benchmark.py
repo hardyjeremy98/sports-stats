@@ -854,11 +854,12 @@ def _check_missing_provenance(rows: list[dict]) -> None:
             )
 
 
-# Replay-style detectors whose "weights" hash is a per-sequence INPUT file, not
+# Replay-style stages whose "weights" hash is a per-sequence INPUT file, not
 # a model: their hash legitimately differs across a candidate's sequences, so it
 # is excluded from the cross-sequence identity comparison (same rationale as
-# detections_cache_hash). The frozen det-replay stage (SPO-30) is the case.
-_PER_SEQUENCE_INPUT_ARCHITECTURES = frozenset({"frozen-detections"})
+# detections_cache_hash). The frozen det-replay stage (SPO-30) and the frozen
+# tracklet-replay stage (SPO-59) are the cases.
+_PER_SEQUENCE_INPUT_ARCHITECTURES = frozenset({"frozen-detections", "frozen-tracklets"})
 
 
 def _model_identity_set(model_identities: list[dict]) -> frozenset[tuple[str, str, str | None]]:

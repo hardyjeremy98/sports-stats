@@ -1,0 +1,234 @@
+# SPO-59 Phase C (development): anchor-economics grid on tuning sequences.
+# Substrate: frozen TDLP-full tracklet replay from the Phase A base runs
+# (data/experiments/benchmark-reid-b2-base-20260724-035932/runs), so every arm scores byte-identical tracklets. Generated
+# grids match the pre-registered protocol on the SPO-59 Linear issue
+# (2026-07-24) exactly; do not edit values without re-registering.
+name: benchmark-reid-b2-sweep-tuning
+task: benchmark
+description: >
+  Phase C (development): anchor-economics grid on tuning sequences.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: reid-n0.0-s0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 0
+      comparison_class: matched_data
+    - name: reid-n0.0-s0-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 0
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.0-s1
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 1
+      comparison_class: matched_data
+    - name: reid-n0.0-s1-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 1
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.0-s2
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 2
+      comparison_class: matched_data
+    - name: reid-n0.0-s2-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.0
+        stages.associate.params.anchor_seed: 2
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.05-s0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 0
+      comparison_class: matched_data
+    - name: reid-n0.05-s0-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 0
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.05-s1
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 1
+      comparison_class: matched_data
+    - name: reid-n0.05-s1-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 1
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.05-s2
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 2
+      comparison_class: matched_data
+    - name: reid-n0.05-s2-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.05
+        stages.associate.params.anchor_seed: 2
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.15-s0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 0
+      comparison_class: matched_data
+    - name: reid-n0.15-s0-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 0
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.15-s1
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 1
+      comparison_class: matched_data
+    - name: reid-n0.15-s1-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 1
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+    - name: reid-n0.15-s2
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 2
+      comparison_class: matched_data
+    - name: reid-n0.15-s2-cov0.75-it0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.params.anchor_noise: 0.15
+        stages.associate.params.anchor_seed: 2
+        stages.associate.params.anchor_coverage: 0.75
+        stages.associate.params.sinkhorn_iterations: 0
+      comparison_class: matched_data
+  sweeps:
+    - candidate: reid-n0.0-s0
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.0-s0
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.0-s1
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.0-s1
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.0-s2
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.0-s2
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.05-s0
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.05-s0
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.05-s1
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.05-s1
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.05-s2
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.05-s2
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.15-s0
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.15-s0
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.15-s1
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.15-s1
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+    - candidate: reid-n0.15-s2
+      param: stages.associate.params.anchor_coverage
+      values: [0.1, 0.25, 0.5, 0.75]
+    - candidate: reid-n0.15-s2
+      param: stages.associate.params.sinkhorn_iterations
+      values: [0]
+  device: cuda
+  iou_threshold: 0.5
+  tolerances: {}
+output_dir: data/experiments

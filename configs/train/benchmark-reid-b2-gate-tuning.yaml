@@ -1,0 +1,53 @@
+# SPO-59 Phase B (development): do-no-harm arms on tuning sequences.
+# Substrate: frozen TDLP-full tracklet replay from the Phase A base runs
+# (data/experiments/benchmark-reid-b2-base-20260724-035932/runs), so every arm scores byte-identical tracklets. Generated
+# grids match the pre-registered protocol on the SPO-59 Linear issue
+# (2026-07-24) exactly; do not edit values without re-registering.
+name: benchmark-reid-b2-gate-tuning
+task: benchmark
+description: >
+  Phase B (development): do-no-harm arms on tuning sequences.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: reid-engine
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+      comparison_class: matched_data
+    - name: noop-per-tracklet
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: per-tracklet
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: global-color
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: global-color
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: global-reid
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.associate.impl: global-reid
+        stages.associate.params: {}
+      comparison_class: matched_data
+  sweeps: []
+  device: cuda
+  iou_threshold: 0.5
+  compare:
+    baseline: noop-per-tracklet
+  tolerances:
+    entity_purity: 0.0
+    idf1_entity: 0.0
+    hota_entity: 0.0
+output_dir: data/experiments

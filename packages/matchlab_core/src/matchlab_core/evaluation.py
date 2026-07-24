@@ -690,6 +690,11 @@ def headline_metrics(result: dict) -> dict[str, float | int | None]:
     tracklet_purity_post = result["purity"]["tracklet"]["post_filter"]
     heads["tracklet_purity"] = tracklet_purity_post["mean_purity"]
     heads["mixed_track_seconds"] = tracklet_purity_post["total_mixed_seconds"]
+    # Entity-level contamination (SPO-59 do-no-harm gate): what association
+    # ADDED on top of the tracklets' own impurity. Tolerant of eval payloads
+    # written before the entity purity level existed.
+    entity_purity_post = (result["purity"].get("entity") or {}).get("post_filter") or {}
+    heads["entity_purity"] = entity_purity_post.get("mean_purity")
     detection = result.get("detection")
     if detection is not None:
         heads["detection_ap"] = detection["ap"]
