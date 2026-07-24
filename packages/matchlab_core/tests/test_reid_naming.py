@@ -126,6 +126,58 @@ def test_empty_roster_abstains_everything():
     assert out[1].posterior == {}
 
 
+# --- ADR 005 neutrality invariant (iteration-count independent) -----------
+
+
+@pytest.mark.parametrize("iterations", [0, 1, 2, 5, 25])
+def test_evidence_elsewhere_never_moves_evidence_free_posteriors(iterations):
+    """ADR 005 / ADR 003: with capped-marginal balancing, adding an anchor to
+    thread i must not change an evidence-free thread j's posterior over names
+    whose columns stay uncapped. Columns only ever scale DOWN, and a scalar
+    column scale preserves within-row ratios among uncapped names — textbook
+    Sinkhorn violates this by inflating under-subscribed columns by
+    column-dependent factors. Constructed so no column crosses the cap in
+    either scenario (T=3, R=6), and parameterized over iteration counts so
+    the invariant — not the default iteration setting — is what's pinned."""
+    roster = Roster(candidates=["A", "B", "C", "D", "E", "F"])
+    threads = {
+        1: {"tracklet_ids": [10], "spans": [(0, 30)]},  # thread i
+        2: {"tracklet_ids": [20], "spans": [(40, 70)]},  # thread j: no evidence
+        3: {"tracklet_ids": [30], "spans": [(80, 100)]},  # anchored to B throughout
+    }
+    base = [_anchor(30, "B")]
+    without = decode_names(
+        threads, base, roster, sinkhorn_iterations=iterations
+    )
+    with_anchor = decode_names(
+        threads, base + [_anchor(10, "A")], roster, sinkhorn_iterations=iterations
+    )
+    post_without = {d.thread_id: d.posterior for d in without}
+    post_with = {d.thread_id: d.posterior for d in with_anchor}
+    for cand in roster.candidates:
+        assert post_with[2][cand] == pytest.approx(post_without[2][cand], abs=1e-12)
+    # And decision-level neutrality holds regardless of balancing:
+    assert {d.thread_id: d.decision for d in with_anchor}[2] == NamingDecision.ABSTAIN
+
+
+def test_heavy_column_overload_logs_a_warning(caplog):
+    """A column whose pre-balance mass exceeds its budget by a large factor
+    (e.g. one player fragmented into many correctly-anchored threads) is
+    uniformly damped — erosion through the budget. That situation is legal
+    but must be visible, not silent."""
+    import logging
+
+    roster = Roster(candidates=["A", "B", "C", "D", "E", "F"])
+    threads = {
+        n: {"tracklet_ids": [n * 10], "spans": [(n * 100, n * 100 + 50)]}
+        for n in range(1, 9)
+    }
+    anchors = [_anchor(n * 10, "A") for n in range(1, 9)]  # 8 threads, all -> A
+    with caplog.at_level(logging.WARNING, logger="matchlab_core.reid.naming"):
+        decode_names(threads, anchors, roster)
+    assert any("overload" in r.message for r in caplog.records)
+
+
 # --- name_threads composition --------------------------------------------
 
 

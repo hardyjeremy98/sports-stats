@@ -9,6 +9,7 @@ sessions.
 | [002](002-tracklet-level-global-inference.md) | Infer identity from tracklets over the complete match | Accepted |
 | [003](003-quality-gated-multimodal-evidence.md) | Gate and fuse identity evidence by modality quality | Accepted |
 | [004](004-semantic-identity-evaluation.md) | Evaluate semantic identity separately from tracking | Accepted |
+| [005](005-capped-marginal-naming-balance.md) | Naming belief balance is capped-marginal (unbalanced OT), not doubly-stochastic Sinkhorn | Accepted |
 
 ## Adding or changing a decision
 

@@ -5,17 +5,24 @@ over summed log-LRs; an anchorless thread is a uniform row). The matrix is
 balanced by an in-repo Sinkhorn variant, then decoded greedily under the
 temporal-overlap constraint, with abstention as the first-class fallback.
 
-Two deliberate deviations from textbook Sinkhorn, both driven by the domain:
+The balance is a capped-marginal (unbalanced/partial OT) Sinkhorn variant —
+NOT doubly-stochastic normalization. Full rationale, the neutrality invariant,
+the known erosion-through-the-budget failure mode, and the ranked upgrade path
+(abstain/dustbin column first, per-window capacity second) are ADR 005
+(docs/decisions/005-capped-marginal-naming-balance.md). In short:
 
 - **Columns only scale DOWN** (when their mass exceeds max(1, T/R)), never up.
   A roster name is a capacity constraint — a confident anchor on one thread
   should suppress that name elsewhere — but abstention is a valid outcome, so
-  an under-subscribed name must not be inflated onto threads with no evidence.
+  an under-subscribed name must not be inflated onto threads with no evidence
+  (naming by elimination violates ADR 003).
 - **Few iterations by default.** The global column cap cannot express that
   several NON-overlapping threads may legitimately share one name (threads
   exceed roster size in practice); running the balance to convergence would
   over-suppress exactly those legitimate shares. A couple of passes gives the
   suppression effect; the hard sharing rules live in the constrained decode.
+  `sinkhorn_iterations: 0` (no balance at all) is the pre-registered SPO-59
+  baseline arm — if balancing doesn't beat it, it goes.
 
 Decode: threads in descending confidence order take their best posterior
 candidate that (a) clears min_posterior/min_margin and (b) is not already
@@ -26,9 +33,17 @@ evidence (ADR 003: missing evidence is neutral).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Column mass may legitimately exceed its budget (several disjoint fragments
+# of one player, all correctly anchored) — but past this factor the uniform
+# damping starts eroding correct beliefs, so make it visible (ADR 005).
+_COLUMN_OVERLOAD_WARN_FACTOR = 3.0
 
 from matchlab_core.reid.anchors import Anchor, Roster
 from matchlab_core.schemas.naming import AnchorRecord, NamingDecision, ThreadNaming
@@ -114,6 +129,25 @@ def decode_names(
     # Row softmax: log-LRs over a uniform prior.
     probs = np.exp(beliefs - beliefs.max(axis=1, keepdims=True))
     probs /= probs.sum(axis=1, keepdims=True)
+
+    # ADR 005 instrumentation: a column far over its budget means one name is
+    # carried by many threads (heavy fragmentation of one player); capping
+    # then uniformly damps correct, well-anchored beliefs. Legal, but never
+    # silent.
+    cap = max(1.0, probs.shape[0] / probs.shape[1])
+    overload = probs.sum(axis=0) / cap
+    worst = int(np.argmax(overload))
+    if overload[worst] > _COLUMN_OVERLOAD_WARN_FACTOR:
+        logger.warning(
+            "Sinkhorn column overload: candidate %r carries %.1fx its mass budget "
+            "(%d threads, %d candidates) — capped balancing will uniformly damp "
+            "its beliefs; see ADR 005 (abstain-column upgrade).",
+            cands[worst],
+            float(overload[worst]),
+            probs.shape[0],
+            probs.shape[1],
+        )
+
     probs = sinkhorn(probs, iterations=sinkhorn_iterations)
 
     order = np.argsort(-probs.max(axis=1), kind="stable")  # most confident first
