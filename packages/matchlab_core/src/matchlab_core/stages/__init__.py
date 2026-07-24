@@ -9,6 +9,7 @@ from matchlab_core.stages.associate import (  # noqa: F401
     reid_engine,
 )
 from matchlab_core.stages.calibrate import (  # noqa: F401
+    pnlcalib,
     roboflow_keypoints,
     static,
     yolo_pitch_local,

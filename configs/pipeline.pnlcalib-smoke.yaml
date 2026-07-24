@@ -1,0 +1,56 @@
+# Smoke config for the `pnlcalib` calibrate stage (SPO-62): every other stage is
+# the same keyless/GPU-less recipe as pipeline.stub.yaml (synthetic detector +
+# IoU tracker etc.), with `calibrate.impl: pnlcalib` wired to the permissive
+# reference calibrator CLI (no real model, no GPU) so the subprocess bridge +
+# calibration.jsonl artifact can be exercised end-to-end. `pitch: fifa` selects
+# the physically-consistent pitch spec an accurate calibrator targets.
+# `max_frames` is kept small so the run is fast.
+name: pnlcalib-smoke
+description: >-
+  Stub pipeline + pnlcalib calibrate stage wired to the reference calibrator CLI.
+  Produces contract-valid calibration.jsonl without any real model or GPU.
+sport: soccer
+pitch: fifa
+video:
+  sample_stride: 1
+  max_frames: 60
+  resize_width: null
+stages:
+  detect:
+    impl: synthetic
+    params:
+      dropout_rate: 0.05
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: pnlcalib
+    params:
+      command: ["python", "-m", "matchlab_core.calib.reference_cli"]
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
