@@ -149,8 +149,9 @@ def test_with_associate_replaces_only_the_associate_stage():
 
     assert new_cfg.stages[StageKind.ASSOCIATE].impl == "global-reid"
     assert new_cfg.stages[StageKind.ASSOCIATE].params == {"embedder": "osnet", "max_gap_s": 20.0}
-    # Every other stage slot is untouched.
-    for kind in StageKind:
+    # No slot added or removed, and every other slot is untouched.
+    assert set(new_cfg.stages) == set(base_cfg.stages)
+    for kind in base_cfg.stages:
         if kind == StageKind.ASSOCIATE:
             continue
         assert new_cfg.stages[kind] == base_cfg.stages[kind]

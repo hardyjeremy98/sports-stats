@@ -152,6 +152,19 @@ export interface PossessionSegment {
   confidence: number;
 }
 
+// One frame of the image-space possessor timeline (possession_timeline.json),
+// written by the `possession` stage (SPO-77/79). Keyed by tracklet, distinct
+// from the pitch-space PossessionSegment. `possessor_tracklet_id === null` is
+// loose ball / abstention; `margin` is nearest-vs-second-nearest separation.
+export interface PossessorFrame {
+  frame_idx: number;
+  t: number;
+  possessor_tracklet_id: number | null;
+  team: Team;
+  confidence: number;
+  margin: number;
+}
+
 export interface StatLine {
   player_id: number;
   label: string;

@@ -38,6 +38,7 @@ STAGE_ORDER: list[StageKind] = [
     StageKind.ASSOCIATE,
     StageKind.IDENTITY,
     StageKind.FUSE,
+    StageKind.POSSESSION,
     StageKind.EVENTS,
     StageKind.SPOTTING,
     StageKind.ANNOTATE,
@@ -153,6 +154,17 @@ class PipelineRunner:
         )
         store.write_jsonl(ArtifactName.MINIMAP, minimap)
         self._index(ArtifactName.MINIMAP)
+
+        # Per-frame ball possessor (image-space, SPO-77). Written only when the
+        # slot is configured; the transition->event rules (SPO-78) consume it.
+        possession = self._exec(
+            StageKind.POSSESSION,
+            lambda s: s.estimate(ctx, tracklets, teams, detect_out.ball),
+        )
+        if possession is not None:
+            store.write_json(ArtifactName.POSSESSION_TIMELINE, possession)
+            self._index(ArtifactName.POSSESSION_TIMELINE)
+            self._metric("n_possessor_frames", len(possession))
 
         events_out = self._exec(
             StageKind.EVENTS, lambda s: s.detect_events(ctx, minimap, players)
