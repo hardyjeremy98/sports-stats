@@ -139,9 +139,10 @@ def _mapped_calibrator(
 
 
 # A valid, invertible identity-scale image->cm homography and a strongly
-# translated one used as a gross outlier (its projected anchors land ~700px away).
+# translated one used as a gross outlier (its projected grid lands ~7 m of pitch
+# away from the neighbours' constant-velocity model — well past the cm threshold).
 _H_OK = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-_H_OUTLIER = [[1.0, 0.0, 500.0], [0.0, 1.0, 500.0], [0.0, 0.0, 1.0]]
+_H_OUTLIER = [[1.0, 0.0, 5000.0], [0.0, 1.0, 5000.0], [0.0, 0.0, 1.0]]
 
 
 # --- bridge round-trip against the reference calibrator ----------------------
@@ -448,7 +449,7 @@ def test_calibrate_flags_outlier_frame_smoothed(tmp_path):
     stage = build(
         StageKind.CALIBRATE,
         "pnlcalib",
-        {"command": _mapped_calibrator(tmp_path, per_frame), "outlier_threshold_px": 50.0},
+        {"command": _mapped_calibrator(tmp_path, per_frame), "outlier_threshold_cm": 2500.0},
     )
 
     result = stage.calibrate(ctx)

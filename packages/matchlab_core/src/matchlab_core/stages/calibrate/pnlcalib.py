@@ -44,13 +44,6 @@ from matchlab_core.schemas.run import StageKind
 # entrypoint (its own isolated environment) to swap in the genuine model.
 _DEFAULT_COMMAND = [sys.executable, "-m", "matchlab_core.calib.reference_cli"]
 
-# Pitch landmarks the offline smoother tracks in image space (indices into
-# ctx.pitch.vertices, shared roboflow/FIFA vertex order). The four field corners
-# plus the centre-circle left/right points: well-spread across the whole pitch
-# with a central brace, so the DLT refit of each smoothed homography is
-# well-conditioned rather than dominated by one region.
-_ANCHOR_VERTEX_INDICES: tuple[int, ...] = (0, 5, 24, 29, 30, 31)
-
 
 class Params(BaseModel):
     command: list[str] = _DEFAULT_COMMAND
@@ -62,9 +55,9 @@ class Params(BaseModel):
     device: str = "cpu"
     frames_ext: str = "jpg"
     timeout_s: float = 3600.0
-    # Offline trajectory smoother (matchlab_core.calib.smoother) — Task 3 defaults.
+    # Offline trajectory smoother (matchlab_core.calib.smoother).
     max_gap_frames: int = 150
-    outlier_threshold_px: float = 50.0
+    outlier_threshold_cm: float = 2500.0
     smoothing_window: int = 9
 
 
@@ -147,12 +140,14 @@ class PnLCalibCalibrator(Calibrator):
                     f"calibrate: frame {len(estimates)}",
                 )
 
-        anchors = [ctx.pitch.vertices[i] for i in _ANCHOR_VERTEX_INDICES]
+        # The offline smoother parameterizes each homography by an image-space
+        # grid, so it needs the frame's pixel dimensions (the space the frozen
+        # frames — and thus the calibrator's homographies — live in).
         smoothed = smooth_homography_trajectory(
             estimates,
-            pitch_points=anchors,
+            frame_size=(ctx.video.width, ctx.video.height),
             max_gap_frames=p.max_gap_frames,
-            outlier_threshold_px=p.outlier_threshold_px,
+            outlier_threshold_cm=p.outlier_threshold_cm,
             smoothing_window=p.smoothing_window,
         )
 

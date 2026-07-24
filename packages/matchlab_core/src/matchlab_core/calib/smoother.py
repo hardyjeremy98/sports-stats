@@ -4,19 +4,46 @@ A pure function (no I/O, no video decoding) that turns a sequence of raw
 per-frame homography estimates — with gaps and gross outliers — into a smoothed,
 gap-interpolated trajectory carrying per-frame provenance.
 
-Design: **smooth in the point-correspondence parameterization, never blend 3x3
-matrices elementwise.** Each frame's homography H maps image pixels -> pitch
-centimetres. We represent H by the *image-space* positions of a small set of
-fixed pitch anchor points, obtained by projecting those anchors through H^-1.
-Those per-anchor image trajectories are what we smooth / interpolate over time;
-each output homography is then refit (DLT via ``cv2.findHomography``) from the
-smoothed image<->pitch correspondences. This keeps every intermediate a valid
-projective transform and avoids the artefacts of averaging matrix entries.
+Parameterization: visible-pitch grid (v2)
+------------------------------------------
+We smooth in a **point-correspondence** parameterization, never by blending 3x3
+matrices elementwise. Each frame's homography ``H`` maps image pixels -> pitch
+centimetres. We represent ``H`` by projecting a small, fixed **image-space grid**
+(a 3x3 lattice inset 10% from the edges of the caller-provided ``frame_size``)
+*forward* through ``H`` into pitch cm. Those per-grid-point pitch trajectories
+are what we smooth / interpolate over time; each output homography is refit (DLT
+via ``cv2.findHomography``) from the fixed image grid <-> smoothed pitch grid.
+
+Why the grid is in image space (this is the v1 fix). v1 did the opposite: it
+projected fixed *pitch* anchors (field corners / centre circle) *backward* through
+``H^-1`` into image space and smoothed those. On zoomed broadcast views those pitch
+anchors lie far OUTSIDE the visible frame, so ``H^-1`` extrapolates them to wild,
+noise-amplified image positions (measured ±200-400 px on SNMOT-123 while genuine
+pans move by 55-90 px/frame). A static positional-median rejection with a pixel
+threshold then discarded 44-93% of *correct* frames and the sparse survivors
+lagged/snapped — the visually-bad minimap. Grid points are always inside the frame,
+so their forward projection samples only *actually-visible* pitch and never
+extrapolates behind the horizon.
+
+Outlier rejection: motion-compensated (this is the other half of the v1 fix)
+---------------------------------------------------------------------------
+A real pan moves every grid point coherently frame-to-frame; that is **signal**,
+not an outlier, and must be accepted. So a frame is judged not against a static
+window median (which treats any pan as deviation) but against a **local robust
+constant-velocity motion model**: the per-grid-point velocity is the *median* of
+one-step velocities in the window, and the predicted position is the *median* over
+window neighbours of ``P[j] + v*(t-j)``. Taking medians makes both the velocity and
+the anchor robust to a single flipped/garbage frame inside the window. A frame is
+rejected only when the median (over grid points) residual from that model exceeds
+``outlier_threshold_cm``. On SNMOT-123 the genuine fast-pan frames peak at ~1700 cm
+residual while the lone gross homography flip (frame 71) sits at ~40000 cm; the
+default 2500 cm threshold lives in that wide empty gap — well above real pan/camera
+noise (~25 m of visible pitch, a quarter of the field) yet far below a flip.
 
 Units and index space
-----------------------
+---------------------
 The function operates in the **index space of the provided sequence** (position
-0..N-1), and the smoothing / outlier windows are measured in *sequence
+0..N-1); the smoothing and motion-model windows are measured in *sequence
 positions* (samples). **Gaps, however, are measured in FRAME units**: the span
 between two bracketing anchors is ``frame_idx[right] - frame_idx[left]`` and is
 compared against ``max_gap_frames``. This is what makes strided ``frame_idx``
@@ -38,7 +65,8 @@ Every input position produces exactly one :class:`SmoothedFrame`:
 
 Interpolation always requires anchors on *both* sides; single-sided
 extrapolation is deliberately not performed. A singular (non-invertible) raw
-homography is treated exactly as a missing estimate.
+homography, or one that sends a grid point to / behind the horizon, is treated
+exactly as a missing estimate.
 """
 
 from __future__ import annotations
@@ -91,15 +119,29 @@ class SmoothedFrame:
 
 # Below this |det| the raw homography is treated as singular (== missing).
 _MIN_ABS_DET = 1e-9
-# Below this the projective denominator is degenerate (point at/behind horizon).
+# Below this the projective denominator is degenerate (grid point at/behind horizon).
 _MIN_ABS_W = 1e-9
+# Fraction the image grid is inset from each frame edge (keeps grid points off the
+# extreme margins where a strong perspective view may cross the horizon).
+_GRID_INSET = 0.1
 
 
-def _anchor_image_points(
-    homography: list[list[float]] | None, pitch: np.ndarray
+def _image_grid(frame_size: tuple[int, int]) -> np.ndarray:
+    """A fixed 3x3 image-space lattice inset ``_GRID_INSET`` from each edge of the
+    frame, returned as ``(9, 2)`` float pixel coordinates. Well-spread across the
+    frame so the DLT refit of each smoothed homography is well-conditioned."""
+    w, h = float(frame_size[0]), float(frame_size[1])
+    xs = [_GRID_INSET * w, 0.5 * w, (1.0 - _GRID_INSET) * w]
+    ys = [_GRID_INSET * h, 0.5 * h, (1.0 - _GRID_INSET) * h]
+    return np.array([[x, y] for y in ys for x in xs], dtype=np.float64)
+
+
+def _grid_pitch_points(
+    homography: list[list[float]] | None, grid: np.ndarray
 ) -> np.ndarray | None:
-    """Project pitch anchors through H^-1 into image space, or ``None`` if the
-    matrix is missing / singular / sends an anchor to the horizon."""
+    """Project the fixed image grid *forward* through ``H`` into pitch cm, or
+    ``None`` if the matrix is missing / non-finite / sends a grid point to the
+    horizon (degenerate projective denominator)."""
     if homography is None:
         return None
     H = np.asarray(homography, dtype=np.float64)
@@ -108,9 +150,8 @@ def _anchor_image_points(
     det = float(np.linalg.det(H))
     if not np.isfinite(det) or abs(det) < _MIN_ABS_DET:
         return None
-    Hinv = np.linalg.inv(H)
-    homog = np.hstack([pitch, np.ones((pitch.shape[0], 1))])  # (N, 3)
-    proj = homog @ Hinv.T  # (N, 3)
+    homog = np.hstack([grid, np.ones((grid.shape[0], 1))])  # (N, 3)
+    proj = homog @ H.T  # (N, 3)
     w = proj[:, 2]
     if not np.all(np.isfinite(proj)) or np.any(np.abs(w) < _MIN_ABS_W):
         return None
@@ -118,63 +159,92 @@ def _anchor_image_points(
 
 
 def _refit_homography(
-    image_points: np.ndarray, pitch: np.ndarray
+    grid: np.ndarray, pitch_points: np.ndarray
 ) -> list[list[float]] | None:
-    """Refit an image->pitch homography from smoothed correspondences (DLT)."""
-    if not np.all(np.isfinite(image_points)):
+    """Refit an image->pitch homography from the fixed image grid and the
+    (smoothed) pitch-space grid points (DLT)."""
+    if not np.all(np.isfinite(pitch_points)):
         return None
     H, _ = cv2.findHomography(
-        image_points.astype(np.float64), pitch.astype(np.float64), 0
+        grid.astype(np.float64), pitch_points.astype(np.float64), 0
     )
     if H is None or not np.all(np.isfinite(H)):
         return None
     return H.tolist()
 
 
+def _motion_model_residual(
+    points: list[np.ndarray | None], has_raw: list[bool], i: int, half: int
+) -> float | None:
+    """Median (over grid points) residual of frame ``i``'s pitch grid from a local
+    robust constant-velocity model built from its window neighbours. ``None`` when
+    there are too few neighbours to form a model (the frame is then accepted)."""
+    n = len(points)
+    lo, hi = max(0, i - half), min(n, i + half + 1)
+    neighbours = [j for j in range(lo, hi) if j != i and has_raw[j]]
+    if len(neighbours) < 2:
+        return None
+    # Robust per-grid-point velocity: median of one-step velocities in the window,
+    # skipping any step that touches frame i itself.
+    steps = [
+        points[j] - points[j - 1]
+        for j in range(lo + 1, hi)
+        if j != i and j - 1 != i and has_raw[j] and has_raw[j - 1]
+    ]
+    velocity = (
+        np.median(np.stack(steps, axis=0), axis=0)
+        if steps
+        else np.zeros_like(points[i])
+    )
+    # Robust anchor: median over neighbours of their motion-compensated prediction
+    # of frame i. One flipped neighbour cannot drag the median.
+    predictions = np.stack(
+        [points[j] + velocity * (i - j) for j in neighbours], axis=0
+    )
+    predicted = np.median(predictions, axis=0)
+    return float(np.median(np.linalg.norm(points[i] - predicted, axis=1)))
+
+
 def smooth_homography_trajectory(
     estimates: Sequence[RawEstimate],
     *,
-    pitch_points: Sequence[tuple[float, float]],
+    frame_size: tuple[int, int],
     max_gap_frames: int = 150,
-    outlier_threshold_px: float = 50.0,
+    outlier_threshold_cm: float = 2500.0,
     smoothing_window: int = 9,
 ) -> list[SmoothedFrame]:
     """Smooth a raw homography trajectory. See the module docstring for the full
-    contract (parameterization, gap/outlier semantics, units)."""
+    contract (visible-pitch grid parameterization, motion-compensated outlier
+    rejection, gap/status semantics, units)."""
     n = len(estimates)
     if n == 0:
         return []
 
-    pitch = np.asarray(pitch_points, dtype=np.float64)
+    grid = _image_grid(frame_size)
     half = max(smoothing_window // 2, 0)
 
     frame_ids = [e.frame_idx for e in estimates]
     confidences = [float(e.confidence) for e in estimates]
 
-    # 1. Project each usable raw H into image-space anchor points.
+    # 1. Project each usable raw H forward into pitch-space grid points.
     raw_points: list[np.ndarray | None] = [
-        _anchor_image_points(e.homography, pitch) for e in estimates
+        _grid_pitch_points(e.homography, grid) for e in estimates
     ]
     has_raw = [p is not None for p in raw_points]
 
-    # 2. Outlier rejection: deviation from a robust (median) local window.
+    # 2. Motion-compensated outlier rejection: reject a frame only when its grid
+    #    departs from the local robust constant-velocity model (pans are signal).
     outlier = [False] * n
     for i in range(n):
         if not has_raw[i]:
             continue
-        window = [
-            raw_points[j]
-            for j in range(max(0, i - half), min(n, i + half + 1))
-            if has_raw[j]
-        ]
-        median = np.median(np.stack(window, axis=0), axis=0)  # (N, 2)
-        deviation = float(np.max(np.linalg.norm(raw_points[i] - median, axis=1)))
-        if deviation > outlier_threshold_px:
+        residual = _motion_model_residual(raw_points, has_raw, i, half)
+        if residual is not None and residual > outlier_threshold_cm:
             outlier[i] = True
 
     accepted = [has_raw[i] and not outlier[i] for i in range(n)]
 
-    # 3. Smooth accepted anchor trajectories with a centred window measured in
+    # 3. Smooth accepted pitch-grid trajectories with a centred window measured in
     #    sequence positions (so large gaps do not bleed across the boundary).
     smoothed_points: list[np.ndarray | None] = [None] * n
     for i in range(n):
@@ -193,7 +263,7 @@ def smooth_homography_trajectory(
     out: list[SmoothedFrame] = []
     for i in range(n):
         if accepted[i]:
-            H = _refit_homography(smoothed_points[i], pitch)
+            H = _refit_homography(grid, smoothed_points[i])
             if H is not None:
                 out.append(SmoothedFrame(frame_ids[i], H, SmoothStatus.FRESH, confidences[i]))
                 continue
@@ -215,7 +285,7 @@ def smooth_homography_trajectory(
         alpha = (frame_ids[i] - frame_ids[left]) / span
         points = (1.0 - alpha) * smoothed_points[left] + alpha * smoothed_points[right]
         conf = (1.0 - alpha) * confidences[left] + alpha * confidences[right]
-        H = _refit_homography(points, pitch)
+        H = _refit_homography(grid, points)
         if H is None:
             out.append(SmoothedFrame(frame_ids[i], None, SmoothStatus.ABSENT, 0.0))
         else:

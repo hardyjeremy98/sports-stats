@@ -46,7 +46,7 @@ stages:
       pnl_refine: true
       device: cuda:0
       max_gap_frames: 150
-      outlier_threshold_px: 50.0
+      outlier_threshold_cm: 2500.0
       smoothing_window: 9
   associate:
     impl: global-color
