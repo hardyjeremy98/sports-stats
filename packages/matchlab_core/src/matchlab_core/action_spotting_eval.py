@@ -248,6 +248,18 @@ def evaluate_spotting_run(
     return average_map(predictions, gt_events, tolerances_s)
 
 
+def class_ap(result: dict[str, Any], class_name: str, tolerance: float = 1.0) -> float:
+    """AP for a single class at one tolerance, pulled from an `average_map`
+    result. This is how the possession track (SPO-80) reports an honest
+    **pass** number: the full `avg_map` averages over every GT class, so a
+    pass-only predictor evaluated against multi-class SoccerNet-ball GT is
+    diluted by the classes it never attempts -- `class_ap(result, "PASS")` is
+    the number that actually reflects pass detection. Returns 0.0 for a class
+    with no AP term (no GT for it, or the tolerance absent)."""
+    per_tol = result.get("per_tolerance", {}).get(_tol_key(tolerance), {})
+    return per_tol.get("per_class_ap", {}).get(class_name, 0.0)
+
+
 def spotting_headline_metrics(result: dict[str, Any]) -> dict[str, float]:
     """Headline metric(s) for a spotting eval result, analogous to
     `matchlab_core.evaluation.headline_metrics`. `spotting_map_at_1` is the
