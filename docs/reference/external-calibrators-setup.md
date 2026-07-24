@@ -109,15 +109,21 @@ The pipeline-side bridge (`matchlab_core/calib/bridge.py`) invokes:
  {"frame_idx": 2, "homography": null, "confidence": 0.0, "n_points": 0}]
 ```
 
-**Coordinate convention (critical):** `homography` maps **image pixels → pitch centimetres**
-in the lab's 120×70 m template (`matchlab_core/pitch.py`, top-left origin) — the same
-convention `FrameCalibration.homography` uses. PnLCalib natively emits camera parameters for
-the *real* pitch (105×68 m, centred origin); `pnlcalib_cli.py` converts them by projecting
-the lab template's 32 landmarks (at real-metric positions) through PnLCalib's projection
-matrix and solving the image→lab-cm homography. `homography: null` means the model could not
-calibrate that frame; the stage applies its own EMA/carry smoothing over these fresh
-estimates. Contract violations (non-zero exit, missing/invalid `out_path`) raise
-`CalibrationBridgeError` — never silently treated as an empty result.
+**Coordinate convention (critical):** `homography` maps **image pixels → real-pitch
+centimetres** in FIFA geometry (`matchlab_core.pitch.FIFA_PITCH`: 105×68 m, top-left origin) —
+so pnlcalib configs MUST set `pitch: fifa` (the runner then uses that spec for the minimap and
+the reid metric gate, keeping the whole run consistent). PnLCalib natively emits camera
+parameters for the real pitch (centred origin); `pnlcalib_cli.py` projects each real landmark
+through the camera matrix and pairs it with *itself* in cm, giving an **exact** image→real-cm
+homography (zero residual).
+
+⚠️ Do **not** map onto the default roboflow template (`SOCCER_PITCH`, 120×70 m with a
+non-physical mix of scaled boxes and a real-sized centre circle): it is not a projective image
+of a real pitch, so fitting real geometry onto it warps the result ~10–14% (keypoints land
+visibly off the lines). That was the original bug. `homography: null` means the model could not
+calibrate that frame; the stage applies its own EMA/carry smoothing over these fresh estimates.
+Contract violations (non-zero exit, missing/invalid `out_path`) raise `CalibrationBridgeError` —
+never silently treated as an empty result.
 
 ## Using it
 
