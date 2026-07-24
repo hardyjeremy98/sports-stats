@@ -36,6 +36,15 @@ uv run matchlab-train ingest-soccernet-ball --split test --limit 8
 uv run matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.tdeed-spotting-smoke.yaml --run-id my-spotting-smoke
 
+# Possession-transition spotting (SPO-77..82, docs/prds/action-spotting-possession-transition.md):
+# image-space possession baseline -> passes/receptions. Smoke runs on stub upstream (no GPU);
+# the eval config targets a soccernet-ball video (real detector/weights, human-gated). Pass
+# number = action_spotting_eval.class_ap(result, "PASS"), not the diluted multi-class avg-mAP.
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.possession-heuristic-smoke.yaml --run-id my-possession-smoke
+# Weak possessor labels for the (gated) learned Peral estimator, from an existing run's artifacts:
+uv run matchlab-train derive-possessor-labels --run-dir data/runs/<id> --out data/labels/<id>-possessor.json
+
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
 uv run matchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
@@ -94,7 +103,7 @@ Read `README.md` first for the pipeline diagram. The pieces that span multiple f
 ### Stage registry and configs
 
 `matchlab_core` defines fixed stage slots (`StageKind` in `schemas/run.py`: detect, track,
-team, calibrate, associate, identity, fuse, events, spotting, annotate). Each implementation
+team, calibrate, associate, identity, fuse, possession, events, spotting, annotate). Each implementation
 registers under a slot name; a YAML in `configs/` picks one impl + params per slot, plus
 top-level `video:` options (`sample_stride` etc.). `PipelineRunner` executes the slots in
 order against an `ArtifactStore`. Identity decisions are made **per tracklet, never per

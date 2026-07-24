@@ -26,13 +26,13 @@ from matchlab_core.schemas.events import (
 )
 from matchlab_core.schemas.gamestate import MinimapBall, MinimapFrame, MinimapPlayer
 from matchlab_core.schemas.geometry import Box, Point
-from matchlab_core.schemas.possession import PossessorFrame
 from matchlab_core.schemas.identity import (
     IdentityEvidence,
     IdentityKind,
     PlayerEntity,
     PlayerIdentity,
 )
+from matchlab_core.schemas.possession import PossessorFrame
 from matchlab_core.schemas.qa import LabeledExample, QAItem, QAReason, QAStatus
 from matchlab_core.schemas.run import (
     ArtifactName,
