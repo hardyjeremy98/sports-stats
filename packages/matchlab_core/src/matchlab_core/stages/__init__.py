@@ -26,6 +26,7 @@ from matchlab_core.stages.events import possession, spotting_stub, tdeed  # noqa
 from matchlab_core.stages.fuse import minimap  # noqa: F401
 from matchlab_core.stages.identity import face, none  # noqa: F401
 from matchlab_core.stages.team import kit_color, siglip  # noqa: F401
+from matchlab_core.stages.team import oracle as team_oracle  # noqa: F401
 from matchlab_core.stages.track import (  # noqa: F401
     botsort,
     botsort_reid,
