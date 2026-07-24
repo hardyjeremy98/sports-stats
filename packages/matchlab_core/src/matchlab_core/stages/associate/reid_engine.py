@@ -64,6 +64,13 @@ class Params(BaseModel):
     # matched no-op purity exactly at +0.016 IDF1 / +0.011 HOTA. Set 0.95 to
     # re-enable similarity merging as a measured trade-off.
     min_similarity: float = 1.01
+    # Similarity-pair admission rule (SPO-73). "threshold": any gate-passing
+    # pair at/above min_similarity. "mutual-best": additionally each side must
+    # rank the other first among its gate-passing candidates and beat its own
+    # runner-up by merge_min_margin — the GSR-winner recipe, which tolerates
+    # the upper-tail overlap that sinks absolute thresholds.
+    merge_decision_rule: str = "threshold"
+    merge_min_margin: float = 0.0
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
     # Representation (SPO-54): view-prototype cap, the cosine threshold that
@@ -182,6 +189,8 @@ class ReidEngineAssociator(Associator):
             overlap_tolerance_frames=p.overlap_tolerance_frames,
             pair_filter=eligible,
             anchor_by_tid=anchor_by_tid,
+            decision_rule=p.merge_decision_rule,
+            min_margin=p.merge_min_margin,
         )
 
         idx = {t.tracklet_id: t for t in tracklets}

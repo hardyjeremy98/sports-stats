@@ -602,7 +602,9 @@ export type AssociationRejectReason =
   | "span_conflict"
   | "team_mismatch"
   | "motion_infeasible"
-  | "anchor_conflict";
+  | "anchor_conflict"
+  | "not_mutual_best"
+  | "margin_too_small";
 
 export interface AssociationPair {
   a: number; // tracklet ids, a = earlier-starting

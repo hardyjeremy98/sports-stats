@@ -139,6 +139,81 @@ def test_same_anchor_pair_merges_even_without_features():
     assert result.pairs[0].decision == "merged"
 
 
+def test_mutual_best_rule_rejects_one_sided_preferences():
+    # SPO-73 v2 rule. sims: (1,2)=0.9, (1,3)=0.8, (2,3)=0.85. Best candidates:
+    # 1->2, 2->1, 3->2. Only (1,2) is mutual; (2,3) and (1,3) are one-sided.
+    # The old threshold rule at 0.5 would merge all three into one thread.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90), _tracklet(3, 100, 140)]
+    sims = {(1, 2): 0.9, (1, 3): 0.8, (2, 3): 0.85}
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate(tolerance_frames=2)],
+        similarity=lambda a, b: sims[(min(a, b), max(a, b))],
+        min_similarity=0.5,
+        decision_rule="mutual-best",
+    )
+    assert sorted(map(sorted, result.groups)) == [[1, 2], [3]]
+    by_key = {(p.a, p.b): p for p in result.pairs}
+    assert by_key[(1, 2)].decision == "merged"
+    assert by_key[(2, 3)].reason == AssociationRejectReason.NOT_MUTUAL_BEST
+    assert by_key[(1, 3)].reason == AssociationRejectReason.NOT_MUTUAL_BEST
+
+
+def test_margin_bar_rejects_ambiguous_mutual_best():
+    # (1,2) is mutual best, but 1's runner-up (3 at 0.88) sits within 0.02 of
+    # the best (0.90): a lookalike impostor this close makes the pick unsafe,
+    # so at min_margin=0.05 the pair must abstain rather than merge.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90), _tracklet(3, 100, 140)]
+    sims = {(1, 2): 0.90, (1, 3): 0.88, (2, 3): 0.70}
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate(tolerance_frames=2)],
+        similarity=lambda a, b: sims[(min(a, b), max(a, b))],
+        min_similarity=0.5,
+        decision_rule="mutual-best",
+        min_margin=0.05,
+    )
+    assert sorted(map(sorted, result.groups)) == [[1], [2], [3]]
+    by_key = {(p.a, p.b): p for p in result.pairs}
+    assert by_key[(1, 2)].reason == AssociationRejectReason.MARGIN_TOO_SMALL
+
+
+def test_margin_trivially_clears_with_a_single_candidate():
+    # A lone candidate pair has no runner-up on either side: the margin is
+    # unbounded and the pair merges under any min_margin.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90)]
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate(tolerance_frames=2)],
+        similarity=_sim_all(0.9),
+        min_similarity=0.5,
+        decision_rule="mutual-best",
+        min_margin=0.5,
+    )
+    assert sorted(map(sorted, result.groups)) == [[1, 2]]
+    assert result.pairs[0].decision == "merged"
+
+
+def test_anchor_pairs_bypass_the_mutual_best_rule():
+    # Under mutual-best, appearance prefers (1,3) — but 1 and 2 share an
+    # anchor, which is tier-0 evidence: (1,2) merges first regardless of the
+    # rule, and 3 (overlapping 2) is span-conflicted out of the thread.
+    tr = [_tracklet(1, 0, 50), _tracklet(2, 60, 90), _tracklet(3, 70, 120)]
+    sims = {(1, 2): 0.6, (1, 3): 0.9, (2, 3): 0.85}
+    result = merge_tracklets(
+        tr,
+        gates=[TemporalOverlapGate(tolerance_frames=2)],
+        similarity=lambda a, b: sims[(min(a, b), max(a, b))],
+        min_similarity=0.5,
+        decision_rule="mutual-best",
+        anchor_by_tid={1: "left:7", 2: "left:7"},
+    )
+    assert sorted(map(sorted, result.groups)) == [[1, 2], [3]]
+    by_key = {(p.a, p.b): p for p in result.pairs}
+    assert by_key[(1, 2)].decision == "merged"
+    assert by_key[(1, 3)].reason == AssociationRejectReason.SPAN_CONFLICT
+
+
 def test_pair_filter_is_silent_and_blocks_merge():
     a, b = _tracklet(1, 0, 50), _tracklet(2, 60, 90)
     result = merge_tracklets(

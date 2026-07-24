@@ -45,6 +45,8 @@ def merge_tracklets(
     overlap_tolerance_frames: int = 2,
     pair_filter: Callable[[Tracklet, Tracklet], bool] | None = None,
     anchor_by_tid: dict[int, str] | None = None,
+    decision_rule: str = "threshold",
+    min_margin: float = 0.0,
 ) -> MergeResult:
     """Merge tracklets into threads.
 
@@ -53,6 +55,16 @@ def merge_tracklets(
     `pair_filter` is the silent structural filter (referee exclusion): pairs
     failing it get no report row, bounding the O(n^2) payload exactly like
     the incumbent associators.
+
+    `decision_rule` selects how similarity pairs are admitted as merge
+    candidates. "threshold": any gate-passing pair at or above
+    `min_similarity` (the SPO-59 v1 rule). "mutual-best": additionally each
+    side must rank the other first among its own gate-passing candidates
+    (SPO-73; one-sided preferences are rejected as NOT_MUTUAL_BEST) and beat
+    its own runner-up by at least `min_margin` (else MARGIN_TOO_SMALL —
+    a close lookalike makes the pick unsafe, so the pair abstains). A side
+    with no runner-up clears the margin trivially. Same-anchor pairs bypass
+    the rule under either setting.
 
     `anchor_by_tid` maps tracklets to their anchored roster candidate. Pairs
     anchored to the SAME candidate are the highest-precision merge signal:
@@ -75,6 +87,7 @@ def merge_tracklets(
     pairs: list[AssociationPair] = []
     pending: dict[tuple[int, int], AssociationPair] = {}
     candidates: list[tuple[float, int, int]] = []
+    scored: list[tuple[int, int, float]] = []  # gate-passing similarity pairs
 
     for i, a in enumerate(ids):
         for b in ids[i + 1 :]:
@@ -120,20 +133,44 @@ def merge_tracklets(
                     )
                 )
                 continue
-            if sim < min_similarity:
-                pairs.append(
-                    AssociationPair(
-                        a=pa, b=pb, embed_distance=1.0 - sim, affinity=sim,
-                        decision="rejected", reason=AssociationRejectReason.EMBED_TOO_FAR,
-                    )
-                )
-                continue
+            # Admission is decided after the loop: the mutual-best rule needs
+            # every tracklet's full gate-passing candidate ranking first.
             pair = AssociationPair(
                 a=pa, b=pb, embed_distance=1.0 - sim, affinity=sim, decision="rejected"
             )
             pending[(a, b)] = pair
             pairs.append(pair)
-            candidates.append((1, -sim, a, b))
+            scored.append((a, b, sim))
+
+    # Best + runner-up gate-passing candidate per tracklet (below-floor
+    # competitors count: a close impostor is disqualifying evidence even if
+    # it can't merge itself).
+    best: dict[int, tuple[float, int]] = {}
+    second: dict[int, float] = {}
+    if decision_rule == "mutual-best":
+        for a, b, sim in scored:
+            for x, y in ((a, b), (b, a)):
+                cur = best.get(x)
+                if cur is None or sim > cur[0]:
+                    if cur is not None:
+                        second[x] = max(second.get(x, cur[0]), cur[0])
+                    best[x] = (sim, y)
+                else:
+                    second[x] = max(second.get(x, sim), sim)
+
+    for a, b, sim in scored:
+        pair = pending[(a, b)]
+        if sim < min_similarity:
+            pair.reason = AssociationRejectReason.EMBED_TOO_FAR
+            continue
+        if decision_rule == "mutual-best":
+            if not (best[a][1] == b and best[b][1] == a):
+                pair.reason = AssociationRejectReason.NOT_MUTUAL_BEST
+                continue
+            if any(sim - second[x] < min_margin for x in (a, b) if x in second):
+                pair.reason = AssociationRejectReason.MARGIN_TOO_SMALL
+                continue
+        candidates.append((1, -sim, a, b))
 
     spans: dict[int, list[tuple[int, int]]] = {
         tid: [(idx[tid].start_frame, idx[tid].end_frame)] for tid in ids

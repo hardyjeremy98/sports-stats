@@ -96,6 +96,55 @@ def test_merges_similar_non_overlapping_and_abstains_identity(tmp_path):
         assert e.identity.label is None
 
 
+def test_mutual_best_rule_reaches_the_merge_core(tmp_path):
+    # SPO-73 wiring: with merge_decision_rule=mutual-best, the one-sided
+    # pairs (both prefer partners that prefer someone else) are rejected as
+    # not_mutual_best even though all pairs clear the similarity floor —
+    # under the old threshold rule all three tracklets would become one thread.
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100), _tracklet(3, 110, 150)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2, 3)]
+    ff = _features(
+        [(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05]), (3, 110, [0.9, 0.35])]
+    )
+    ctx, entities = _run_stage(
+        tmp_path, tracklets, teams, ff,
+        {"min_similarity": 0.9, "merge_decision_rule": "mutual-best"},
+    )
+    groups = sorted(sorted(e.tracklet_ids) for e in entities)
+    assert groups == [[1, 2], [3]]
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    reasons = {(p.a, p.b): p.reason for p in report.pairs}
+    assert reasons[(1, 3)] == AssociationRejectReason.NOT_MUTUAL_BEST
+    assert reasons[(2, 3)] == AssociationRejectReason.NOT_MUTUAL_BEST
+
+
+def test_merge_margin_bar_reaches_the_merge_core(tmp_path):
+    # Same geometry, but a merge_min_margin above the (1,2)-vs-(1,3) gap
+    # turns the mutual-best pair into an ambiguous abstention.
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100), _tracklet(3, 110, 150)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2, 3)]
+    ff = _features(
+        [(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05]), (3, 110, [0.9, 0.35])]
+    )
+    ctx, entities = _run_stage(
+        tmp_path, tracklets, teams, ff,
+        {
+            "min_similarity": 0.9,
+            "merge_decision_rule": "mutual-best",
+            "merge_min_margin": 0.2,
+        },
+    )
+    groups = sorted(sorted(e.tracklet_ids) for e in entities)
+    assert groups == [[1], [2], [3]]
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    reasons = {(p.a, p.b): p.reason for p in report.pairs}
+    assert reasons[(1, 2)] == AssociationRejectReason.MARGIN_TOO_SMALL
+
+
 def test_association_report_is_format_compatible(tmp_path):
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]

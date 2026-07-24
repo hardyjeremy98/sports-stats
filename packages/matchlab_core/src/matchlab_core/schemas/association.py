@@ -20,6 +20,8 @@ class AssociationRejectReason(StrEnum):
     TEAM_MISMATCH = "team_mismatch"  # reid-engine: both teams known, different
     MOTION_INFEASIBLE = "motion_infeasible"  # reid-engine: GMC/metric speed bound
     ANCHOR_CONFLICT = "anchor_conflict"  # reid-engine: anchored to different players
+    NOT_MUTUAL_BEST = "not_mutual_best"  # reid-engine v2 rule: one-sided preference
+    MARGIN_TOO_SMALL = "margin_too_small"  # reid-engine v2 rule: runner-up too close
 
 
 class AssociationPair(BaseModel):
