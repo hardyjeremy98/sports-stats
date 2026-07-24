@@ -17,6 +17,7 @@ import type {
   MinimapFrame,
   NamingReport,
   PlayerEntity,
+  ReidDetailReport,
   SpottedEvent,
   StatSheet,
   TeamAssignment,
@@ -47,6 +48,7 @@ export interface RunArtifacts {
   eval: EvalResult | null;
   association: AssociationReport | null;
   naming: NamingReport | null;
+  reidDetail: ReidDetailReport | null;
   // Derived indexes.
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
@@ -87,6 +89,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
   { key: "association", fn: () => fetchJson<AssociationReport>(api.artifactUrl(runId, "association")) },
   { key: "naming", fn: () => fetchJson<NamingReport>(api.artifactUrl(runId, "naming")) },
+  { key: "reid_detail", fn: () => fetchJson<ReidDetailReport>(api.artifactUrl(runId, "reid_detail")) },
 ].map((q) => ({
   queryKey: ["artifact", runId, q.key],
   queryFn: q.fn,
@@ -113,6 +116,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     evalResult,
     association,
     naming,
+    reidDetail,
   ] = results.map((r) => (r.isSuccess ? r.data : null));
 
   const trackletBoxesByFrame = new Map<number, TrackletBox[]>();
@@ -156,6 +160,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     eval: evalResult as EvalResult | null,
     association: association as AssociationReport | null,
     naming: naming as NamingReport | null,
+    reidDetail: reidDetail as ReidDetailReport | null,
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,

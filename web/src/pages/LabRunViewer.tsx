@@ -29,6 +29,7 @@ import type {
 } from "../lib/types";
 import { LAYER_LABEL, SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
+import { MergeInspector } from "../components/MergeInspector";
 import { IdentityQATab } from "../components/IdentityQATab";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
@@ -78,6 +79,7 @@ export default function LabRunViewer() {
   const [inspector, setInspector] = useState<{ playerId: number; evidenceIdx: number } | null>(
     null,
   );
+  const [mergeInspect, setMergeInspect] = useState<AssociationPair | null>(null);
 
   const getTime = useMemo(() => () => playerRef.current?.getTime() ?? 0, []);
   const seek = (t: number) => playerRef.current?.seek(t);
@@ -338,6 +340,7 @@ export default function LabRunViewer() {
                   const endFrame = aTracklet?.frames[aTracklet.frames.length - 1]?.frame_idx;
                   if (endFrame != null) seek(endFrame / fps);
                 }}
+                onInspectPair={(pair) => setMergeInspect(pair)}
               />
             )}
             {tab === "players" && (
@@ -434,6 +437,25 @@ export default function LabRunViewer() {
           </div>
         </Card>
       </div>
+
+      {mergeInspect && (
+        <MergeInspector
+          videoUrl={r.video_id != null ? `/api/videos/${r.video_id}/file` : null}
+          fps={r.video?.fps || r.manifest?.video.fps || 25}
+          pair={mergeInspect}
+          artifacts={artifacts}
+          onClose={() => setMergeInspect(null)}
+          onSelectTracklet={(tid, t) => {
+            setMergeInspect(null);
+            setHlTracklet(tid);
+            setHlPlayer(null);
+            setHlGtTrack(null);
+            setHlPair(null);
+            setTab("tracklets");
+            if (t != null) seek(t);
+          }}
+        />
+      )}
 
       {inspector &&
         (() => {
@@ -942,6 +964,7 @@ function AssocTab({
   onSelectEntity,
   onSelectTracklet,
   onSelectPair,
+  onInspectPair,
 }: {
   artifacts: RunArtifacts;
   fps: number;
@@ -950,6 +973,7 @@ function AssocTab({
   onSelectEntity: (playerId: number | null) => void;
   onSelectTracklet: (trackletId: number, seekTo: number | null) => void;
   onSelectPair: (pair: AssociationPair) => void;
+  onInspectPair: (pair: AssociationPair) => void;
 }) {
   const report = artifacts.association;
   const [showAllPairs, setShowAllPairs] = useState(false);
@@ -1102,7 +1126,12 @@ function AssocTab({
         </div>
         <div className="flex flex-col gap-1">
           {visiblePairs.map((p, i) => (
-            <AssocPairRow key={`${p.a}-${p.b}-${i}`} pair={p} onClick={() => onSelectPair(p)} />
+            <AssocPairRow
+              key={`${p.a}-${p.b}-${i}`}
+              pair={p}
+              onClick={() => onSelectPair(p)}
+              onInspect={artifacts.reidDetail ? () => onInspectPair(p) : undefined}
+            />
           ))}
           {sortedPairs.length === 0 && (
             <div className="py-3 text-center text-[13px] text-ink-500">No candidate pairs.</div>
@@ -1160,7 +1189,15 @@ function EntityPicker({
   );
 }
 
-function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () => void }) {
+function AssocPairRow({
+  pair,
+  onClick,
+  onInspect,
+}: {
+  pair: AssociationPair;
+  onClick: () => void;
+  onInspect?: () => void;
+}) {
   // dist_px / gap_s: an implausible speed is one of the constraints that can
   // reject a pair before appearance is even compared.
   const speed =
@@ -1199,6 +1236,26 @@ function AssocPairRow({ pair, onClick }: { pair: AssociationPair; onClick: () =>
         <span title="affinity" className="text-ink-400">
           a {pair.affinity != null ? pair.affinity.toFixed(2) : "—"}
         </span>
+        {onInspect && (
+          <span
+            role="button"
+            tabIndex={0}
+            title="inspect this pair: prototype crops + per-part evidence"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInspect();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                onInspect();
+              }
+            }}
+            className="rounded px-1.5 py-0.5 text-ink-400 transition-colors hover:bg-turf-700 hover:text-ink-100"
+          >
+            ⧉
+          </span>
+        )}
       </span>
     </button>
   );

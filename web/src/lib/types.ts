@@ -662,6 +662,44 @@ export interface NamingReport {
   calibration: Record<string, unknown>;
 }
 
+// ---- Re-ID engine working detail (reid_detail.json, merge inspector) ----
+
+export interface PrototypeDetail {
+  exemplar_frame_idx: number; // highest-quality member — the crop to show
+  member_frame_idxs: number[];
+  part_visibility: number[]; // length n_parts
+}
+
+export interface CandidateRank {
+  tracklet_id: number;
+  affinity: number;
+}
+
+export interface TrackletDetail {
+  tracklet_id: number;
+  starved: boolean;
+  prototypes: PrototypeDetail[];
+  candidates: CandidateRank[]; // gate-passing, best first
+}
+
+export interface PairDetail {
+  a: number; // tracklet ids, a < b
+  b: number;
+  affinity: number;
+  a_proto: number; // winning prototype index per side
+  b_proto: number;
+  part_cosines: (number | null)[]; // null = part excluded
+  part_weights: (number | null)[];
+}
+
+export interface ReidDetailReport {
+  impl: string;
+  params: Record<string, unknown>;
+  n_parts: number;
+  tracklets: TrackletDetail[];
+  pairs: PairDetail[];
+}
+
 // ---- Identity QA labels (human annotations; never mutate run artifacts/entities) ----
 
 export type IdentityLabelKind = "pair" | "merge" | "split" | "roster";
