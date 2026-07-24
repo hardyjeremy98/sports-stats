@@ -25,6 +25,7 @@ from matchlab_core.schemas.association import AssociationRejectReason
 from matchlab_core.schemas.detections import DetectionClass
 from matchlab_core.schemas.identity import IdentityKind
 from matchlab_core.schemas.naming import ConfidenceTier, NamingDecision, NamingReport
+from matchlab_core.schemas.reid_detail import ReidDetailReport
 from matchlab_core.schemas.run import StageKind
 
 FPS = 25.0
@@ -143,6 +144,33 @@ def test_merge_margin_bar_reaches_the_merge_core(tmp_path):
     )
     reasons = {(p.a, p.b): p.reason for p in report.pairs}
     assert reasons[(1, 2)] == AssociationRejectReason.MARGIN_TOO_SMALL
+
+
+def test_reid_detail_artifact_shows_the_working(tmp_path):
+    # The merge inspector's data: per-tracklet prototypes with exemplar
+    # frames, per-scored-pair winning-prototype/part breakdown, and each
+    # tracklet's ranked candidates.
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100), _tracklet(3, 110, 150)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2, 3)]
+    ff = _features(
+        [(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05]), (3, 110, [0.9, 0.35])]
+    )
+    ctx, _ = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.9})
+
+    detail = ReidDetailReport.model_validate_json(
+        ctx.store.path(ArtifactName.REID_DETAIL).read_text()
+    )
+    assert detail.impl == "reid-engine"
+    by_tid = {t.tracklet_id: t for t in detail.tracklets}
+    [proto] = by_tid[1].prototypes  # single frame -> one prototype
+    assert proto.exemplar_frame_idx == 0
+    assert proto.member_frame_idxs == [0]
+    # Tracklet 1 ranks 2 (cos ~0.9988) over 3 (cos ~0.932).
+    assert [c.tracklet_id for c in by_tid[1].candidates] == [2, 3]
+    pair = next(p for p in detail.pairs if (p.a, p.b) == (1, 2))
+    assert (pair.a_proto, pair.b_proto) == (0, 0)
+    assert pair.affinity == pytest.approx(0.9988, abs=1e-3)
+    assert pair.part_cosines[0] == pytest.approx(pair.affinity, abs=1e-9)
 
 
 def test_association_report_is_format_compatible(tmp_path):

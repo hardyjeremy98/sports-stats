@@ -7,7 +7,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from matchlab_core.frame_features import FrameFeatures
-from matchlab_core.reid.representation import build_representations, pair_similarity
+from matchlab_core.reid.representation import (
+    build_representations,
+    pair_similarity,
+    pair_similarity_breakdown,
+)
 
 
 def _ff(tids: list[int], fidxs: list[int], embs: list[list[list[float]]]) -> FrameFeatures:
@@ -162,3 +166,44 @@ def test_no_shared_visible_parts_returns_none():
     a = _rep([1.0, 0.0])  # only part 0 visible
     b = _rep([0.0, 1.0])  # only part 1 visible
     assert pair_similarity(a, b, min_part_visibility=0.3) is None
+
+
+def test_prototypes_record_member_frames_with_exemplar_first():
+    # Quality order: f0 (norm 2) seeds proto 0; f10 ([0,1], norm 1) is
+    # orthogonal -> seeds proto 1; f5 ([0.9,0], norm 0.9) joins proto 0.
+    # Members are recorded in join order, so the highest-quality frame of
+    # each cluster -- the exemplar crop the Lab shows -- is always first.
+    ff = _ff([1, 1, 1], [0, 5, 10], [[[2.0, 0.0]], [[0.9, 0.0]], [[0.0, 1.0]]])
+    reps = build_representations(ff)
+    assert reps[1].member_frame_idxs == [[0, 5], [10]]
+
+
+def test_pair_similarity_breakdown_exposes_winning_pair_and_part_cosines():
+    # P=2: part 1 is invisible on one side, so the winning comparison uses
+    # part 0 only. Breakdown must name the winning prototype pair, give the
+    # per-part cosines with excluded parts as None, and agree with
+    # pair_similarity exactly.
+    n = 2
+    e = np.array(
+        [
+            [[1.0, 0.0], [1.0, 0.0]],  # tracklet 1
+            [[1.0, 1.0], [1.0, 0.0]],  # tracklet 2
+        ],
+        dtype=np.float32,
+    )
+    vis = np.array([[1.0, 0.1], [1.0, 1.0]], dtype=np.float32)
+    ff = FrameFeatures(
+        tracklet_ids=np.array([1, 2], dtype=np.int64),
+        frame_idxs=np.array([0, 10], dtype=np.int64),
+        embeddings=e,
+        visibility=vis,
+        keypoints_xyc=np.zeros((n, 17, 3), dtype=np.float32),
+        keypoints_conf=np.ones(n, dtype=np.float32),
+    )
+    reps = build_representations(ff)
+    bd = pair_similarity_breakdown(reps[1], reps[2])
+    assert bd is not None
+    assert (bd.a_proto, bd.b_proto) == (0, 0)
+    assert bd.part_cosines[1] is None  # part 1 excluded (vis 0.1 < 0.3)
+    np.testing.assert_allclose(bd.part_cosines[0], 1 / np.sqrt(2), rtol=1e-6)
+    assert bd.score == pair_similarity(reps[1], reps[2])

@@ -11,7 +11,7 @@ K=1 case degenerates to plain cosine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -24,6 +24,10 @@ class TrackletRepresentation:
     prototypes: np.ndarray  # (K, P, D)
     part_visibility: np.ndarray  # (K, P) mean per-part visibility per prototype
     starved: bool = False  # too few frames for a confident representation
+    # Source frames per prototype, in quality-join order: the first entry of
+    # each cluster is its highest-quality frame — the exemplar crop the Lab's
+    # merge inspector shows.
+    member_frame_idxs: list[list[int]] = field(default_factory=list)
 
 
 def build_representations(
@@ -56,12 +60,14 @@ def build_representations(
         if not keep.any():
             continue
         embs, vis, quality = embs[keep], vis[keep], quality[keep]
+        fidxs = ff.frame_idxs[mask][keep]
         order = np.argsort(-quality, kind="stable")
 
         # Running per-cluster sums so centroids stay quality-weighted.
         sums: list[np.ndarray] = []  # Σ q_i * emb_i, (P, D)
         vis_sums: list[np.ndarray] = []  # Σ q_i * vis_i, (P,)
         weights: list[float] = []  # Σ q_i
+        members: list[list[int]] = []  # source frame_idx per cluster, join order
         for i in order:
             flat = embs[i].reshape(-1)
             unit = flat / quality[i]
@@ -74,10 +80,12 @@ def build_representations(
                     sums[j] = sums[j] + quality[i] * embs[i]
                     vis_sums[j] = vis_sums[j] + quality[i] * vis[i]
                     weights[j] += float(quality[i])
+                    members[j].append(int(fidxs[i]))
                     continue
             sums.append(quality[i] * embs[i])
             vis_sums.append(quality[i] * vis[i])
             weights.append(float(quality[i]))
+            members.append([int(fidxs[i])])
 
         protos = np.stack([s / w for s, w in zip(sums, weights)])  # (K, P, D)
         vis_mean = np.stack([v / w for v, w in zip(vis_sums, weights)])  # (K, P)
@@ -86,8 +94,22 @@ def build_representations(
             prototypes=protos.astype(np.float32),
             part_visibility=vis_mean.astype(np.float32),
             starved=len(embs) <= starved_max_frames,
+            member_frame_idxs=members,
         )
     return reps
+
+
+@dataclass
+class PairBreakdown:
+    """How one tracklet-pair similarity score came to be: the winning
+    prototype pair and its per-part evidence — what the Lab's merge
+    inspector renders."""
+
+    score: float
+    a_proto: int  # winning prototype index on each side
+    b_proto: int
+    part_cosines: list[float | None]  # length P; None = part excluded
+    part_weights: list[float | None]  # min(vis_a, vis_b); None = excluded
 
 
 def pair_similarity(
@@ -102,12 +124,24 @@ def pair_similarity(
     is min(vis_a, vis_b). Returns None when no prototype pair shares a visible
     part — not comparable, which the merge engine treats as missing evidence.
     """
+    bd = pair_similarity_breakdown(a, b, min_part_visibility=min_part_visibility)
+    return None if bd is None else bd.score
+
+
+def pair_similarity_breakdown(
+    a: TrackletRepresentation,
+    b: TrackletRepresentation,
+    *,
+    min_part_visibility: float = 0.3,
+) -> PairBreakdown | None:
+    """`pair_similarity` with its working shown — same score, same None
+    conditions, plus the winning prototype pair and per-part cosines."""
     pa = a.prototypes.astype(np.float64)  # (Ka, P, D)
     pb = b.prototypes.astype(np.float64)  # (Kb, P, D)
     na = np.linalg.norm(pa, axis=2)  # (Ka, P)
     nb = np.linalg.norm(pb, axis=2)  # (Kb, P)
 
-    best: float | None = None
+    best: PairBreakdown | None = None
     for i in range(pa.shape[0]):
         for j in range(pb.shape[0]):
             va, vb = a.part_visibility[i], b.part_visibility[j]
@@ -123,6 +157,14 @@ def pair_similarity(
             dots = np.einsum("pd,pd->p", pa[i][shared], pb[j][shared])
             cos = dots / (na[i][shared] * nb[j][shared])
             score = float((w * cos).sum() / w.sum())
-            if best is None or score > best:
-                best = score
+            if best is None or score > best.score:
+                part_cos: list[float | None] = [None] * pa.shape[1]
+                part_w: list[float | None] = [None] * pa.shape[1]
+                for k, p_idx in enumerate(np.flatnonzero(shared)):
+                    part_cos[int(p_idx)] = float(cos[k])
+                    part_w[int(p_idx)] = float(w[k])
+                best = PairBreakdown(
+                    score=score, a_proto=i, b_proto=j,
+                    part_cosines=part_cos, part_weights=part_w,
+                )
     return best

@@ -79,6 +79,7 @@ class ArtifactName(StrEnum):
     REID_EMBEDDINGS = "reid_embeddings"  # reid_embeddings.npz — per-tracklet re-ID features
     FRAME_FEATURES = "frame_features"    # frame_features.npz — per-(tracklet, frame) features
     NAMING = "naming"                    # naming.json — NamingReport (roster naming decisions)
+    REID_DETAIL = "reid_detail"          # reid_detail.json — ReidDetailReport (merge inspector)
 
 
 class TimelineBucket(BaseModel):

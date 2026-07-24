@@ -35,7 +35,11 @@ from matchlab_core.reid.gates import (
 from matchlab_core.reid.merge import merge_tracklets
 from matchlab_core.reid.motion import estimate_camera_motion
 from matchlab_core.reid.naming import name_threads
-from matchlab_core.reid.representation import build_representations, pair_similarity
+from matchlab_core.reid.representation import (
+    PairBreakdown,
+    build_representations,
+    pair_similarity_breakdown,
+)
 from matchlab_core.reid.tiers import assign_tiers
 from matchlab_core.schemas import (
     ArtifactName,
@@ -50,6 +54,13 @@ from matchlab_core.schemas import (
 )
 from matchlab_core.schemas.identity import IdentityKind, PlayerIdentity
 from matchlab_core.schemas.naming import NamingDecision, NamingReport
+from matchlab_core.schemas.reid_detail import (
+    CandidateRank,
+    PairDetail,
+    PrototypeDetail,
+    ReidDetailReport,
+    TrackletDetail,
+)
 from matchlab_core.schemas.run import StageKind
 
 
@@ -138,12 +149,22 @@ class ReidEngineAssociator(Associator):
                 starved_max_frames=p.starved_max_frames,
             )
 
+        # Memoized breakdowns feed both the merge engine (score) and the
+        # reid_detail artifact (the working: winning prototype pair, per-part
+        # cosines) without scoring any pair twice.
+        breakdowns: dict[tuple[int, int], PairBreakdown | None] = {}
+
         def similarity(a: int, b: int) -> float | None:
             if a not in reps or b not in reps:
                 return None
-            return pair_similarity(
-                reps[a], reps[b], min_part_visibility=p.min_part_visibility
-            )
+            key = (a, b) if a < b else (b, a)
+            if key not in breakdowns:
+                breakdowns[key] = pair_similarity_breakdown(
+                    reps[key[0]], reps[key[1]],
+                    min_part_visibility=p.min_part_visibility,
+                )
+            bd = breakdowns[key]
+            return None if bd is None else bd.score
 
         def eligible(ta: Tracklet, tb: Tracklet) -> bool:
             # Referee pairs stay silent (never merge candidates); team
@@ -270,7 +291,55 @@ class ReidEngineAssociator(Associator):
                 calibration=anchor_calibration,
             ),
         )
+        self._write_reid_detail(ctx, reps, breakdowns)
         return entities
+
+    def _write_reid_detail(self, ctx: StageContext, reps: dict, breakdowns: dict) -> None:
+        """reid_detail.json: the engine's working (prototype provenance +
+        pair breakdowns + rankings) for the Lab's merge inspector."""
+        ranked: dict[int, list[CandidateRank]] = {}
+        pair_rows: list[PairDetail] = []
+        for (a, b), bd in sorted(breakdowns.items()):
+            if bd is None:
+                continue
+            pair_rows.append(
+                PairDetail(
+                    a=a, b=b, affinity=bd.score,
+                    a_proto=bd.a_proto, b_proto=bd.b_proto,
+                    part_cosines=bd.part_cosines, part_weights=bd.part_weights,
+                )
+            )
+            ranked.setdefault(a, []).append(CandidateRank(tracklet_id=b, affinity=bd.score))
+            ranked.setdefault(b, []).append(CandidateRank(tracklet_id=a, affinity=bd.score))
+        for rows in ranked.values():
+            rows.sort(key=lambda c: (-c.affinity, c.tracklet_id))
+        tracklet_rows = [
+            TrackletDetail(
+                tracklet_id=tid,
+                starved=rep.starved,
+                prototypes=[
+                    PrototypeDetail(
+                        exemplar_frame_idx=members[0],
+                        member_frame_idxs=members,
+                        part_visibility=[float(v) for v in rep.part_visibility[k]],
+                    )
+                    for k, members in enumerate(rep.member_frame_idxs)
+                ],
+                candidates=ranked.get(tid, []),
+            )
+            for tid, rep in sorted(reps.items())
+        ]
+        n_parts = next(iter(reps.values())).prototypes.shape[1] if reps else 0
+        ctx.store.write_json(
+            ArtifactName.REID_DETAIL,
+            ReidDetailReport(
+                impl=self.impl_name,
+                params=self.params.model_dump(),
+                n_parts=n_parts,
+                tracklets=tracklet_rows,
+                pairs=pair_rows,
+            ),
+        )
 
     def _collect_anchors(
         self, ctx: StageContext, tracklets: list[Tracklet]

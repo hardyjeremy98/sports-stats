@@ -1,0 +1,163 @@
+# SPO-73 decontaminated tuning grid (oracle teams): the amendment run — every
+# input around the merge rule is GT/oracle-pinned (oracle detections, frozen
+# tracklets/features, ORACLE team stage). Kit-color noise (SNMOT-116 collapse,
+# SPO-75) contaminated the original grid; this supersedes it. Anchorless.
+name: benchmark-reid-spo73-oracleteam-tuning
+task: benchmark
+description: >
+  SPO-73 amendment: anchorless mutual-best+margin grid with oracle teams on
+  tuning sequences over the frozen substrate.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [tuning]
+  candidates:
+    - name: noop-per-tracklet
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.impl: per-tracklet
+        stages.associate.params: {}
+      comparison_class: matched_data
+    - name: v1-threshold-0.95
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.min_similarity: 0.95
+      comparison_class: matched_data
+    - name: mb-m0.0
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.0
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.02
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.02
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.05
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.05
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.06
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.06
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.07
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.07
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.08
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.08
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.09
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.09
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+    - name: mb-m0.1
+      kind: pipeline
+      config: configs/pipeline.reid-frozen-substrate.yaml
+      overrides:
+        stages.track.params.runs_dir: data/experiments/benchmark-reid-b2-base-20260724-035932/runs
+        stages.team.impl: oracle
+        stages.team.params: {}
+        stages.associate.params.anchor_source: none
+        stages.associate.params.merge_decision_rule: mutual-best
+        stages.associate.params.merge_min_margin: 0.1
+        stages.associate.params.min_similarity: 0.9
+      comparison_class: matched_data
+  sweeps:
+    - candidate: mb-m0.0
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.02
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.05
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.06
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.07
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.08
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.09
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+    - candidate: mb-m0.1
+      param: stages.associate.params.min_similarity
+      values: [0.5, 0.8, 0.95]
+  device: cuda
+  iou_threshold: 0.5
+  compare:
+    baseline: noop-per-tracklet
+  tolerances:
+    entity_purity: 0.0
+    idf1_entity: 0.0
+    hota_entity: 0.0
+output_dir: data/experiments

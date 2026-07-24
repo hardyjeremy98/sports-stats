@@ -31,6 +31,7 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.REID_EMBEDDINGS: "reid_embeddings.npz",
     ArtifactName.FRAME_FEATURES: "frame_features.npz",
     ArtifactName.NAMING: "naming.json",
+    ArtifactName.REID_DETAIL: "reid_detail.json",
 }
 
 
