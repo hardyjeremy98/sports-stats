@@ -153,12 +153,18 @@ class PossessionHeuristicEngine(EventEngine):
             if out_now:
                 ball_was_out = True
 
+            # key= keeps the sort off the MinimapPlayer models themselves:
+            # exact distance ties happen (pure-projection minimap positions),
+            # and models are not orderable. player_id makes ties deterministic.
             ranked = sorted(
                 (
-                    ((mp.x - bx) ** 2 + (mp.y - by) ** 2) ** 0.5,
-                    mp,
-                )
-                for mp in mf.players
+                    (
+                        ((mp.x - bx) ** 2 + (mp.y - by) ** 2) ** 0.5,
+                        mp,
+                    )
+                    for mp in mf.players
+                ),
+                key=lambda t: (t[0], t[1].player_id),
             )
             if not ranked:
                 continue
