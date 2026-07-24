@@ -93,8 +93,11 @@ export interface PlayerEntity {
 
 export interface MinimapPlayer {
   player_id: number;
-  x: number; // pitch cm, 0..12000
-  y: number; // pitch cm, 0..7000
+  // Pitch coordinates in centimeters; extent depends on the run's pitch spec
+  // (manifest.config.pitch) -- 12000x7000 for roboflow, 10500x6800 for fifa.
+  // See web/src/components/PitchCanvas.tsx pitchDims() / matchlab_core.pitch.
+  x: number;
+  y: number;
   team: Team;
   confidence: number;
 }

@@ -273,6 +273,7 @@ export default function LabRunViewer() {
               minimap={artifacts.minimap}
               getTime={getTime}
               highlightPlayerId={hlPlayer}
+              pitchName={(r.manifest?.config?.pitch as string | undefined) ?? undefined}
             />
           </Card>
         </div>
