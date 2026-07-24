@@ -29,6 +29,8 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.EVAL: "eval.json",
     ArtifactName.ASSOCIATION: "association.json",
     ArtifactName.REID_EMBEDDINGS: "reid_embeddings.npz",
+    ArtifactName.FRAME_FEATURES: "frame_features.npz",
+    ArtifactName.NAMING: "naming.json",
 }
 
 

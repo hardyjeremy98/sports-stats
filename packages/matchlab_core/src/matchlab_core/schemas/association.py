@@ -17,6 +17,9 @@ class AssociationRejectReason(StrEnum):
     COLOR_TOO_FAR = "color_too_far"
     EMBED_TOO_FAR = "embed_too_far"  # learned re-ID associator's gate
     SPAN_CONFLICT = "span_conflict"  # rejected at union-find time
+    TEAM_MISMATCH = "team_mismatch"  # reid-engine: both teams known, different
+    MOTION_INFEASIBLE = "motion_infeasible"  # reid-engine: GMC/metric speed bound
+    ANCHOR_CONFLICT = "anchor_conflict"  # reid-engine: anchored to different players
 
 
 class AssociationPair(BaseModel):

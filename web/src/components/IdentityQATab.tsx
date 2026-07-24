@@ -15,6 +15,7 @@ import type {
   PairVerdict,
   RosterPayload,
   SplitPayload,
+  ThreadNaming,
   Tracklet,
 } from "../lib/types";
 import { Button, Card, Eyebrow, Mono, Spinner } from "./ui";
@@ -291,6 +292,24 @@ export function IdentityQATab({
     setManualB("");
   }
 
+  // Naming queue (SPO-58): threads the tier gate routed to human QA, deduped
+  // against players that already carry a roster label in this run.
+  const rosterLabeledPids = useMemo(() => {
+    const s = new Set<number>();
+    for (const l of allLabels.data ?? []) {
+      if (l.kind === "roster") s.add((l.payload as RosterPayload).player_id);
+    }
+    return s;
+  }, [allLabels.data]);
+
+  const namingQueue = useMemo(
+    () =>
+      (artifacts.naming?.threads ?? []).filter(
+        (t) => t.tier === "qa" && !rosterLabeledPids.has(t.thread_id),
+      ),
+    [artifacts.naming, rosterLabeledPids],
+  );
+
   const visibleCandidates = showAll ? candidates : candidates.slice(0, 25);
   const pairs = pairLabels.data ?? [];
   const same = pairs.filter((l) => (l.payload as PairPayload).verdict === "same").length;
@@ -299,6 +318,33 @@ export function IdentityQATab({
 
   return (
     <div className="flex flex-col gap-4">
+      {namingQueue.length > 0 && (
+        <Card className="p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <Eyebrow>Naming queue (QA tier)</Eyebrow>
+            <span className="font-mono text-[11px] text-ink-500">
+              {namingQueue.length} threads
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {namingQueue.slice(0, 15).map((t) => (
+              <NamingQueueCard
+                key={t.thread_id}
+                thread={t}
+                roster={artifacts.naming?.roster ?? []}
+                busy={create.isPending}
+                onSave={(label) =>
+                  create.mutate({
+                    run_id: runId,
+                    kind: "roster",
+                    payload: { player_id: t.thread_id, roster_label: label },
+                  })
+                }
+              />
+            ))}
+          </div>
+        </Card>
+      )}
       <Card className="p-3">
         <div className="mb-2 flex items-center justify-between">
           <Eyebrow>Pair queue</Eyebrow>
@@ -410,6 +456,65 @@ export function IdentityQATab({
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function NamingQueueCard({
+  thread,
+  roster,
+  busy,
+  onSave,
+}: {
+  thread: ThreadNaming;
+  roster: string[];
+  busy: boolean;
+  onSave: (label: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  const top =
+    thread.label ??
+    Object.entries(thread.posterior).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+    null;
+  return (
+    <div className="rounded-lg border border-white/8 p-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <Mono className="text-ink-100">#{thread.thread_id}</Mono>
+        <span className="rounded-full bg-turf-800 px-2 py-0.5 font-mono text-[10px] text-ink-400">
+          tier qa
+        </span>
+        <span className="font-mono text-[10px] text-ink-500">
+          {thread.decision === "named"
+            ? `named ${thread.label}`
+            : `abstained${top ? ` · best ${top}` : ""}`}
+          {thread.margin != null && ` · m ${thread.margin.toFixed(2)}`}
+        </span>
+        <span className="ml-auto font-mono text-[10px] text-ink-500">
+          {thread.tracklet_ids.map((tid) => `T${tid}`).join(" ")}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          list={`roster-${thread.thread_id}`}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="roster label"
+          className="w-40 rounded-md border border-white/10 bg-turf-850 px-2 py-1 text-[12px] outline-none focus:border-volt-400/60"
+        />
+        <datalist id={`roster-${thread.thread_id}`}>
+          {roster.map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
+        <Button
+          variant="ghost"
+          className="!py-1"
+          disabled={busy || !value.trim()}
+          onClick={() => onSave(value.trim())}
+        >
+          Save label
+        </Button>
+      </div>
     </div>
   );
 }

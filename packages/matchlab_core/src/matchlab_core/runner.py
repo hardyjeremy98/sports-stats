@@ -113,7 +113,9 @@ class PipelineRunner:
             StageKind.TRACK, lambda s: s.track(ctx, detect_out.frames), required=True
         )
         store.write_json(ArtifactName.TRACKLETS, tracklets)
-        self._index(ArtifactName.TRACKLETS)
+        # frame_features.npz is written by feature-exporting trackers (tdlp-full);
+        # _index is exists()-guarded so other trackers simply skip it.
+        self._index(ArtifactName.TRACKLETS, ArtifactName.FRAME_FEATURES)
         self._metric("n_tracklets", len(tracklets))
 
         teams = self._exec(StageKind.TEAM, lambda s: s.classify(ctx, tracklets)) or []
@@ -127,7 +129,7 @@ class PipelineRunner:
         players = self._exec(
             StageKind.ASSOCIATE, lambda s: s.associate(ctx, tracklets, teams)
         )
-        self._index(ArtifactName.ASSOCIATION, ArtifactName.REID_EMBEDDINGS)
+        self._index(ArtifactName.ASSOCIATION, ArtifactName.REID_EMBEDDINGS, ArtifactName.NAMING)
         if players is None:
             # No associator configured: degrade to one entity per tracklet.
             from matchlab_core.stages.associate.identity_fallback import one_entity_per_tracklet

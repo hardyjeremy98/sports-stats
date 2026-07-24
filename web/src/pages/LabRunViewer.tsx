@@ -696,12 +696,32 @@ function PlayersTab({
   if (!artifacts.players)
     return <div className="py-6 text-center text-[13px] text-ink-500">No players artifact.</div>;
   const trackletById = new Map((artifacts.tracklets ?? []).map((t) => [t.tracklet_id, t]));
+  const namingByThread = new Map(
+    (artifacts.naming?.threads ?? []).map((t) => [t.thread_id, t]),
+  );
+  const namedCount = [...namingByThread.values()].filter((t) => t.decision === "named").length;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[11px] leading-relaxed text-ink-500">
         Merge/split/roster flags are annotations — they don't change this run's entities; they
         take effect on a future re-run or training pass.
       </div>
+      {artifacts.naming && (
+        <div className="flex items-center gap-3 rounded-lg border border-white/8 px-3 py-2 font-mono text-[11px] text-ink-400">
+          <span className="uppercase tracking-[0.14em] text-ink-500">Naming</span>
+          <span className="text-ink-100">{namedCount} named</span>
+          <span>{namingByThread.size - namedCount} abstained</span>
+          {(["auto_accept", "adjudicate", "qa"] as const).map((tier) => {
+            const n = [...namingByThread.values()].filter((t) => t.tier === tier).length;
+            return n > 0 ? (
+              <span key={tier}>
+                {tier.replace(/_/g, " ")} {n}
+              </span>
+            ) : null;
+          })}
+          <span className="ml-auto text-ink-500">{artifacts.naming.roster.length} roster</span>
+        </div>
+      )}
       {merging.size >= 2 && (
         <div className="sticky top-0 z-10 flex items-center gap-2 rounded-lg border border-volt-400/40 bg-turf-900 px-3 py-2">
           <span className="text-[12px] text-ink-100">{merging.size} selected</span>
@@ -755,6 +775,26 @@ function PlayersTab({
                       {p.identity.kind} {fmtConf(p.identity.confidence)}
                     </span>
                   )}
+                  {(() => {
+                    const thread = namingByThread.get(p.player_id);
+                    if (!thread) return null;
+                    return thread.decision === "named" ? (
+                      <span
+                        className="rounded-full bg-volt-400/10 px-2 py-0.5 font-mono text-[10px] text-volt-300"
+                        title={`posterior ${thread.label ? fmtConf(thread.posterior[thread.label] ?? 0) : "—"} · margin ${thread.margin != null ? fmtConf(thread.margin) : "—"}`}
+                      >
+                        {thread.label} · p {thread.label ? fmtConf(thread.posterior[thread.label] ?? 0) : "—"}
+                        {thread.margin != null && ` · m ${fmtConf(thread.margin)}`}
+                        {thread.tier && ` · ${thread.tier.replace(/_/g, " ")}`}
+                      </span>
+                    ) : (
+                      // Abstention is a first-class outcome — visibly distinct,
+                      // never styled like a low-confidence name.
+                      <span className="rounded-full border border-dashed border-amber-400/40 px-2 py-0.5 font-mono text-[10px] text-amber-300/80">
+                        abstained{thread.tier ? ` · ${thread.tier.replace(/_/g, " ")}` : ""}
+                      </span>
+                    );
+                  })()}
                   <span className="ml-auto font-mono text-[11px] text-ink-500">
                     {p.tracklet_ids.length} tracklet{p.tracklet_ids.length === 1 ? "" : "s"}
                     {p.association_confidence < 1 &&
@@ -1682,10 +1722,26 @@ function IdentityMetricsBlock({ identity }: { identity: EvalIdentity | null }) {
                 {identity.cluster_purity != null ? fmtPct(identity.cluster_purity) : "—"}
               </td>
             </tr>
-            <tr className="last:border-0">
+            <tr className="border-b border-white/5">
               <td className="py-1.5 text-ink-400">Cluster completeness</td>
               <td className="py-1.5 text-right font-mono text-ink-100">
                 {identity.cluster_completeness != null ? fmtPct(identity.cluster_completeness) : "—"}
+              </td>
+            </tr>
+            <tr className="border-b border-white/5">
+              <td className="py-1.5 text-ink-400">Roster precision</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.naming?.roster_precision != null
+                  ? fmtPct(identity.naming.roster_precision)
+                  : "—"}
+              </td>
+            </tr>
+            <tr className="last:border-0">
+              <td className="py-1.5 text-ink-400">Named / judged / correct</td>
+              <td className="py-1.5 text-right font-mono text-ink-100">
+                {identity.naming
+                  ? `${identity.naming.n_named} / ${identity.naming.n_judged} / ${identity.naming.n_correct}`
+                  : "—"}
               </td>
             </tr>
           </tbody>
