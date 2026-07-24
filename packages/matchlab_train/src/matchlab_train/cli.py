@@ -101,6 +101,14 @@ def main() -> int:
         help="Split-manifest role to record for newly ingested matches",
     )
 
+    pl_p = sub.add_parser(
+        "derive-possessor-labels",
+        help="Derive WEAK per-frame possessor labels from a run's artifacts "
+        "(SPO-82; Peral training supervision, no new annotation)",
+    )
+    pl_p.add_argument("--run-dir", required=True, help="Run dir (needs tracklets/ball/teams)")
+    pl_p.add_argument("--out", required=True, help="Output labels JSON path")
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -207,6 +215,14 @@ def main() -> int:
             role=args.role,
         )
         print(f"ingested {len(registered)} matches")
+        return 0
+
+    if args.command == "derive-possessor-labels":
+        from matchlab_train.datasets.possessor_labels import derive_weak_possessor_labels
+
+        labels = derive_weak_possessor_labels(args.run_dir, out_path=args.out)
+        print(f"wrote {len(labels.frames)} possessor-label frames to {args.out}")
+        print(f"WEAK LABELS -- {labels.caveat}")
         return 0
 
     config = ExperimentConfig.from_yaml(args.config)
