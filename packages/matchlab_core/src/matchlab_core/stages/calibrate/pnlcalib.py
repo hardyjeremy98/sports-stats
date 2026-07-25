@@ -36,8 +36,9 @@ from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajecto
 from matchlab_core.interfaces import Calibrator, StageContext
 from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from matchlab_core.registry import register
+from matchlab_core.reid.motion import CameraMotion, estimate_camera_motion
 from matchlab_core.schemas import FrameCalibration
-from matchlab_core.schemas.calibration import RawCalibrationRecord
+from matchlab_core.schemas.calibration import CameraMotionStep, RawCalibrationRecord
 from matchlab_core.schemas.run import ArtifactName, StageKind
 
 # Runnable out of the box with no real model or GPU: the permissive reference
@@ -56,6 +57,9 @@ class Params(BaseModel):
     device: str = "cpu"
     frames_ext: str = "jpg"
     timeout_s: float = 3600.0
+    # Recover camera motion from image registration so calibration blackouts are
+    # bridged by MEASURED camera movement rather than a constant-rate assumption.
+    camera_motion: bool = True
     # Offline trajectory smoother (matchlab_core.calib.smoother).
     max_gap_frames: int = 150
     outlier_threshold_cm: float = 2500.0
@@ -97,16 +101,32 @@ class PnLCalibCalibrator(Calibrator):
             frame_meta: dict[int, float] = {}
             order: list[int] = []
             frame_size: tuple[int, int] | None = None
-            for frame in ctx.frames():
-                filename = f"{frame.frame_idx:08d}.{p.frames_ext}"
-                cv2.imwrite(str(frames_dir / filename), frame.image)
-                frame_meta[frame.frame_idx] = frame.t
-                order.append(frame.frame_idx)
-                if frame_size is None:
-                    # The homographies live in the frozen frames' pixel space
-                    # (post any resize) — NOT ctx.video's source resolution.
-                    h, w = frame.image.shape[:2]
-                    frame_size = (w, h)
+
+            def _freeze_and_forward():
+                """Freeze each sampled frame for the bridge and hand the same
+                frame to the camera-motion estimator — one decode pass, and no
+                buffering of decoded video."""
+                nonlocal frame_size
+                for frame in ctx.frames():
+                    filename = f"{frame.frame_idx:08d}.{p.frames_ext}"
+                    cv2.imwrite(str(frames_dir / filename), frame.image)
+                    frame_meta[frame.frame_idx] = frame.t
+                    order.append(frame.frame_idx)
+                    if frame_size is None:
+                        # The homographies live in the frozen frames' pixel space
+                        # (post any resize) — NOT ctx.video's source resolution.
+                        h, w = frame.image.shape[:2]
+                        frame_size = (w, h)
+                    yield frame
+
+            camera_motion = (
+                estimate_camera_motion(_freeze_and_forward())
+                if p.camera_motion
+                else CameraMotion([], [])
+            )
+            if not p.camera_motion:
+                for _ in _freeze_and_forward():
+                    pass
 
             records = run_calibrator(
                 p.command,
@@ -149,6 +169,20 @@ class PnLCalibCalibrator(Calibrator):
             ),
         )
 
+        # Persist the recovered camera motion alongside the raw estimates, so a
+        # later offline re-smooth can bridge blackouts without re-decoding video.
+        ctx.store.write_jsonl(
+            ArtifactName.CAMERA_MOTION,
+            (
+                CameraMotionStep(
+                    from_frame=camera_motion.frame_idxs[i],
+                    to_frame=camera_motion.frame_idxs[i + 1],
+                    homography=step.tolist(),
+                )
+                for i, step in enumerate(camera_motion.steps)
+            ),
+        )
+
         # Collect every raw estimate (whole clip), then smooth offline.
         estimates: list[RawEstimate] = []
         for frame_idx in order:
@@ -177,6 +211,7 @@ class PnLCalibCalibrator(Calibrator):
             max_gap_frames=p.max_gap_frames,
             outlier_threshold_cm=p.outlier_threshold_cm,
             smoothing_window=p.smoothing_window,
+            camera_motion=camera_motion if p.camera_motion else None,
         )
 
         out: list[FrameCalibration] = []

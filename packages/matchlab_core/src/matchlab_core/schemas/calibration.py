@@ -80,3 +80,18 @@ class RawCalibrationRecord(ExternalHomography):
     estimates without re-running the external model."""
 
     t: float = 0.0
+
+
+class CameraMotionStep(BaseModel):
+    """One image->image homography between consecutive SAMPLED frames.
+
+    Recovered from image registration (sparse optical flow), so it is available
+    even where pitch registration fails — which is exactly when it is needed. The
+    offline smoother chains these from the surviving calibrations on either side
+    of a blackout instead of assuming the camera moved at a constant rate.
+    Identity when estimation failed for that step.
+    """
+
+    from_frame: int
+    to_frame: int
+    homography: list[list[float]]

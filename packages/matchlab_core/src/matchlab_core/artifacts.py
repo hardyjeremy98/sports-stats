@@ -17,6 +17,7 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.TEAMS: "teams.json",
     ArtifactName.CALIBRATION: "calibration.jsonl",
     ArtifactName.CALIBRATION_RAW: "calibration_raw.jsonl",
+    ArtifactName.CAMERA_MOTION: "camera_motion.jsonl",
     ArtifactName.PLAYERS: "players.json",
     ArtifactName.MINIMAP: "minimap.jsonl",
     ArtifactName.POSSESSION: "possession.json",

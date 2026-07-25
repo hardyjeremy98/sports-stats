@@ -26,6 +26,8 @@ from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajecto
 from matchlab_core.evaluation import evaluate_run
 from matchlab_core.gt import GroundTruth
 from matchlab_core.pitch import PitchSpec, get_pitch
+from matchlab_core.reid.motion import CameraMotion, estimate_camera_motion
+from matchlab_core.video import iter_frames, probe
 from pydantic import BaseModel
 
 from matchlab_train.experiments.base import Experiment
@@ -61,8 +63,29 @@ def _load_raw(run_dir: Path) -> list[dict]:
     return rows
 
 
+def _load_camera_motion(run_dir: Path, video_path: str | None):
+    """Camera motion for gap bridging: the persisted artifact if the run has one,
+    otherwise recovered from the video (runs predating the artifact). Returns None
+    when neither is available — bridging then falls back to a straight line."""
+    path = run_dir / "camera_motion.jsonl"
+    if path.exists():
+        rows = [json.loads(line) for line in open(path) if line.strip()]
+        if rows:
+            return CameraMotion(
+                frame_idxs=[rows[0]["from_frame"]] + [r["to_frame"] for r in rows],
+                step_homographies=[r["homography"] for r in rows],
+            )
+    if video_path and Path(video_path).exists():
+        return estimate_camera_motion(iter_frames(probe(video_path)))
+    return None
+
+
 def _calibration_rows(
-    raws: list[dict], *, frame_size: tuple[int, int], pitch: PitchSpec
+    raws: list[dict],
+    *,
+    frame_size: tuple[int, int],
+    pitch: PitchSpec,
+    camera_motion=None,
 ) -> list[dict]:
     """Re-smooth raw estimates into the `FrameCalibration` rows to write.
 
@@ -80,7 +103,9 @@ def _calibration_rows(
         for r in raws
     ]
     times = {r["frame_idx"]: r.get("t", 0.0) for r in raws}
-    smoothed = smooth_homography_trajectory(estimates, frame_size=frame_size)
+    smoothed = smooth_homography_trajectory(
+        estimates, frame_size=frame_size, camera_motion=camera_motion
+    )
     vertices = pitch.vertices
 
     rows = []
@@ -108,7 +133,10 @@ def _resmooth(run_dir: Path, manifest: dict) -> list[dict]:
     """Run-dir adapter for `_calibration_rows`."""
     frame_size = (int(manifest["video"]["width"]), int(manifest["video"]["height"]))
     pitch = get_pitch(manifest.get("config", {}).get("pitch", "roboflow"))
-    return _calibration_rows(_load_raw(run_dir), frame_size=frame_size, pitch=pitch)
+    motion = _load_camera_motion(run_dir, manifest.get("video", {}).get("path"))
+    return _calibration_rows(
+        _load_raw(run_dir), frame_size=frame_size, pitch=pitch, camera_motion=motion
+    )
 
 
 def _windowed_speed_rate(

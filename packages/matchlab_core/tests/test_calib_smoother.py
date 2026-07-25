@@ -18,6 +18,9 @@ import numpy as np
 from matchlab_core.calib.smoother import (
     RawEstimate,
     SmoothStatus,
+    _gap_fill_points,
+    _grid_pitch_points,
+    _image_grid,
     smooth_homography_trajectory,
 )
 
@@ -583,3 +586,103 @@ def test_real_snmot122_drift_episodes_are_not_amplified() -> None:
 
     raw_probe = np.array([pitch_of(r["homography"]) for r in records if r["homography"]])
     assert _local_linear_jitter(out_probe) < 0.05 * _local_linear_jitter(raw_probe)
+
+
+class _ExactMotion:
+    """Camera motion oracle for tests: exact image->image homographies derived
+    from the true per-frame calibrations. Structurally compatible with
+    `matchlab_core.reid.motion.CameraMotion`."""
+
+    def __init__(self, true_h: dict[int, np.ndarray]) -> None:
+        self._h = true_h
+
+    def homography(self, from_frame: int, to_frame: int) -> np.ndarray:
+        # H_pitch(s) @ M(t->s) == H_pitch(t)  =>  M(t->s) = inv(H_pitch(s)) @ H_pitch(t)
+        return np.linalg.inv(self._h[to_frame]) @ self._h[from_frame]
+
+
+def _accelerating_pan(n: int) -> dict[int, np.ndarray]:
+    """A camera whose pan ACCELERATES — the case linear interpolation across a
+    gap cannot represent, because it assumes constant velocity."""
+    out = {}
+    for i in range(n):
+        shift = 0.05 * i * i  # quadratic in time
+        quad = BASE_IMAGE_QUAD + np.array([shift, 0.0])
+        out[i] = np.array(_image_to_pitch_H(quad), dtype=np.float64)
+    return out
+
+
+def test_gap_fill_chaining_is_exact_given_exact_anchors() -> None:
+    """The mechanism, isolated from anchor quality: carrying a KNOWN calibration
+    to another frame through KNOWN image motion must reproduce that frame's
+    calibration exactly. This is what catches an inverted or mis-ordered
+    composition, which no end-to-end error bound reliably would."""
+    true_h = _accelerating_pan(90)
+    motion = _ExactMotion(true_h)
+    grid = _image_grid(FRAME_SIZE)
+
+    a, b, t = 20, 60, 35
+    left = _grid_pitch_points(true_h[a].tolist(), grid)
+    right = _grid_pitch_points(true_h[b].tolist(), grid)
+    filled = _gap_fill_points(
+        grid, left, right, a, b, t, (t - a) / (b - a), motion
+    )
+    truth = _grid_pitch_points(true_h[t].tolist(), grid)
+    assert np.max(np.linalg.norm(filled - truth, axis=1)) < 1.0  # centimetres
+
+
+def test_gap_fill_beats_a_straight_line_on_an_accelerating_pan() -> None:
+    """End to end, with noisy raw estimates as real ones are: a fill shaped by
+    measured camera motion must beat one that assumes constant velocity.
+
+    The residual gap between them is anchor-limited, not chaining-limited — a
+    smoothing window next to a gap is asymmetric and so lags slightly under
+    acceleration. That is why the fill chains from the SMOOTHED anchor and not the
+    raw measurement: on real footage the anchor's own noise dominates its lag, and
+    chaining from raw anchors measured 5x WORSE on the Gate 2 panel.
+    """
+    n, gap_lo, gap_hi = 90, 30, 59
+    true_h = _accelerating_pan(n)
+    motion = _ExactMotion(true_h)
+
+    rng = np.random.default_rng(5)
+    estimates = []
+    for i in range(n):
+        if gap_lo <= i <= gap_hi:
+            estimates.append(RawEstimate(frame_idx=i, homography=None, confidence=1.0))
+            continue
+        noisy_quad = BASE_IMAGE_QUAD + np.array([0.05 * i * i, 0.0]) + rng.normal(
+            0.0, 3.0, BASE_IMAGE_QUAD.shape
+        )
+        estimates.append(
+            RawEstimate(frame_idx=i, homography=_image_to_pitch_H(noisy_quad), confidence=1.0)
+        )
+
+    probe = np.array([FRAME_SIZE[0] / 2.0, FRAME_SIZE[1] / 2.0, 1.0])
+
+    def centre(h: list[list[float]]) -> np.ndarray:
+        v = np.array(h, dtype=np.float64) @ probe
+        return v[:2] / v[2]
+
+    with_motion = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(
+            estimates, frame_size=FRAME_SIZE, camera_motion=motion
+        )
+    }
+    without = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(estimates, frame_size=FRAME_SIZE)
+    }
+
+    gap = range(gap_lo, gap_hi + 1)
+    assert all(with_motion[i].status is SmoothStatus.INTERPOLATED for i in gap)
+
+    def worst(out: dict) -> float:
+        return max(
+            float(np.linalg.norm(centre(out[i].homography) - centre(true_h[i].tolist())))
+            for i in gap
+        )
+
+    assert worst(without) > 200.0
+    assert worst(with_motion) < worst(without)
