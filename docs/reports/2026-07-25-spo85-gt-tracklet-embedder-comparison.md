@@ -27,16 +27,30 @@ construction; correct pairs known exactly. No tracker run.
    teammates learns to separate teammates, not to recognise the same player better.
 4. **The overlap is reduced, not closed.** −0.005 is still negative: the distributions
    still touch. This is a materially better embedder, not a solved problem.
+5. **The retrieval win does not carry through to safe merging.** At the registered operating
+   point PRTreID repairs **25 of 125 available merges but makes 3 wrong ones**, failing
+   do-no-harm on two sequences; KPR repairs 3 of 125 with none. Better ranking did not
+   produce a usable merger, and the operating point was calibrated for KPR's affinity
+   distribution rather than PRTreID's. See the merge-accounting section — it qualifies
+   everything above.
 
 ## The substrate
 
-Fragmenting the 8 tuning sequences yields **323 fragments from 210 GT tracks, 100
-multi-fragment players, 153 true re-entry pairs** (225 scored queries across the arms).
+The 8 tuning sequences carry 210 GT tracks, of which **198 are people** — the other 12 are
+ball tracks, which the harness excludes along with the `other` role. Those 198 fragment into
+**323 fragments**, of which **225 belong to 100 fragmented players**, giving **153 true
+re-entry pairs** and — the number that matters for merging — **125 merge operations needed**
+(a player split into k fragments needs k−1 merges, not k(k−1)/2).
 
 For scale: the entire SPO-73 held-out verdict rested on **21** true pairs. The old harness's
 statistical power was a real weakness, and this addresses it directly.
 
-Per sequence — 116: 29 pairs · 117: 9 · 118: 8 · 119: 8 · 120: 28 · 121: 19 · 122: 38 · 123: 14.
+Per sequence — 116: 29 pairs / 23 merges · 117: 9/9 · 118: 8/8 · 119: 8/7 · 120: 28/23 ·
+121: 19/15 · 122: 38/27 · 123: 14/13.
+
+**The gates veto zero true pairs** (153 true, 153 gate-passing). With oracle teams the SPO-75
+kit-colour false-veto defect disappears entirely, which confirms the team gate was its whole
+source.
 
 ## Result (tuning, REPORTED)
 
@@ -76,6 +90,42 @@ The prediction registered on SPO-85 was that PRTreID would help same-kit lookali
 degraded crops, on the grounds that SoccerNet-ReID's positives are cross-view-at-one-instant
 rather than temporal re-entries. The gap profile is consistent with that: the improvement is
 smallest exactly where temporal drift dominates.
+
+## Merge accounting: the retrieval win does NOT carry through to safe merging
+
+Retrieval ranks; merging must decide. Running the engine's own merge machinery over the same
+features at the operating point pre-registered on SPO-73's oracle-team amendment
+(`mutual-best`, `merge_min_margin: 0.07`, `min_similarity: 0.95`, anchorless):
+
+| sequence | merges available | prtreid correct | prtreid wrong | kpr correct | kpr wrong |
+|---|---|---|---|---|---|
+| SNMOT-116 | 23 | 2 | 0 | 0 | 0 |
+| SNMOT-117 | 9 | 4 | **2** | 0 | 0 |
+| SNMOT-118 | 8 | 3 | 0 | 1 | 0 |
+| SNMOT-119 | 7 | 1 | 0 | 0 | 0 |
+| SNMOT-120 | 23 | 6 | 0 | 0 | 0 |
+| SNMOT-121 | 15 | 2 | 0 | 1 | 0 |
+| SNMOT-122 | 27 | 3 | 0 | 0 | 0 |
+| SNMOT-123 | 13 | 4 | **1** | 1 | 0 |
+| **total** | **125** | **25** | **3** | **3** | **0** |
+
+**PRTreID repairs 25 of 125 available merges (20%) at 89% merge precision; KPR repairs 3 of
+125 (2.4%) at 100%.** Under the zero-tolerance per-sequence do-no-harm standard PRTreID
+**fails on SNMOT-117 and SNMOT-123**.
+
+Three things follow, and they matter more than the retrieval table:
+
+1. **A large rank-1 gain did not produce a safe merger.** Ranking improved by +0.102 while
+   merge precision landed at 89%. Top-1 being right more often is not the same property as
+   top-1 being trustworthy enough to act on, and only the second one clears do-no-harm.
+2. **KPR's clean sheet is timidity, not safety.** 3 merges across 8 sequences is a system
+   that abstains, and abstention scores perfectly on a precision metric while repairing
+   almost nothing. Neither arm is usable as-is.
+3. **The operating point was calibrated against KPR's affinity distribution**, not PRTreID's,
+   whose different-player mass sits materially lower (median 0.790 → 0.756). Margin and floor
+   almost certainly want re-deriving for it. That is a pre-registered sweep, not an
+   eyeballed adjustment, and it is the obvious next experiment — the current 25/125 with 3
+   wrong is a lower bound on what this embedder can do under a rule tuned for it.
 
 ## Interpretation & caveats
 

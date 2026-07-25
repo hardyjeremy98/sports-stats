@@ -698,11 +698,18 @@ Measured local findings recorded by the repository guidance:
   the negatives:** same-player affinity is unchanged (median 0.954 → 0.953) while
   different-player affinity falls (median 0.790 → 0.756, p90 0.920 → 0.875), shrinking the
   same-p10/different-p90 overlap from −0.055 to −0.005. Long gaps (>5 s) remain the hard case
-  for both (0.825 vs 0.772). **Not a do-no-harm gate:** GT fragments are easier than real
-  tracklets, so this licenses advancing to a real-substrate held-out gate (blocked on the
-  substrate rebuild), not a claim that the pipeline improved. The harness also carries ~7×
+  for both (0.825 vs 0.772). **But the retrieval win does not carry through to safe merging:**
+  at the operating point pre-registered on SPO-73's oracle-team amendment (mutual-best,
+  margin 0.07, floor 0.95, anchorless) PRTreID repairs **25 of 125 available merges (20%) but
+  makes 3 wrong ones**, failing per-sequence do-no-harm on SNMOT-117 and SNMOT-123, while KPR
+  repairs 3 of 125 with none — a clean sheet that reflects timidity, not safety. Better
+  ranking is not the same property as trustworthy top-1, and the operating point was
+  calibrated against KPR's affinity distribution, so re-deriving margin/floor for PRTreID is
+  the obvious next experiment. **Not a do-no-harm gate either way:** GT fragments are easier
+  than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
+  on the substrate rebuild), not a claim that the pipeline improved. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
-  held-out verdict.
+  held-out verdict, over 198 person tracks fragmenting into 323 fragments.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
