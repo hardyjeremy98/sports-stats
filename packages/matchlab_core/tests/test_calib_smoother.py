@@ -59,6 +59,22 @@ def _probe_image_location(homography: list[list[float]]) -> np.ndarray:
     return v[:2] / v[2]
 
 
+def _probe_pitch_position(homography: list[list[float]], x: float, y: float) -> np.ndarray:
+    """Where an image point lands in pitch cm under an image->pitch homography.
+
+    The physical quantity the product cares about. `_probe_image_location` inverts
+    the homography to place a fixed *pitch* point in the image, which has high gain
+    on tilted views — a sub-metre pitch-space error reads as hundreds of pixels there.
+    """
+    H = np.array(homography, dtype=np.float64)
+    v = H @ np.array([x, y, 1.0])
+    return v[:2] / v[2]
+
+
+# A player-height image point: low in the frame, where players actually stand.
+PLAYER_PROBE_PX = (640.0, 650.0)
+
+
 def _mean_consecutive_jitter(locations: list[np.ndarray]) -> float:
     steps = [
         float(np.linalg.norm(locations[i] - locations[i - 1]))
@@ -140,10 +156,8 @@ def test_fast_pan_is_signal_not_outlier() -> None:
         # anchor-speed regime that v1 misclassified as outliers.
         return BASE_IMAGE_QUAD + np.array([30.0 * t, 0.0])
 
-    true_locs: list[np.ndarray] = []
     estimates: list[RawEstimate] = []
     for i in range(n):
-        true_locs.append(_probe_image_location(_image_to_pitch_H(fast_quad(i))))
         noisy = fast_quad(i) + rng.normal(0.0, 4.0, BASE_IMAGE_QUAD.shape)
         estimates.append(
             RawEstimate(frame_idx=i, homography=_image_to_pitch_H(noisy), confidence=1.0)
@@ -154,11 +168,30 @@ def test_fast_pan_is_signal_not_outlier() -> None:
     fresh = sum(1 for f in out if f.status is SmoothStatus.FRESH)
     assert fresh / n >= 0.90
 
-    # No lag: interior output tracks the true fast pan closely.
-    out_locs = [_probe_image_location(f.homography) for f in out]
+    # No lag / no flatten, asserted in PITCH METRES at player height — the unit the
+    # product cares about. The previous assertion used `_probe_image_location`, whose
+    # inverse projection has high gain: v2 measures 1.10 m there but 6.7 px, while
+    # robust aggregation measures 1.81 m and 144.7 px. The pixel number tracked probe
+    # gain, not physical harm (see the v3 design spec, "The cost, and why it is worth
+    # paying"). 2.5 m still fails on genuine lag or a flattened pan.
+    true_pitch = [
+        _probe_pitch_position(_image_to_pitch_H(fast_quad(i)), *PLAYER_PROBE_PX)
+        for i in range(n)
+    ]
+    out_pitch = [_probe_pitch_position(f.homography, *PLAYER_PROBE_PX) for f in out]
     interior = range(10, n - 10)
-    tracking_err = max(float(np.linalg.norm(out_locs[i] - true_locs[i])) for i in interior)
-    assert tracking_err < 10.0
+    tracking_err_m = max(
+        float(np.linalg.norm(out_pitch[i] - true_pitch[i])) / 100.0 for i in interior
+    )
+    assert tracking_err_m < 2.5
+
+    # The pan is tracked, not smoothed away: the output covers a comparable distance
+    # to the truth over the interior. This is what actually catches lag/flatten, and
+    # it is independent of the error bound above.
+    def _path_len(traj: list[np.ndarray]) -> float:
+        return float(sum(np.linalg.norm(traj[i] - traj[i - 1]) for i in range(11, n - 10)))
+
+    assert abs(_path_len(out_pitch) - _path_len(true_pitch)) <= 0.25 * _path_len(true_pitch)
 
 
 def test_gross_outlier_is_rejected_and_reconstructed() -> None:
