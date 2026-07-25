@@ -15,7 +15,6 @@ one that drops the ball dependency — the heuristic baseline does not.
 
 from __future__ import annotations
 
-import math
 from collections import Counter
 
 from pydantic import BaseModel
@@ -24,17 +23,13 @@ from matchlab_core.interfaces import PossessionEstimator, StageContext
 from matchlab_core.registry import register
 from matchlab_core.schemas import (
     BallObservation,
-    Box,
-    DetectionClass,
-    Point,
     PossessorFrame,
     Team,
     TeamAssignment,
     Tracklet,
 )
 from matchlab_core.schemas.run import StageKind
-
-_POSSESSOR_CLASSES = {DetectionClass.PLAYER, DetectionClass.GOALKEEPER}
+from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
 
 class Params(BaseModel):
@@ -42,12 +37,6 @@ class Params(BaseModel):
     min_margin_px: float = 0.0           # abstain if nearest & runner-up within this
     smooth_radius: int = 2               # windowed-majority smoothing radius (0 = off)
     interpolated_ball_weight: float = 0.75  # confidence multiplier for gap-filled ball
-
-
-def _dist_point_box(pt: Point, box: Box) -> float:
-    dx = max(box.x1 - pt.x, 0.0, pt.x - box.x2)
-    dy = max(box.y1 - pt.y, 0.0, pt.y - box.y2)
-    return math.hypot(dx, dy)
 
 
 def _smooth(labels: list[int | None], radius: int) -> list[int | None]:
@@ -81,34 +70,26 @@ class HeuristicImagePossession(PossessionEstimator):
         p = self.params
         team_by_tid = {t.tracklet_id: t.team for t in teams}
 
-        boxes_by_frame: dict[int, list[tuple[int, Box, float]]] = {}
-        for tr in tracklets:
-            if tr.cls not in _POSSESSOR_CLASSES:
-                continue
-            for fr in tr.frames:
-                boxes_by_frame.setdefault(fr.frame_idx, []).append(
-                    (tr.tracklet_id, fr.box, fr.confidence)
-                )
+        boxes_by_frame = index_possessor_boxes(tracklets)
 
         # Raw per-frame nearest-player possessor (with abstention), pre-smoothing.
         raw: list[tuple[int, float, int | None, float, float]] = []  # frame,t,tid,conf,margin
         for obs in sorted(ball, key=lambda b: b.frame_idx):
-            cands = boxes_by_frame.get(obs.frame_idx, [])
-            ranked = sorted(
-                (_dist_point_box(obs.xy, box), tid, box_conf) for tid, box, box_conf in cands
-            )
+            ranked = rank_candidates(obs, boxes_by_frame.get(obs.frame_idx, []))
             if not ranked:
                 raw.append((obs.frame_idx, obs.t, None, 0.0, 0.0))
                 continue
-            d0, tid0, box_conf0 = ranked[0]
-            d1 = ranked[1][0] if len(ranked) > 1 else d0 + p.possession_radius_px
+            d0 = ranked[0].distance
+            d1 = ranked[1].distance if len(ranked) > 1 else d0 + p.possession_radius_px
             margin = d1 - d0
             if d0 > p.possession_radius_px or margin < p.min_margin_px:
                 raw.append((obs.frame_idx, obs.t, None, 0.0, round(margin, 3)))
                 continue
             weight = p.interpolated_ball_weight if obs.interpolated else 1.0
-            conf = min(1.0, obs.confidence * box_conf0 * weight)
-            raw.append((obs.frame_idx, obs.t, tid0, round(conf, 4), round(margin, 3)))
+            conf = min(1.0, obs.confidence * ranked[0].box_confidence * weight)
+            raw.append(
+                (obs.frame_idx, obs.t, ranked[0].tracklet_id, round(conf, 4), round(margin, 3))
+            )
 
         smoothed = _smooth([r[2] for r in raw], p.smooth_radius)
 
