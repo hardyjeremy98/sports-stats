@@ -55,16 +55,35 @@ git revision) per docs governance. **No number has been measured yet.**
 
 Our numbers will be **lower** than these: (a) the heuristic is weaker than Peral's learned tube
 model, and (b) the eval measures the *whole* pipeline (real detector+tracker+ball), not the
-possession layer in isolation — no oracle-tracklet isolation is possible on the event-GT-only
-SoccerNet-ball tier (its videos have no box/track GT).
+possession layer in isolation.
 
-## Weak-label quality (SPO-82) — assess before training
+> **Superseded (2026-07-25, SPO-83).** This section originally added: "no oracle-tracklet
+> isolation is possible on the event-GT-only SoccerNet-ball tier (its videos have no box/track
+> GT)." That is true for the **pass avg-mAP number**, which needs event GT. It is *not* true of
+> the possession layer generally: the **SoccerNet-tracking** tier carries GT boxes, GT teams
+> **and a GT ball track** (`gameinfo.ini` declares `ball;N`, already parsed by `gt.py`), so the
+> possession layer *can* be measured on oracle inputs — just not scored against event GT. See
+> [`../reports/2026-07-25-spo83-possessor-label-audit.md`](../reports/2026-07-25-spo83-possessor-label-audit.md).
 
-The learned estimator would train on `matchlab-train derive-possessor-labels` output, which is
-**as noisy as the heuristic**. Before committing to training, sample frames and estimate the
-false-possession rate (the "ball in front of a distant player" mode). If that rate is high, the
-learned model inherits it — a hand-labelled held-out set (currently deferred) becomes a
-prerequisite, not an optional extra.
+## Weak-label quality (SPO-82) — MEASURED (2026-07-25)
+
+**Done:** [`../reports/2026-07-25-spo83-possessor-label-audit.md`](../reports/2026-07-25-spo83-possessor-label-audit.md)
+— `matchlab-train audit-possessor-labels` over all 49 SNMOT test sequences (36,750 frames) on
+oracle inputs (GT boxes + GT teams + GT ball), code revision `54716ad`.
+
+Headline, all **label-structure** figures — there is no possessor GT, so none of this is an
+accuracy number:
+
+- **58.8%** of frames carry a label at all; 33.1% abstain because the ball is beyond
+  `possession_radius_px`, 8.0% because the ball is unannotated.
+- **~8%** of asserted labels rest on a nearest/runner-up margin under 5px (33.5% under 40px).
+- Mean possession segment 19.1 frames (0.76 s); only 7.4% of segments fall below `Te`=3.
+
+**The false-possession rate is still not measured.** The depth-discordance proxy built for it
+was invalidated by frame inspection: bbox height tracks *posture* (bending, lunging, lying
+down) at least as strongly as depth, and players in possession are disproportionately bent over
+the ball. Do not quote it. A hand-labelled held-out set is therefore a **prerequisite** for
+Phase 2, not an optional extra — the cheap proxies cannot substitute for it.
 
 ## The decision
 

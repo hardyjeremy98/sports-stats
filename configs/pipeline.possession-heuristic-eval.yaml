@@ -17,13 +17,19 @@
 #     "PASS"). RECEPTION predictions have no GT counterpart and only count as
 #     false positives -- they do not enter the mean.
 #
-#  2. No oracle-tracklet isolation is possible here. The PRD wanted the event
-#     layer measured on oracle/GT tracklets+teams, but SoccerNet-ball videos
-#     carry event GT only -- no box/track GT exists for them (that lives on the
-#     SoccerNet-tracking / SportsMOT tiers, which have no event GT). So this
-#     config measures the WHOLE pipeline (real detector + tracker + ball +
-#     possession), not the possession layer in isolation. Tracker/ball errors
+#  2. This config measures the WHOLE pipeline (real detector + tracker + ball +
+#     possession), not the possession layer in isolation: SoccerNet-ball videos
+#     carry event GT only -- no box/track GT exists for them. Tracker/ball errors
 #     are folded into the number; interpret accordingly.
+#
+#     SUPERSEDED IN PART (2026-07-25, SPO-83): this note used to say "no
+#     oracle-tracklet isolation is possible". That holds for the pass avg-mAP
+#     number here, which needs event GT. It does NOT hold for the possession
+#     layer generally -- the SoccerNet-tracking tier carries GT boxes, GT teams
+#     AND a GT ball track (gameinfo "ball;N", parsed by gt.py), so the possession
+#     layer can be profiled on oracle inputs via
+#     `matchlab-train audit-possessor-labels`. See
+#     docs/reports/2026-07-25-spo83-possessor-label-audit.md.
 #
 #  3. Real ball detection is load-bearing. The heuristic possessor needs the
 #     ball; the detect stage below must emit ball observations. On handheld/
