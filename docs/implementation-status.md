@@ -677,6 +677,16 @@ Measured local findings recorded by the repository guidance:
   19% of true re-entry pairs; 24% of true pairs score below floor from degraded re-entry
   crops. Similarity merging remains disabled by default (`min_similarity: 1.01`); the
   rule + reject reasons (`not_mutual_best`, `margin_too_small`) remain as tested machinery.
+  **⚠️ Provisional (annotated 2026-07-25): these held-out numbers are contaminated by
+  SPO-73's own protocol amendment and are not the verdict of record.** The team gate was fed
+  by kit-colour in every arm, falsely vetoing 4/21 true pairs *before the rule evaluated
+  them*, so those pairs' outcomes were never measured. The decontaminated (oracle-team)
+  tuning grid ran and moved the zero-wrong frontier down in yield ("the contaminated run
+  flattered the rule"); the decontaminated held-out gate was pre-registered but **never
+  executed** — SPO-87, blocked by the substrate rebuild (SPO-86: `data/experiments/` and the
+  frozen base run are gone from disk, so these numbers are also currently unreproducible).
+  The direction of the finding is unchanged pending that run; its magnitudes and the derived
+  bar for SPO-74 are not established.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
