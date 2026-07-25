@@ -116,15 +116,17 @@ def embed_external(
     bridge.run_external(
         python,
         script,
+        # Absolute paths: run_external runs with cwd=external_root, so a
+        # run-dir-relative path would resolve against the wrong tree.
         [
             "--img-dir",
-            str(layout.img_dir),
+            str(layout.img_dir.resolve()),
             "--det-file",
-            str(layout.det_file),
+            str(layout.det_file.resolve()),
             "--out-dir",
-            str(feat_dir),
+            str(feat_dir.resolve()),
             "--weights",
-            str(weights),
+            str(weights.resolve()),
             "--reid-model",
             model,
             "--no-pose",

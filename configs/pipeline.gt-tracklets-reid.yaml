@@ -1,0 +1,61 @@
+# SPO-85 GT-tracklet re-ID harness: the contamination-free measurement
+# substrate. Ground-truth tracks are fragmented at their natural gaps, so
+# tracklet purity is 1.0 by construction and every correct pair is known
+# exactly rather than attributed by GT-argmax. No tracker runs at all.
+#
+# PRE-REGISTERED, DO NOT TUNE: gap_frames and min_fragment_frames set the
+# task's difficulty. Changing them after an arm has run re-tunes the benchmark
+# rather than the method. Registered on Linear SPO-85; design in
+# docs/superpowers/specs/2026-07-25-prtreid-gt-tracklet-harness-design.md.
+#
+# Benchmark arms override only stages.track.params.features_{backend,model}.
+# Everything downstream is disabled: this substrate exists to be measured, not
+# watched.
+#
+# NOT a do-no-harm gate. GT fragments are easier than real tracklets, so
+# absolute numbers here do not transfer to the pipeline — a win is grounds for
+# advancing to a real-substrate held-out gate, nothing more.
+name: gt-tracklets-reid
+description: >
+  GT tracks fragmented at natural gaps + a swappable appearance embedder, for
+  the SPO-85 five-way retrieval comparison.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: oracle
+    params:
+      gap_frames: 2
+      min_fragment_frames: 1
+      features_backend: in-repo
+      features_model: osnet
+  team:
+    impl: oracle
+    params: {}
+  calibrate:
+    impl: static-demo
+    enabled: false
+  associate:
+    impl: per-tracklet
+    params: {}
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    enabled: false
+  events:
+    impl: possession-heuristic
+    enabled: false
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false
