@@ -21,12 +21,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import cv2
+from matchlab_core.calib.gapmotion import (
+    DriftCorrectedMotion,
+    gap_anchor_pairs,
+    register_pairs,
+)
 from matchlab_core.calib.keypoints import reproject_pitch_vertices
 from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
 from matchlab_core.evaluation import evaluate_run
 from matchlab_core.gt import GroundTruth
 from matchlab_core.pitch import PitchSpec, get_pitch
-from matchlab_core.reid.motion import CameraMotion, estimate_camera_motion
+from matchlab_core.reid.motion import estimate_camera_motion
 from matchlab_core.video import iter_frames, probe
 from pydantic import BaseModel
 
@@ -63,21 +69,33 @@ def _load_raw(run_dir: Path) -> list[dict]:
     return rows
 
 
-def _load_camera_motion(run_dir: Path, video_path: str | None):
-    """Camera motion for gap bridging: the persisted artifact if the run has one,
-    otherwise recovered from the video (runs predating the artifact). Returns None
-    when neither is available — bridging then falls back to a straight line."""
-    path = run_dir / "camera_motion.jsonl"
-    if path.exists():
-        rows = [json.loads(line) for line in open(path) if line.strip()]
-        if rows:
-            return CameraMotion(
-                frame_idxs=[rows[0]["from_frame"]] + [r["to_frame"] for r in rows],
-                step_homographies=[r["homography"] for r in rows],
-            )
-    if video_path and Path(video_path).exists():
-        return estimate_camera_motion(iter_frames(probe(video_path)))
-    return None
+def _load_camera_motion(run_dir: Path, video_path: str | None, raws: list[dict], frame_size):
+    """Camera motion for bridging blackouts: chained frame-to-frame motion for its
+    SHAPE, de-drifted by direct registration against the anchors for its ACCURACY.
+
+    Neither alone works — chaining drifts 6.1 m over a 73-frame blackout, and
+    direct registration is 9.4x jitterier because each frame is registered
+    independently. See matchlab_core.calib.gapmotion.
+
+    Returns None when the video is unavailable; bridging then falls back to a
+    straight line, the pre-existing behaviour.
+    """
+    if not video_path or not Path(video_path).exists():
+        return None
+    frame_idxs = [r["frame_idx"] for r in raws]
+    has_est = [r.get("homography") is not None for r in raws]
+    pairs = gap_anchor_pairs(frame_idxs, has_est)
+    chained = estimate_camera_motion(iter_frames(probe(video_path)))
+    if not pairs:
+        return chained
+    needed = {f for pair in pairs for f in pair}
+    gray = {}
+    for fr in iter_frames(probe(video_path)):
+        if fr.frame_idx in needed:
+            gray[fr.frame_idx] = cv2.cvtColor(fr.image, cv2.COLOR_BGR2GRAY)
+        if fr.frame_idx > max(needed):
+            break
+    return DriftCorrectedMotion(chained, register_pairs(gray, pairs), frame_size)
 
 
 def _calibration_rows(
@@ -133,10 +151,11 @@ def _resmooth(run_dir: Path, manifest: dict) -> list[dict]:
     """Run-dir adapter for `_calibration_rows`."""
     frame_size = (int(manifest["video"]["width"]), int(manifest["video"]["height"]))
     pitch = get_pitch(manifest.get("config", {}).get("pitch", "roboflow"))
-    motion = _load_camera_motion(run_dir, manifest.get("video", {}).get("path"))
-    return _calibration_rows(
-        _load_raw(run_dir), frame_size=frame_size, pitch=pitch, camera_motion=motion
+    raws = _load_raw(run_dir)
+    motion = _load_camera_motion(
+        run_dir, manifest.get("video", {}).get("path"), raws, frame_size
     )
+    return _calibration_rows(raws, frame_size=frame_size, pitch=pitch, camera_motion=motion)
 
 
 def _windowed_speed_rate(

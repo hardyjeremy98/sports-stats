@@ -686,3 +686,92 @@ def test_gap_fill_beats_a_straight_line_on_an_accelerating_pan() -> None:
 
     assert worst(without) > 200.0
     assert worst(with_motion) < worst(without)
+
+
+class _BadMotion:
+    """A motion source whose two anchor-carried estimates disagree wildly."""
+
+    def homography(self, from_frame: int, to_frame: int) -> np.ndarray:
+        skew = 60.0 if to_frame > from_frame else -60.0
+        return np.array([[1.0, 0.0, skew], [0.0, 1.0, skew], [0.0, 0.0, 1.0]])
+
+
+class _TwoVariants:
+    """Offers a useless model first and a perfect one second, so selection cannot
+    pass by accident of ordering."""
+
+    def __init__(self, good: object) -> None:
+        self._good = good
+
+    def variants(self) -> list[object]:
+        return [_BadMotion(), self._good]
+
+    def homography(self, from_frame: int, to_frame: int):
+        return _BadMotion().homography(from_frame, to_frame)
+
+
+def test_gap_fill_selects_the_self_consistent_motion_model() -> None:
+    """Given several ways to bridge, the smoother must pick the one whose two
+    anchor-carried estimates agree — the only quality signal available without
+    ground truth. Ordering must not matter."""
+    n, gap_lo, gap_hi = 90, 30, 59
+    true_h = _accelerating_pan(n)
+    estimates = [
+        RawEstimate(
+            frame_idx=i,
+            homography=None if gap_lo <= i <= gap_hi else true_h[i].tolist(),
+            confidence=1.0,
+        )
+        for i in range(n)
+    ]
+    probe = np.array([FRAME_SIZE[0] / 2.0, FRAME_SIZE[1] / 2.0, 1.0])
+
+    def centre(h):
+        v = np.array(h, dtype=np.float64) @ probe
+        return v[:2] / v[2]
+
+    chosen = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(
+            estimates, frame_size=FRAME_SIZE, camera_motion=_TwoVariants(_ExactMotion(true_h))
+        )
+    }
+    only_good = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(
+            estimates, frame_size=FRAME_SIZE, camera_motion=_ExactMotion(true_h)
+        )
+    }
+    for i in range(gap_lo, gap_hi + 1):
+        assert np.linalg.norm(
+            centre(chosen[i].homography) - centre(only_good[i].homography)
+        ) < 1.0
+
+
+def test_gap_fill_falls_back_when_every_model_is_inconsistent() -> None:
+    """If no candidate's estimates agree, the motion carries no information and a
+    straight line is the honest answer — not the least-bad garbage."""
+    n, gap_lo, gap_hi = 60, 20, 39
+    true_h = _accelerating_pan(n)
+    estimates = [
+        RawEstimate(
+            frame_idx=i,
+            homography=None if gap_lo <= i <= gap_hi else true_h[i].tolist(),
+            confidence=1.0,
+        )
+        for i in range(n)
+    ]
+    bad = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(
+            estimates, frame_size=FRAME_SIZE, camera_motion=_BadMotion()
+        )
+    }
+    linear = {
+        f.frame_idx: f
+        for f in smooth_homography_trajectory(estimates, frame_size=FRAME_SIZE)
+    }
+    for i in range(gap_lo, gap_hi + 1):
+        assert np.allclose(
+            np.array(bad[i].homography), np.array(linear[i].homography), rtol=1e-9
+        )

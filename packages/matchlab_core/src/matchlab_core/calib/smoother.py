@@ -147,6 +147,9 @@ _MIN_ABS_W = 1e-9
 # Fraction the image grid is inset from each frame edge (keeps grid points off the
 # extreme margins where a strong perspective view may cross the horizon).
 _GRID_INSET = 0.1
+# Beyond this, the two anchor-carried estimates disagree so badly that neither is
+# informative; bridging falls back to a straight line.
+_MAX_MOTION_DISAGREEMENT_CM = 1000.0
 
 
 def _image_grid(frame_size: tuple[int, int]) -> np.ndarray:
@@ -271,29 +274,47 @@ def _gap_fill_points(
     linear = (1.0 - alpha) * left_points + alpha * right_points
     if camera_motion is None:
         return linear
-    try:
-        # Chain from each anchor's RAW measurement, not its smoothed value. The
-        # smoothing window next to a gap is asymmetric, so the smoothed anchor
-        # lags the frame it belongs to (120-272 cm measured on an accelerating
-        # pan) and that bias would propagate into every filled frame. The raw
-        # estimate is what the calibrator actually saw at that exact frame, which
-        # is the correct origin for image-motion chaining.
-        h_left = _refit_homography(grid, left_points)
-        h_right = _refit_homography(grid, right_points)
-        if h_left is None or h_right is None:
-            return linear
-        from_left = _grid_pitch_points(
-            (np.asarray(h_left) @ camera_motion.homography(frame, left_frame)).tolist(), grid
-        )
-        from_right = _grid_pitch_points(
-            (np.asarray(h_right) @ camera_motion.homography(frame, right_frame)).tolist(), grid
-        )
-    except (ValueError, np.linalg.LinAlgError):
+    h_left = _refit_homography(grid, left_points)
+    h_right = _refit_homography(grid, right_points)
+    if h_left is None or h_right is None:
         return linear
-    if from_left is None or from_right is None:
-        # Estimation failed for this span: fall back rather than fabricate.
+
+    # A motion source may offer several ways to bridge (e.g. plain chaining vs
+    # drift-corrected chaining). They are not reliably ranked in advance — which
+    # one wins depends on how long the blackout is and how registrable the
+    # footage is — so pick per gap using a signal computable WITHOUT ground
+    # truth: each candidate produces two INDEPENDENT estimates of this frame, one
+    # carried from each anchor, and the better model is the one whose two
+    # estimates agree. Selecting this way can never be worse than the best single
+    # candidate, which is what makes it safe to enable by default.
+    candidates = getattr(camera_motion, "variants", None)
+    sources = candidates() if callable(candidates) else [camera_motion]
+
+    best: np.ndarray | None = None
+    best_disagreement = float("inf")
+    for source in sources:
+        try:
+            m_left = source.homography(frame, left_frame)
+            m_right = source.homography(frame, right_frame)
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        if m_left is None or m_right is None:
+            continue
+        from_left = _grid_pitch_points((np.asarray(h_left) @ m_left).tolist(), grid)
+        from_right = _grid_pitch_points((np.asarray(h_right) @ m_right).tolist(), grid)
+        if from_left is None or from_right is None:
+            continue
+        disagreement = float(np.median(np.linalg.norm(from_left - from_right, axis=1)))
+        if disagreement < best_disagreement:
+            best_disagreement = disagreement
+            best = (1.0 - alpha) * from_left + alpha * from_right
+
+    # Even the best candidate can be hopeless on a long blackout over
+    # featureless grass. Past this the motion estimate carries no information and
+    # a straight line is the more honest guess.
+    if best is None or best_disagreement > _MAX_MOTION_DISAGREEMENT_CM:
         return linear
-    return (1.0 - alpha) * from_left + alpha * from_right
+    return best
 
 
 def smooth_homography_trajectory(

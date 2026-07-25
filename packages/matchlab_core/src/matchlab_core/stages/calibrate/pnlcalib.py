@@ -36,6 +36,11 @@ from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajecto
 from matchlab_core.interfaces import Calibrator, StageContext
 from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from matchlab_core.registry import register
+from matchlab_core.calib.gapmotion import (
+    DriftCorrectedMotion,
+    gap_anchor_pairs,
+    register_pairs,
+)
 from matchlab_core.reid.motion import CameraMotion, estimate_camera_motion
 from matchlab_core.schemas import FrameCalibration
 from matchlab_core.schemas.calibration import CameraMotionStep, RawCalibrationRecord
