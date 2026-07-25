@@ -20,6 +20,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from matchlab_core.evaluation import evaluate_run
 from matchlab_core.gt import GroundTruth
 from matchlab_core.reid.gates import (
@@ -39,9 +40,21 @@ LAB = Path("/home/jeremy/code/MatchDay/lab")
 _NEEDED = ("manifest.json", "tracklets.json", "detections.jsonl", "teams.json")
 
 
-def groups_for(run_dir: Path, *, margin: float | None, floor: float | None, fps: float = 25.0):
+def groups_for(
+    run_dir: Path,
+    *,
+    margin: float | None,
+    floor: float | None,
+    fps: float = 25.0,
+    matrix: np.ndarray | None = None,
+    order: list[int] | None = None,
+):
     """Merge groups at one operating point. margin=None means no-op (each
-    tracklet its own entity), the baseline every arm is compared against."""
+    tracklet its own entity), the baseline every arm is compared against.
+
+    `matrix` supplies precomputed pairwise scores (e.g. re-ranked affinities)
+    indexed by `order`; without it, similarity is computed from the tracklet
+    representations as usual."""
     tracklets, feats, teams = load_run(run_dir)
     if margin is None:
         return [[t.tracklet_id] for t in tracklets], teams, feats
@@ -52,10 +65,19 @@ def groups_for(run_dir: Path, *, margin: float | None, floor: float | None, fps:
         MotionFeasibilityGate(fps=fps),
     ]
 
-    def sim(a: int, b: int):
-        if a not in reps or b not in reps:
-            return None
-        return pair_similarity(reps[a], reps[b], min_part_visibility=0.3)
+    if matrix is not None:
+        pos = {t: i for i, t in enumerate(order or [t.tracklet_id for t in tracklets])}
+
+        def sim(a: int, b: int):
+            v = matrix[pos[a], pos[b]]
+            return None if np.isnan(v) else float(v)
+
+    else:
+
+        def sim(a: int, b: int):
+            if a not in reps or b not in reps:
+                return None
+            return pair_similarity(reps[a], reps[b], min_part_visibility=0.3)
 
     res = merge_tracklets(
         tracklets,
@@ -69,8 +91,18 @@ def groups_for(run_dir: Path, *, margin: float | None, floor: float | None, fps:
     return res.groups, teams, feats
 
 
-def score_point(run_dir: Path, gt: GroundTruth, *, margin: float | None, floor: float | None):
-    groups, teams, feats = groups_for(run_dir, margin=margin, floor=floor)
+def score_point(
+    run_dir: Path,
+    gt: GroundTruth,
+    *,
+    margin: float | None,
+    floor: float | None,
+    matrix: np.ndarray | None = None,
+    order: list[int] | None = None,
+):
+    groups, teams, feats = groups_for(
+        run_dir, margin=margin, floor=floor, matrix=matrix, order=order
+    )
     gt_map = gt_map_from_features(feats)
     with tempfile.TemporaryDirectory() as tmp:
         scratch = Path(tmp) / run_dir.name

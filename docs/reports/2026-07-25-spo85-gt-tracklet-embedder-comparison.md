@@ -272,3 +272,38 @@ looser operating point, and it is what the merge-edge counts alone could not sho
 do-no-harm standard is failed at this point. Adopting it is a deliberate departure from the
 PRD's single hard gate and from the "silent swaps are worse than temporary unknown identity"
 invariant — recorded as a decision (Jeremy, 2026-07-26), not a drift.
+
+## Amendment #2: k-reciprocal re-ranking — no benefit on this substrate
+
+Pre-registered before execution. Standard ReID re-ranking (Zhong et al., CVPR 2017) re-scores
+pairs by k-reciprocal neighbourhood overlap, on the theory that a lookalike teammate keeps
+different company than a true partner even when direct similarity is close — exactly our
+failure mode. No training; runs on the affinity matrix we already compute.
+
+Two-stage sweep (edge counts over `k1` × `λ` × margin × floor, then downstream metrics for the
+finalists), objective as registered: **maximise mean entity IDF1 subject to mean entity purity
+≥ 0.99**.
+
+| arm | entity IDF1 | entity HOTA | purity | IDSW |
+|---|---|---|---|---|
+| **baseline plain affinity (0.04/0.80)** | **0.9177** | **0.9415** | 0.9936 | 77 |
+| rerank k1=10 λ=0.3 (best of grid) | 0.9060 | 0.9318 | 0.9911 | 78 |
+| rerank k1=20 λ=0.3 | 0.9033 | 0.9289 | 0.9908 | 80 |
+
+**Re-ranking does not help — it is slightly worse.** The selection rule picks the plain-affinity
+baseline.
+
+**Implementation verified before concluding.** The registered λ=1.0 control (re-ranking
+disabled, but routed through the same matrix code path) reproduces the baseline to six
+decimals — 0.917700 vs 0.917700, 48 correct / 8 wrong either way. So this is a property of the
+method here, not a plumbing bug. That control was registered and initially omitted from the
+sweep grid by mistake; it was run separately rather than left unchecked.
+
+**Why it fails, most likely:** registered expectation #3 anticipated this. k-reciprocal
+re-ranking earns its reputation on galleries of thousands, where a neighbourhood is a
+meaningful statistical object. Here each sequence has ~30–50 fragments and the gates cut the
+candidate pool further, so a "neighbourhood" is a handful of tracklets and its overlap is
+mostly noise. The technique is not wrong; the substrate is too small for it.
+
+**Recorded as a negative result** so it is not retried. It would become worth revisiting on
+full-match footage, where fragment counts are an order of magnitude larger.
