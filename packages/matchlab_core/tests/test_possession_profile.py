@@ -9,7 +9,16 @@ from __future__ import annotations
 
 import pytest
 from matchlab_core.possession_profile import profile_possessor_labels
-from matchlab_core.schemas import PossessorFrame, Team
+from matchlab_core.schemas import (
+    BallObservation,
+    Box,
+    DetectionClass,
+    Point,
+    PossessorFrame,
+    Team,
+    Tracklet,
+    TrackletFrame,
+)
 from matchlab_core.stages.possession.heuristic_image import Params
 
 
@@ -95,3 +104,82 @@ def test_contested_curve_with_no_asserted_rows_is_all_zero():
     timeline = [_row(0, None, margin=0.0)]
     p = profile_possessor_labels(timeline, [], [], Params(), total_frames=1)
     assert all(pt.count == 0 and pt.fraction == 0.0 for pt in p.contested_curve)
+
+
+def _tracklet(tid, frame_boxes, conf=0.9, cls=DetectionClass.PLAYER):
+    """frame_boxes: dict frame_idx -> (x1, y1, x2, y2)."""
+    return Tracklet(
+        tracklet_id=tid,
+        cls=cls,
+        frames=[
+            TrackletFrame(
+                frame_idx=f,
+                box=Box(x1=b[0], y1=b[1], x2=b[2], y2=b[3]),
+                confidence=conf,
+            )
+            for f, b in sorted(frame_boxes.items())
+        ],
+    )
+
+
+def _ball_obs(frame, x, y):
+    return BallObservation(
+        frame_idx=frame, t=frame / 25.0, xy=Point(x=x, y=y), confidence=1.0
+    )
+
+
+def test_depth_discordance_flags_a_much_taller_runner_up():
+    # Possessor (tid 1) is 20px tall; the runner-up (tid 2) is 80px tall --
+    # a much nearer player sitting comparably close in pixels.
+    tracklets = [
+        _tracklet(1, {0: (0, 0, 10, 20)}),
+        _tracklet(2, {0: (14, 0, 40, 80)}),
+    ]
+    ball = [_ball_obs(0, 5, 10)]
+    p = profile_possessor_labels(
+        [_row(0, 1)], tracklets, ball, Params(), total_frames=1,
+        depth_ratio_grid=(1.2, 2.0, 8.0),
+    )
+    assert p.depth_evaluable_frames == 1
+    assert [pt.count for pt in p.depth_discordance] == [1, 1, 0]
+    assert p.depth_discordance[0].fraction == pytest.approx(1.0)
+
+
+def test_depth_concordance_when_candidates_are_similar_height():
+    tracklets = [
+        _tracklet(1, {0: (0, 0, 10, 40)}),
+        _tracklet(2, {0: (14, 0, 24, 42)}),
+    ]
+    ball = [_ball_obs(0, 5, 20)]
+    p = profile_possessor_labels(
+        [_row(0, 1)], tracklets, ball, Params(), total_frames=1,
+        depth_ratio_grid=(1.2, 2.0),
+    )
+    assert p.depth_evaluable_frames == 1
+    assert [pt.count for pt in p.depth_discordance] == [0, 0]
+
+
+def test_single_candidate_frames_are_not_depth_evaluable():
+    tracklets = [_tracklet(1, {0: (0, 0, 10, 20)})]
+    ball = [_ball_obs(0, 5, 10)]
+    p = profile_possessor_labels(
+        [_row(0, 1)], tracklets, ball, Params(), total_frames=1
+    )
+    assert p.depth_evaluable_frames == 0
+    assert all(pt.count == 0 for pt in p.depth_discordance)
+
+
+def test_runner_up_is_nearest_other_not_rank_one_after_smoothing():
+    # Smoothing made tid 2 the possessor even though tid 1 is nearest the ball.
+    # The runner-up must then be tid 1 (nearest *other*), not tid 2 itself.
+    tracklets = [
+        _tracklet(1, {0: (0, 0, 10, 100)}),   # nearest, tall
+        _tracklet(2, {0: (30, 0, 40, 20)}),   # possessor after smoothing, short
+    ]
+    ball = [_ball_obs(0, 5, 50)]
+    p = profile_possessor_labels(
+        [_row(0, 2)], tracklets, ball, Params(), total_frames=1,
+        depth_ratio_grid=(2.0,),
+    )
+    assert p.depth_evaluable_frames == 1
+    assert p.depth_discordance[0].count == 1  # 100/20 = 5.0 > 2.0
