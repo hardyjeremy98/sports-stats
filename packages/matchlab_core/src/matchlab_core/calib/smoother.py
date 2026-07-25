@@ -40,6 +40,23 @@ residual while the lone gross homography flip (frame 71) sits at ~40000 cm; the
 default 2500 cm threshold lives in that wide empty gap — well above real pan/camera
 noise (~25 m of visible pitch, a quarter of the field) yet far below a flip.
 
+Window aggregation: per-grid-point median (this is the v3 fix)
+--------------------------------------------------------------
+Rejection is per *frame* and cannot be perfect: a homography whose projective row
+is slightly wrong sends its horizon-ward grid points thousands of centimetres away
+while barely moving the near-field ones, so the median-over-grid residual stays
+small and the frame is accepted. Aggregating such a window with an arithmetic
+**mean** lets that one survivor drag every grid point — measured at 18.9 m for a
+player-height projection on SNMOT-122 frame 440 — and the DLT refit then spreads
+the error across the whole frame. Taking the **median** per grid point outvotes it.
+
+This is not free. The median selects independently per coordinate, so it can mix
+source frames and produce a grid that is not the projection of any single
+homography (DLT self-residual ~65 cm against the mean's ~2 cm), which costs
+variance on clean pans: ~1.8 m of smoothing error on a synthetic fast pan against
+the mean's ~1.1 m. That is the deliberate trade — see the v3 design spec. On the
+twelve real Gate 2 sequences it is a net win on every clip, clean ones included.
+
 Units and index space
 ---------------------
 The function operates in the **index space of the provided sequence** (position
@@ -255,7 +272,10 @@ def smooth_homography_trajectory(
             for j in range(max(0, i - half), min(n, i + half + 1))
             if accepted[j]
         ]
-        smoothed_points[i] = np.mean(np.stack(window, axis=0), axis=0)
+        # MEDIAN, not mean: outlier rejection is per-frame and imperfect, so a
+        # contaminated frame that passes it must not be able to drag the window.
+        # One survivor in a 9-frame mean moved a player 18.9 m on SNMOT-122/440.
+        smoothed_points[i] = np.median(np.stack(window, axis=0), axis=0)
 
     accepted_indices = [i for i in range(n) if accepted[i]]
 

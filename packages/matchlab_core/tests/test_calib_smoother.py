@@ -496,3 +496,42 @@ def test_real_snmot123_pan_is_accepted_and_tracked() -> None:
     # (c) Output jitter (residual vs a 5-frame local linear fit) is strictly lower
     # than the raw trajectory's.
     assert _local_linear_jitter(out_probe) < _local_linear_jitter(raw_probe)
+
+
+def test_contaminated_neighbour_does_not_drag_the_window() -> None:
+    """A frame whose PROJECTIVE ROW is perturbed sends its horizon-ward grid points
+    far away while barely moving the near-field ones. Only 3 of 9 grid points blow
+    up, so the median-over-grid rejection accepts the frame (this is v2's real blind
+    spot, measured on SNMOT-122). A mean over the window then drags every grid point
+    — including the near-field ones where players stand — and the DLT refit spreads
+    that error across the whole frame.
+
+    Nothing here is rejected: the assertion is that a clean frame's own output is not
+    corrupted by an accepted-but-contaminated neighbour.
+    """
+    n, centre, corrupt = 21, 10, 12
+    clean = [_image_to_pitch_H(BASE_IMAGE_QUAD + np.array([8.0 * i, 0.0])) for i in range(n)]
+
+    # Perturb only the projective row of one neighbour.
+    bad = np.array(clean[corrupt], dtype=np.float64)
+    eps = 3e-3
+    bad[2, 1] += eps * bad[2, 2]
+    bad[2, 0] -= 0.3 * eps * bad[2, 2]
+
+    homographies = list(clean)
+    homographies[corrupt] = bad.tolist()
+    estimates = [
+        RawEstimate(frame_idx=i, homography=homographies[i], confidence=1.0) for i in range(n)
+    ]
+
+    out = smooth_homography_trajectory(estimates, frame_size=FRAME_SIZE, smoothing_window=9)
+
+    # Premise: the contaminated frame is ACCEPTED, not rejected. If this ever fails,
+    # the blind spot has moved and the test below is no longer testing what it claims.
+    assert out[corrupt].status is SmoothStatus.FRESH
+
+    # The clean centre frame's player-height projection must stay put. v2 (mean)
+    # measures ~4.4 m of error here; robust aggregation measures ~0.1 m.
+    truth = _probe_pitch_position(clean[centre], *PLAYER_PROBE_PX)
+    got = _probe_pitch_position(out[centre].homography, *PLAYER_PROBE_PX)
+    assert float(np.linalg.norm(got - truth)) / 100.0 < 1.0
