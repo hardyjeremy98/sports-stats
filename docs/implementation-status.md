@@ -486,7 +486,41 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   settled here**; no default was changed. The v2 report is retained alongside the v3 one as
   `data/reports/gate2-gamestate/pnlcalib_arm_v2-smoother.json`.
 
-  Known residual: SNMOT-122 sits at 2.49% windowed, above the PRD's provisional 1% threshold.
+- Player-trajectory smoothing (SPO-84 follow-up): a second pure module,
+  `matchlab_core/gamestate/trajectory.py`, completing the PRD's "one coordinated smoothing
+  story" — the calibration smoother makes the *camera* coherent, this makes the *player*
+  coherent. Wired into `stages/fuse/minimap.py` for status-bearing calibration only (the
+  legacy EMA/carry path is untouched), and disableable via `track_smoothing: false`.
+  Rejects physically impossible positions against a motion-compensated robust prediction,
+  smooths with a local degree-2 fit windowed in **frame** units, and bridges gaps only when
+  short *and* humanly reachable. A rejected observation keeps its dot at a corrected
+  position; long absences stay absent rather than being fabricated.
+
+  Measured on the same twelve runs, comparing the rendered `minimap.jsonl` (what the Game
+  state view actually draws) with smoothing off vs on — note this is a **different metric
+  family** from `gamestate_eval`, which projects GT tracks through the homography and so
+  bypasses the fuse stage entirely:
+
+  | | pure projection | smoothed | |
+  |---|---|---|---|
+  | median rendered acceleration | 15.35 cm | **1.48 cm** | 10× (below the ~1.6 cm a human can produce) |
+  | p95 acceleration | 71.7 cm | **6.5 cm** | 11× |
+  | teleports (>2 m in one frame) | 0.287% | **0.005%** | 57× |
+  | implied speed >12 m/s | 7.14% | **1.01%** | 7× |
+  | blink events (dot winks out) | 68.4/run | **38.3/run** | 44% fewer |
+
+  Defaults are measured, not chosen: `track_window: 21` (0.84 s) is the widest that still
+  reproduces a 10 m/s² cut to within 6 cm — 25 and 31 buy further smoothness by flattening
+  real cuts (11 cm and 21 cm error).
+
+  Known residual: the blink **rate** (missing frame-time, 20.7%) is essentially unchanged,
+  and deliberately so. It is dominated by long tracker/association gaps — 23% of gaps carry
+  almost all missing frame-time, up to 482 consecutive frames — and bridging those would
+  invent positions for a player nobody tracked. **This is an association problem surfacing
+  as a visual one, not a calibration or fusion problem**: measured cause split is 20.8%
+  tracker gaps vs 0.3% fusion drops.
+
+  Known residual (calibration): SNMOT-122 sits at 2.49% windowed, above the PRD's provisional 1% threshold.
   Its raw (unsmoothed) rate is 4.77%, so v3 is better than not smoothing; the residual reads
   as estimator error on a hard clip, not a smoother defect. Camera-parameter-space smoothing
   was evaluated as a design option and **not implemented** — the drift was located entirely in
