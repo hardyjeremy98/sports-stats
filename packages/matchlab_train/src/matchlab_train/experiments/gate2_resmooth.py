@@ -21,9 +21,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from matchlab_core.calib.keypoints import reproject_pitch_vertices
 from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
 from matchlab_core.evaluation import evaluate_run
 from matchlab_core.gt import GroundTruth
+from matchlab_core.pitch import PitchSpec, get_pitch
 from pydantic import BaseModel
 
 from matchlab_train.experiments.base import Experiment
@@ -59,12 +61,16 @@ def _load_raw(run_dir: Path) -> list[dict]:
     return rows
 
 
-def _resmooth(run_dir: Path, manifest: dict) -> list[dict]:
-    """Re-smooth the raws and return the FrameCalibration rows to write."""
-    raws = _load_raw(run_dir)
-    width = int(manifest["video"]["width"])
-    height = int(manifest["video"]["height"])
+def _calibration_rows(
+    raws: list[dict], *, frame_size: tuple[int, int], pitch: PitchSpec
+) -> list[dict]:
+    """Re-smooth raw estimates into the `FrameCalibration` rows to write.
 
+    Must produce the SAME row shape the `pnlcalib` stage writes — including the
+    reprojected pitch keypoints, which the Lab's "Pitch keypoints" overlay draws.
+    Omitting them costs nothing at validation time and nothing in any metric; it
+    just silently blanks the overlay (SPO-84).
+    """
     estimates = [
         RawEstimate(
             frame_idx=r["frame_idx"],
@@ -74,20 +80,35 @@ def _resmooth(run_dir: Path, manifest: dict) -> list[dict]:
         for r in raws
     ]
     times = {r["frame_idx"]: r.get("t", 0.0) for r in raws}
-    smoothed = smooth_homography_trajectory(estimates, frame_size=(width, height))
+    smoothed = smooth_homography_trajectory(estimates, frame_size=frame_size)
+    vertices = pitch.vertices
 
-    return [
-        {
-            "frame_idx": sf.frame_idx,
-            "t": times.get(sf.frame_idx, 0.0),
-            "homography": sf.homography,
-            "confidence": round(sf.confidence, 4),
-            "status": sf.status.value,
-            # Derived legacy flag, mirroring stages/calibrate/pnlcalib.py.
-            "smoothed": sf.status.value not in ("fresh", "absent"),
-        }
-        for sf in smoothed
-    ]
+    rows = []
+    for sf in smoothed:
+        confidence = round(sf.confidence, 4)
+        pts = reproject_pitch_vertices(sf.homography, vertices, frame_size)
+        rows.append(
+            {
+                "frame_idx": sf.frame_idx,
+                "t": times.get(sf.frame_idx, 0.0),
+                "homography": sf.homography,
+                "n_keypoints": len(pts),
+                "keypoints_image": [{"x": p.x, "y": p.y} for p in pts],
+                "keypoint_confidences": [confidence] * len(pts),
+                "confidence": confidence,
+                "status": sf.status.value,
+                # Derived legacy flag, mirroring stages/calibrate/pnlcalib.py.
+                "smoothed": sf.status.value not in ("fresh", "absent"),
+            }
+        )
+    return rows
+
+
+def _resmooth(run_dir: Path, manifest: dict) -> list[dict]:
+    """Run-dir adapter for `_calibration_rows`."""
+    frame_size = (int(manifest["video"]["width"]), int(manifest["video"]["height"]))
+    pitch = get_pitch(manifest.get("config", {}).get("pitch", "roboflow"))
+    return _calibration_rows(_load_raw(run_dir), frame_size=frame_size, pitch=pitch)
 
 
 def _windowed_speed_rate(

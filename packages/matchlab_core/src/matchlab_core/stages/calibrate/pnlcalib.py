@@ -31,13 +31,13 @@ import numpy as np
 from pydantic import BaseModel
 
 from matchlab_core.calib.bridge import CalibrationParams, run_calibrator
+from matchlab_core.calib.keypoints import reproject_pitch_vertices
 from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
 from matchlab_core.interfaces import Calibrator, StageContext
 from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
 from matchlab_core.registry import register
 from matchlab_core.schemas import FrameCalibration
 from matchlab_core.schemas.calibration import RawCalibrationRecord
-from matchlab_core.schemas.geometry import Point
 from matchlab_core.schemas.run import ArtifactName, StageKind
 
 # Runnable out of the box with no real model or GPU: the permissive reference
@@ -59,7 +59,8 @@ class Params(BaseModel):
     # Offline trajectory smoother (matchlab_core.calib.smoother).
     max_gap_frames: int = 150
     outlier_threshold_cm: float = 2500.0
-    smoothing_window: int = 9
+    # Keep in step with smooth_homography_trajectory's own default (v3: 15).
+    smoothing_window: int = 15
 
 
 @register(StageKind.CALIBRATE, "pnlcalib")
@@ -203,41 +204,15 @@ class PnLCalibCalibrator(Calibrator):
         """Populate each frame's `keypoints_image` with the pitch template
         vertices reprojected into the image via the (inverse) homography.
 
-        A line/heatmap calibrator has no per-frame detected-keypoint set of its
-        own, but the Lab's "Pitch keypoints" overlay draws `keypoints_image`.
-        Showing the canonical pitch vertices placed on the field by the
-        calibration is exactly what that overlay is for — and lets a viewer judge
-        calibration quality directly. Vertices on the far side of the image
-        horizon reproject into a meaningless cluster near the vanishing line, so
-        keep only those on the foreground side of the horizon (the same side as
-        the image bottom-centre, which is always near-field), and drop anything
-        well outside the frame."""
+        The geometry lives in `matchlab_core.calib.keypoints` because offline
+        re-scoring tools rewrite `calibration.jsonl` too and must fill these
+        fields identically — see that module."""
         vertices = np.array(ctx.pitch.vertices, dtype=np.float64)  # (N, 2) cm
-        w, h = ctx.video.width, ctx.video.height
-        margin = 0.05 * max(w, h)
+        frame_size = (ctx.video.width, ctx.video.height)
         for cal in calibrations:
             if cal.homography is None:
                 continue
-            hm = np.array(cal.homography, dtype=np.float64)  # image -> cm
-            try:
-                h_inv = np.linalg.inv(hm)
-            except np.linalg.LinAlgError:
-                continue
-            # The image horizon is where the image->cm map sends points to
-            # infinity: hz . [x, y, 1] = 0. Keep only vertices on the same side
-            # of that line as the image bottom-centre (near-field).
-            hz = hm[2]  # [a, b, c]
-            fg = np.sign(hz[0] * (w / 2.0) + hz[1] * h + hz[2])
-            pts: list[Point] = []
-            for vx, vy in vertices:
-                pt = h_inv @ np.array([vx, vy, 1.0])
-                if abs(pt[2]) < 1e-9:  # vertex on the horizon / at infinity
-                    continue
-                x, y = pt[0] / pt[2], pt[1] / pt[2]
-                if np.sign(hz[0] * x + hz[1] * y + hz[2]) != fg:  # behind the horizon
-                    continue
-                if -margin <= x <= w + margin and -margin <= y <= h + margin:
-                    pts.append(Point(x=float(x), y=float(y)))
+            pts = reproject_pitch_vertices(cal.homography, vertices, frame_size)
             cal.keypoints_image = pts
             cal.keypoint_confidences = [round(cal.confidence, 4)] * len(pts)
             cal.n_keypoints = len(pts)
