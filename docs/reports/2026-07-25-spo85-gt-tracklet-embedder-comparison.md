@@ -391,3 +391,52 @@ six-feature model is the version worth carrying forward.**
 
 It still sits at 0.9860 purity and so still fails the registered ≥0.99 bar — that decision is
 unchanged and remains open.
+
+## CORRECTION (2026-07-26): the calibrated model adds nothing
+
+The amendment #3 result above is **wrong in its attribution**, and the error was mine.
+
+I compared the calibrated model against the *adopted baseline* (margin 0.04 / floor 0.80)
+rather than against the plain-affinity operating curve at matched permissiveness. Scoring the
+plain-affinity points that were already in the amendment #1 grid but never scored downstream:
+
+| plain-affinity point | entity IDF1 | HOTA | purity (worst) | IDSW | edges |
+|---|---|---|---|---|---|
+| margin 0.00 / floor 0.80 | **0.9536** | 0.9647 | 0.9860 (0.9653) | 41 | 87 / 15 |
+| margin 0.02 / floor 0.80 | 0.9301 | 0.9514 | 0.9906 (0.9653) | 59 | 67 / 11 |
+| margin 0.04 / floor 0.80 | 0.9177 | 0.9415 | 0.9936 (0.9695) | 77 | 48 / 8 |
+| **calibrated (ablated), p\* 0.6** | **0.9536** | 0.9647 | 0.9860 (0.9653) | 41 | 87 / 15 |
+
+Identical on every metric. Confirmed conclusively by comparing the merge partitions directly:
+**8 of 8 sequences produce exactly the same grouping.** The calibrated model learned to
+threshold affinity — which its own coefficients said plainly (affinity +3.278, everything else
+under +0.63) — and reproduces `margin 0.0 / floor 0.80` exactly.
+
+**So the calibrated pair model does not improve re-ID at all.** Its apparent +0.036 IDF1 over
+the baseline was entirely the effect of being more permissive, and a one-parameter change
+(margin 0.04 → 0.00) delivers the same thing with no model, no features, and no training.
+
+### What actually happened this session
+
+| change | merge improvement |
+|---|---|
+| PRTreID backbone (vs KPR) | none measured (13 vs 14 at zero-wrong; curves interleave) |
+| k-reciprocal re-ranking | none (slightly worse) |
+| calibrated pair model | **none** (identical partition to a threshold change) |
+| **relaxing the margin requirement** | **+0.103 entity IDF1, IDSW 125 → 41** |
+
+Every gain measured this session came from a single scalar: how much margin over the runner-up
+we demand before merging. Three added subsystems produced no measurable improvement between
+them.
+
+### Why I missed it
+
+The same error I flagged earlier in this report when comparing embedders — judging at one
+operating point instead of along the curve. Amendment #1's grid already contained the
+`margin 0.00` row (87 correct / 15 wrong); I scored only the three pre-chosen points downstream
+and never checked whether a plain-affinity setting reproduced the model's edge counts. The
+matching 87/15 was visible in the data before I wrote the amendment #3 conclusion.
+
+The ablation was not wasted: it correctly showed the extra features carried nothing. What it
+could not show — because it only compared the model to itself — is that the *whole model*
+carried nothing.
