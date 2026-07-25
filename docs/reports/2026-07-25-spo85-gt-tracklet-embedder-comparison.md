@@ -369,3 +369,25 @@ adopted baseline) is the same shape as the one already accepted on 2026-07-26 (0
 6.8 IDF1). Whether to take it is a decision, not a measurement, and it is not mine to make by
 relaxing a bar I registered hours earlier. Recorded for that decision, with the caveat above
 about the two suspicious features.
+
+### Ablation: the two suspicious features were carrying nothing
+
+Dropping `min_fragment_frames` and `candidate_count` — the two whose weights looked like
+substrate artefacts — and re-running the same leave-one-sequence-out protocol:
+
+| model | best OOF IDF1 | purity (worst) | IDSW | correct / wrong |
+|---|---|---|---|---|
+| full 8 features | 0.9542 | 0.9860 (0.9653) | 39 | 89 / 15 |
+| **ablated 6 features** | **0.9536** | 0.9860 (0.9653) | 41 | 87 / 15 |
+
+**−0.0006 IDF1.** The gain does not depend on them; it comes from affinity, margin, gap,
+crop height and part visibility — all physically meaningful quantities that should survive
+contact with real tracklets. The ablated model is also flatter across thresholds (identical
+0.9536 for p\* 0.5–0.7), i.e. better calibrated and less threshold-sensitive.
+
+This materially strengthens the result: the improvement is not an artefact of how this GT
+substrate was constructed, which was the main reason to distrust it. **The ablated
+six-feature model is the version worth carrying forward.**
+
+It still sits at 0.9860 purity and so still fails the registered ≥0.99 bar — that decision is
+unchanged and remains open.
