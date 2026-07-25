@@ -27,7 +27,6 @@ params:
         stages.associate.params.anchor_noise: 0.0
         stages.associate.params.anchor_seed: 0
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.0-s1
       kind: pipeline
@@ -45,7 +44,6 @@ params:
         stages.associate.params.anchor_noise: 0.0
         stages.associate.params.anchor_seed: 1
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.0-s2
       kind: pipeline
@@ -63,7 +61,6 @@ params:
         stages.associate.params.anchor_noise: 0.0
         stages.associate.params.anchor_seed: 2
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.05-s0
       kind: pipeline
@@ -81,7 +78,6 @@ params:
         stages.associate.params.anchor_noise: 0.05
         stages.associate.params.anchor_seed: 0
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.05-s1
       kind: pipeline
@@ -99,7 +95,6 @@ params:
         stages.associate.params.anchor_noise: 0.05
         stages.associate.params.anchor_seed: 1
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.05-s2
       kind: pipeline
@@ -117,7 +112,6 @@ params:
         stages.associate.params.anchor_noise: 0.05
         stages.associate.params.anchor_seed: 2
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.15-s0
       kind: pipeline
@@ -135,7 +129,6 @@ params:
         stages.associate.params.anchor_noise: 0.15
         stages.associate.params.anchor_seed: 0
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.15-s1
       kind: pipeline
@@ -153,7 +146,6 @@ params:
         stages.associate.params.anchor_noise: 0.15
         stages.associate.params.anchor_seed: 1
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
     - name: reid-n0.15-s2
       kind: pipeline
@@ -171,63 +163,35 @@ params:
         stages.associate.params.anchor_noise: 0.15
         stages.associate.params.anchor_seed: 2
         stages.associate.params.anchor_coverage: 0.75
-        stages.associate.params.sinkhorn_iterations: 0
       comparison_class: matched_data
   sweeps:
     - candidate: reid-n0.0-s0
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.0-s0
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.0-s1
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.0-s1
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.0-s2
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.0-s2
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.05-s0
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.05-s0
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.05-s1
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.05-s1
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.05-s2
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.05-s2
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.15-s0
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.15-s0
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.15-s1
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.15-s1
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
     - candidate: reid-n0.15-s2
       param: stages.associate.params.anchor_coverage
       values: [0.1, 0.25, 0.5, 0.75]
-    - candidate: reid-n0.15-s2
-      param: stages.associate.params.sinkhorn_iterations
-      values: [0]
   device: cuda
   iou_threshold: 0.5
   tolerances: {}

@@ -58,7 +58,7 @@ flowchart TD
     subgraph engine["🆕 reid-engine (pure logic, no weights)"]
         REP["1· multi-prototype representation<br/>2–4 view prototypes per tracklet"]
         MERGE["2· constraint-gated merge<br/>hard rules + anchor-first ordering"]
-        NAME["3· closed-roster naming<br/>belief matrix → Sinkhorn → decode"]
+        NAME["3· closed-roster naming<br/>belief matrix → constrained decode"]
         TIER["4· confidence tiers<br/>auto / adjudicate / human"]
         REP --> MERGE --> NAME --> TIER
     end
@@ -82,7 +82,7 @@ flowchart TD
 |---|------|--------------|-----|
 | 1 | **Represent** | Cluster each tracklet's per-frame embeddings into 2–4 viewpoint prototypes; compare tracklets part-by-part (only parts visible on both sides) | A mean-pooled embedding makes front-view Dave and back-view Dave look like two people |
 | 2 | **Merge** | Agglomerative merging under hard cannot-links: co-occurring ⇒ never; other team ⇒ never; physically impossible travel (camera-motion-compensated) ⇒ never. Anchor-labelled tracklets merge first; conflicting anchors are a cannot-link | The closed-world rules are the superpower — the GSR-winner pattern |
-| 3 | **Name** | All anchors speak one currency `(tracklet, roster candidate, log-LR)`; fuse → threads × roster belief matrix → Sinkhorn balancing → decode. Co-occurring threads can never share a name; non-overlapping fragments of one player can | One confident anchor anywhere names a whole thread — and suppresses that name everywhere else |
+| 3 | **Name** | All anchors speak one currency `(tracklet, roster candidate, log-LR)`; fuse → threads × roster belief matrix → constrained decode (no balancing step, ADR 006). Co-occurring threads can never share a name; non-overlapping fragments of one player can | One confident anchor anywhere names a whole thread; name capacity is a hard rule in the decode, not a soft mass adjustment |
 | 4 | **Tier** | posterior + margin → auto-accept / adjudicate (pass-through interface in v1) / human QA (existing queue) | Abstention is a first-class outcome; silent swaps are the cardinal sin |
 
 ## Naming, illustrated
@@ -95,8 +95,8 @@ flowchart TD
   thread B  │ 0.02 │ 0.81 │ 0.10 │   │  →  "Amir"   (adjudicate: margin thin)
   thread C  │ 0.33 │ 0.31 │ 0.30 │   │  →  ABSTAIN  (→ human QA)
             └──────┴──────┴──────┴───┘
-   Sinkhorn keeps rows/columns balanced: a confident "Dave" on thread A
-   automatically pushes "Dave" DOWN on every other thread.
+   Each row is that thread's OWN evidence — no cross-thread balancing
+   (ADR 006). A thread with no anchor of its own stays uniform and abstains.
    Constraint: threads that overlap in time can never take the same name.
 ```
 

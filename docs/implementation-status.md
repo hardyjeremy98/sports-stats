@@ -76,7 +76,7 @@ project in Linear.
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
 | Camera calibration | Implemented | Static, Roboflow keypoint (online EMA/carry-and-decay), local YOLO (online EMA/carry-and-decay), and `pnlcalib` (offline) variants. `pnlcalib` calibrates via a subprocess exchange seam to any contract-conforming external calibrator (`matchlab_core/calib/bridge.py`, typed `CalibrationBridgeError`, stdlib `matchlab_core/calib/reference_cli.py` reference implementation) and applies a whole-clip offline global homography smoother (`matchlab_core/calib/smoother.py`, point-correspondence parameterization, per-frame `fresh`/`smoothed`/`interpolated`/`absent` provenance `status`) instead of online EMA/carry-and-decay. The in-repo scaffolding for the real external PnLCalib environment (SPO-65) exists — setup runbook (`docs/reference/external-calibrators-setup.md`), the adapter CLI to copy into the sibling env (`docs/reference/adapters/pnlcalib_cli.py`), and the eval config (`configs/pipeline.pnlcalib-eval.yaml`, `pitch: fifa`, real image→FIFA-cm homography) — but **the sibling `external-calibrators/` environment itself is a pending human step (clone/venv/weights/GPU verify)**, so `pnlcalib` in CI still exercises only the in-repo permissive reference calibrator CLI, runnable end-to-end via `configs/pipeline.pnlcalib-smoke.yaml`. | `matchlab_core/stages/calibrate/`, `matchlab_core/calib/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
-| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`; SPO-73 adds `not_mutual_best`, `margin_too_small` from the mutual-best+margin decision rule, default-inert), the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance), and `reid_detail.json` — the engine's working (per-tracklet view prototypes with source/exemplar frames and part visibility, per-scored-pair winning-prototype + per-part cosine breakdown, ranked gate-passing candidates) — rendered by the Lab run viewer's merge inspector (Assoc tab ⧉): prototype player crops are cut client-side from the original video, no server-side crop images. Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging (the measured default; similarity-only merging is disabled by default after failing the gate even at its calibrated 0.95 threshold) improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
+| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57; the Sinkhorn balance was removed by ADR 006 / SPO-72 after ADR 005's own removal condition fired — a row is now exactly that thread's own evidence), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`; SPO-73 adds `not_mutual_best`, `margin_too_small` from the mutual-best+margin decision rule, default-inert), the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance), and `reid_detail.json` — the engine's working (per-tracklet view prototypes with source/exemplar frames and part visibility, per-scored-pair winning-prototype + per-part cosine breakdown, ranked gate-passing candidates) — rendered by the Lab run viewer's merge inspector (Assoc tab ⧉): prototype player crops are cut client-side from the original video, no server-side crop images. Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. **Defaults superseded 2026-07-26** (SPO-85): similarity merging is now ON by default at the permissive end of the measured curve (`min_similarity: 0.80`, `merge_decision_rule: mutual-best`, `merge_min_margin: 0.0`) and the re-ID feature backbone is PRTreID — see the SPO-85 report and the "one scalar" finding below. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
@@ -783,13 +783,14 @@ Measured local findings recorded by the repository guidance:
   cannot clear do-no-harm at any threshold** (extends the kit-colour finding to KPR
   part-based features): same-player and different-player affinity distributions overlap in
   the upper tail (same p10 0.938 vs diff p90 0.912 on tuning), so even the calibrated 0.95
-  threshold admits wrong merges; similarity-only merging is therefore disabled by default.
+  threshold admits wrong merges; similarity-only merging was therefore disabled by default **until 2026-07-26, when SPO-85 re-measured the whole curve downstream and the default was reversed** (see finding (e) below).
   (c) **Anchor economics: coverage buys coverage, not precision** — naming precision stays
   ~1.0 across coverage 0.1–1.0 at zero noise (abstention 0.95→0.57) and noise is absorbed
   primarily as abstention; a real anchor stream with ≥25% coverage and ≤5% label noise
   clears ≥0.96 naming precision on this substrate. (d) **ADR 005's own removal condition
-  fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity,
-  removal/dustbin follow-up filed.
+  fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity.
+  **Removed 2026-07-25** (SPO-72, [ADR 006](decisions/006-no-naming-balance.md)); the dustbin
+  variant is deliberately not built until a real anchor stream produces contested evidence.
 - **Anchorless appearance merging fails do-no-harm under the GSR-recipe decision rule too
   (SPO-73, 2026-07-24; same frozen substrate; report
   [`2026-07-24-spo73-mutual-best-appearance-merge.md`](reports/2026-07-24-spo73-mutual-best-appearance-merge.md)):**
@@ -804,8 +805,72 @@ Measured local findings recorded by the repository guidance:
   in the embedder"**. Next lever: soccer-finetuned embedder re-tested on the same
   pre-registered harness. Secondary defects measured: kit-color team gate falsely vetoes
   19% of true re-entry pairs; 24% of true pairs score below floor from degraded re-entry
-  crops. Similarity merging remains disabled by default (`min_similarity: 1.01`); the
+  crops. Similarity merging was disabled by default at the time (`min_similarity: 1.01`); **reversed 2026-07-26**, see finding (e). The
   rule + reject reasons (`not_mutual_best`, `margin_too_small`) remain as tested machinery.
+  **⚠️ Provisional (annotated 2026-07-25): these held-out numbers are contaminated by
+  SPO-73's own protocol amendment and are not the verdict of record.** The team gate was fed
+  by kit-colour in every arm, falsely vetoing 4/21 true pairs *before the rule evaluated
+  them*, so those pairs' outcomes were never measured. The decontaminated (oracle-team)
+  tuning grid ran and moved the zero-wrong frontier down in yield ("the contaminated run
+  flattered the rule"); the decontaminated held-out gate was pre-registered but **never
+  executed** — SPO-87, blocked by the substrate rebuild (SPO-86: `data/experiments/` and the
+  frozen base run are gone from disk, so these numbers are also currently unreproducible).
+  The direction of the finding is unchanged pending that run; its magnitudes and the derived
+  bar for SPO-74 are not established.
+- **A soccer-trained embedder substantially outperforms the incumbent (SPO-85, 2026-07-25;
+  GT-tracklet harness, tuning SNMOT-116–123; report
+  [`2026-07-25-spo85-gt-tracklet-embedder-comparison.md`](reports/2026-07-25-spo85-gt-tracklet-embedder-comparison.md)):**
+  on a contamination-free substrate (GT tracks fragmented at natural gaps — tracklet purity
+  1.0 by construction, correct pairs known exactly, no tracker run), **PRTreID beats KPR by
+  +0.102 pooled rank-1 (0.898 vs 0.796), winning 7 of 8 sequences**, and beats both in-repo
+  controls (osnet 0.631, dinov2 0.502) — neither of which beats KPR, so the gain is specific
+  to the soccer-trained model rather than to any different backbone. **The mechanism is on
+  the negatives:** same-player affinity is unchanged (median 0.954 → 0.953) while
+  different-player affinity falls (median 0.790 → 0.756, p90 0.920 → 0.875), shrinking the
+  same-p10/different-p90 overlap from −0.055 to −0.005. Long gaps (>5 s) remain the hard case
+  for both (0.825 vs 0.772). **But the retrieval win does not carry through to safe merging:**
+  at the operating point pre-registered on SPO-73's oracle-team amendment (mutual-best,
+  margin 0.07, floor 0.95, anchorless) PRTreID repairs **25 of 125 available merges (20%) but
+  makes 3 wrong ones**, failing per-sequence do-no-harm on SNMOT-117 and SNMOT-123, while KPR
+  repairs 3 of 125 with none — a clean sheet that reflects timidity, not safety. Better
+  ranking is not the same property as trustworthy top-1. **Re-deriving the operating point per
+  arm (pre-registered amendment #1) closed that question: at each arm's own zero-wrong
+  frontier KPR gets 14 correct and PRTreID 13, both of 125, and at matched wrong-merge budgets
+  the two curves interleave with neither dominating.** A +0.102 rank-1 advantage produced no
+  measurable gain on the merge operating curve, because rank-1 is a property of the affinity
+  distribution's body while do-no-harm is set by its extreme tail — which PRTreID left still
+  overlapping (−0.005). **On this evidence the embedder swap is not justified for the merge
+  task**, and the SPO-73 lesson stands with a better embedder: the binding problem is the
+  upper tail, and improving average separability does not fix a tail. **Adoption decision
+  (Jeremy, 2026-07-25): PRTreID becomes the re-ID backbone anyway** — `tdlp-full` gains a
+  `reid_model` param so the tracker keeps KPR internally (the released TDLP head consumes its
+  6-part shape) while `frame_features`, the associate layer's input, comes from a second
+  PRTreID pass; the re-ID pipeline configs set it. Adopted **by decision on the retrieval
+  evidence and to build future work on the strongest representation, not by a merge-metric
+  win** — the merge numbers are neutral, and the cost is a second feature-gen pass, spending
+  the PRD's "reuse the tracker's own features at zero extra inference cost" property. **Not a
+  do-no-harm gate either way:** GT fragments are easier
+  than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
+  on the substrate rebuild), not a claim that the pipeline improved.
+  **(e) Merge quality is governed by one scalar, not by added machinery (2026-07-26).**
+  On the GT-tracklet substrate, relaxing the mutual-best margin requirement from 0.04 to 0.00
+  moves entity IDF1 0.8502 (no-op) → 0.9536 and identity switches 125 → 41. Against that,
+  three added subsystems produced **no** measurable merge improvement: the PRTreID backbone
+  (13 vs 14 correct at each arm's zero-wrong frontier; curves interleave), k-reciprocal
+  re-ranking (0.9060 vs 0.9177, worse), and a calibrated per-pair logistic model, which
+  reproduces `margin 0.00 / floor 0.80` **exactly** — identical metrics and an identical merge
+  partition on 8/8 sequences. Purity falls 1.0 → 0.9860 across that range, so the scalar is a
+  recall/contamination dial and the open question is where to set it, not what to add.
+  **Defaults changed (Jeremy, 2026-07-26):** the shipped `reid-engine` now merges permissively
+  — `min_similarity: 0.80`, `merge_decision_rule: mutual-best`, `merge_min_margin: 0.0` — and
+  `tdlp-full` defaults to `reid_model: prtreid`. This deliberately admits wrong merges (~15% of
+  merges on tuning) so downstream work can see and handle them, and therefore **fails the PRD's
+  zero-tolerance do-no-harm gate by design**. It is also an extrapolation: the curve was measured
+  on GT fragments, which are pure by construction, and no equivalent measurement exists on real
+  TDLP-full tracklets. Set `merge_min_margin: 0.04` for the conservative end, or
+  `min_similarity: 1.01` to restore the old anchor-only behaviour. The harness carries ~7×
+  the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
+  held-out verdict, over 198 person tracks fragmenting into 323 fragments.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
