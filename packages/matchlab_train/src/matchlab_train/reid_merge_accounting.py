@@ -27,6 +27,7 @@ from matchlab_core.reid.gates import (
 from matchlab_core.reid.merge import merge_tracklets
 from matchlab_core.reid.representation import build_representations, pair_similarity
 from matchlab_core.reid.retrieval import gate_passing_pairs
+
 from matchlab_train.reid_retrieval_score import gt_map_from_features, load_run
 
 LAB = Path("/home/jeremy/code/MatchDay/lab")

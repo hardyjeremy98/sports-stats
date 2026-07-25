@@ -62,7 +62,6 @@ stages:
       anchor_seed: 0
       min_posterior: 0.6
       min_margin: 0.2
-      sinkhorn_iterations: 2
       tier_auto_min_posterior: 0.85
       tier_auto_min_margin: 0.5
   identity:

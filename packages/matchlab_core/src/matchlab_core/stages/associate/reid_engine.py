@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.gt import GroundTruth
@@ -65,6 +65,11 @@ from matchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
+    # Unknown params are a loud error, not a silent no-op: a stale override
+    # left in a benchmark config (e.g. sinkhorn_iterations after ADR 006)
+    # would otherwise quietly do nothing and mislabel the arm.
+    model_config = ConfigDict(extra="forbid")
+
     # Minimum part-aware similarity between tracklet representations to
     # consider a similarity-only merge; anchor-driven merges bypass it. The
     # default (>1.0) DISABLES similarity-only merging — measured on the
@@ -116,11 +121,9 @@ class Params(BaseModel):
     anchor_min_box_height: float = 0.0
     anchor_seed: int = 0
     # Naming decoder (SPO-57): posterior/margin bars below which a thread
-    # abstains, and the Sinkhorn balancing passes (few by design — see
-    # matchlab_core.reid.naming for why running to convergence is wrong here).
+    # abstains. There is no balancing step — see ADR 006 (SPO-72).
     min_posterior: float = 0.6
     min_margin: float = 0.2
-    sinkhorn_iterations: int = 2
     # Confidence tiers (SPO-58): named threads clearing both bars auto-accept;
     # the rest enter the adjudication band (v1 adjudicator is a pass-through
     # to human QA); abstained threads go straight to QA.
@@ -227,8 +230,7 @@ class ReidEngineAssociator(Associator):
             thread_spans=thread_spans,
             min_posterior=p.min_posterior,
             min_margin=p.min_margin,
-            sinkhorn_iterations=p.sinkhorn_iterations,
-            overlap_tolerance_frames=p.overlap_tolerance_frames,
+                overlap_tolerance_frames=p.overlap_tolerance_frames,
         )
         assign_tiers(
             threads,
