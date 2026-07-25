@@ -243,3 +243,32 @@ Costs, stated rather than buried:
 - **The comparison remains confounded**: PRTreID differs from KPR in both training data and
   embedding structure (1×256 `globl` vs 6×128 parts), so "soccer-trained is better" is not
   cleanly isolated by this evidence.
+
+## Step 0 (2026-07-26): what the merges actually do to the metrics
+
+Everything above counts merge edges. Edge counts cannot say whether an operating point is
+worth adopting — one wrong merge welds two players into one entity and can cost more purity
+than several correct merges recover. Scored through the repo's own evaluator (`evaluate_run`)
+by rebuilding `players.json` from each point's merge groups; PRTreID, mean over the 8 tuning
+sequences.
+
+| operating point | entity IDF1 | entity HOTA | entity purity | IDSW | correct | wrong |
+|---|---|---|---|---|---|---|
+| no-op (baseline) | 0.8502 | 0.8922 | 1.0000 | 125 | 0 | 0 |
+| strict (0.10 / 0.95) | 0.8706 (+0.020) | 0.9080 (+0.016) | 1.0000 (0.0) | 112 | 13 | 0 |
+| mid (0.06 / 0.85) | 0.9005 (+0.050) | 0.9297 (+0.038) | 0.9948 (−0.005) | 88 | 37 | 5 |
+| **loose (0.04 / 0.80)** | **0.9177 (+0.068)** | **0.9415 (+0.049)** | 0.9936 (−0.006) | **77** | 48 | 8 |
+
+**The trade is strongly favourable.** The loose point buys **+0.068 entity IDF1 and +0.049
+HOTA for 0.6% entity purity**, and cuts identity switches from 125 to 77. For scale, the
+SPO-59 anchor-only result that *passed* do-no-harm delivered +0.040 IDF1 / +0.027 HOTA — the
+loose point delivers substantially more, at a small but non-zero purity cost.
+
+So the strict zero-wrong frontier was not protecting much: it forgoes two-thirds of the
+available IDF1 gain to avoid 0.6% contamination. That is the quantitative case for the
+looser operating point, and it is what the merge-edge counts alone could not show.
+
+**Caveat that still stands:** purity 0.9936 is a mean, and the per-sequence zero-tolerance
+do-no-harm standard is failed at this point. Adopting it is a deliberate departure from the
+PRD's single hard gate and from the "silent swaps are worse than temporary unknown identity"
+invariant — recorded as a decision (Jeremy, 2026-07-26), not a drift.
