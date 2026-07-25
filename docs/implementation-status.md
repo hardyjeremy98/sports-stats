@@ -460,8 +460,39 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   `matchlab_server/api/benchmark.py`'s `BENCHMARK_METRIC_KEYS`); `web/src/lib/types.ts` gains a
   `GameStateEval` mirror. Resolves the scored `PitchSpec` from the manifest's `config.pitch`
   (default `roboflow`). Omitted entirely (`gamestate` stays absent, never a crash) for
-  tracking-only runs with no `calibration.jsonl`. **No benchmark numbers exist for this layer
-  yet** — capability and test coverage only (`test_gamestate_eval.py`).
+  tracking-only runs with no `calibration.jsonl`. Benchmark numbers now exist — see the Gate 2
+  entry below.
+
+- Gate 2 calibration smoothing, smoother v3 (SPO-84): the offline smoother
+  (`matchlab_core/calib/smoother.py`) aggregates its window with a **per-grid-point median**
+  (was an arithmetic mean through v2) at a default `smoothing_window` of 15 (was 9).
+  Measured on the twelve `gate2-SNMOT-116..127` runs (config `oracle-pnlcalib-eval`, PnLCalib
+  SV weights, SoccerNet tracking test split, FIFA pitch spec, 750 frames each, stride 1,
+  25 fps), re-scored GPU-free from the persisted `calibration_raw.jsonl` artifacts via the
+  registered `gate2-resmooth` experiment, at code revision `0763d20`:
+
+  - **Windowed 0.5 s player-only implausible-speed rate (>12 m/s): better on all twelve.**
+    Worst clip SNMOT-122 24.58% → 2.49%; drift-clip mean 11.37% → 0.88%; clean-clip mean
+    0.69% → 0.24%. Coverage 1.000 on all twelve. SNMOT-122 in-bounds 92.40% → 99.96%.
+  - **Per-frame implausible-speed rate (what `gamestate_eval` currently computes): WORSE on
+    ten of twelve** (e.g. SNMOT-126 3.62% → 8.78%), better only on the two worst clips
+    (SNMOT-122 23.21% → 11.20%, SNMOT-117 15.15% → 8.54%).
+
+  The two metrics disagree, and the step distribution explains why: v3 removes the
+  catastrophic tail (SNMOT-122 worst per-frame step 453 km → 170 m, p99 341 m → 1.7 m) while
+  adding ~3 cm of uniform jitter, and a 12 m/s cap at 25 fps is a **48 cm per-frame**
+  threshold that sits inside the bulk of the step distribution — so the per-frame rate scores
+  noise rather than implausibility. **Which metric gates is SPO-70's open decision and is not
+  settled here**; no default was changed. The v2 report is retained alongside the v3 one as
+  `data/reports/gate2-gamestate/pnlcalib_arm_v2-smoother.json`.
+
+  Known residual: SNMOT-122 sits at 2.49% windowed, above the PRD's provisional 1% threshold.
+  Its raw (unsmoothed) rate is 4.77%, so v3 is better than not smoothing; the residual reads
+  as estimator error on a hard clip, not a smoother defect. Camera-parameter-space smoothing
+  was evaluated as a design option and **not implemented** — the drift was located entirely in
+  aggregation, with v2 measuring 3.4× worse than not smoothing at all. See
+  `docs/superpowers/specs/2026-07-25-smoother-v3-design.md` for the full diagnosis and five
+  measured, rejected alternatives.
 
 Primary locations:
 

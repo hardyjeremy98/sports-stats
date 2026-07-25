@@ -1,6 +1,6 @@
 # Calibration smoother v3 — robust temporal aggregation
 
-**Date:** 2026-07-25 · **Status:** approved design, not yet implemented
+**Date:** 2026-07-25 · **Status:** implemented (Tasks 1-4), Gate 2 re-scored
 **Tracking:** SPO-84 (Gate 2 threshold finalization: SPO-70)
 **Branch:** `worktree-spo-pitch-calibration`, from `cd3bf31`
 **Supersedes for SPO-84:** the issue's own proposal (camera-parameter-space smoothing +
