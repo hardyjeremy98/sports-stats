@@ -31,16 +31,16 @@ import numpy as np
 from pydantic import BaseModel
 
 from matchlab_core.calib.bridge import CalibrationParams, run_calibrator
-from matchlab_core.calib.keypoints import reproject_pitch_vertices
-from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
-from matchlab_core.interfaces import Calibrator, StageContext
-from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
-from matchlab_core.registry import register
 from matchlab_core.calib.gapmotion import (
     DriftCorrectedMotion,
     gap_anchor_pairs,
     register_pairs,
 )
+from matchlab_core.calib.keypoints import reproject_pitch_vertices
+from matchlab_core.calib.smoother import RawEstimate, smooth_homography_trajectory
+from matchlab_core.interfaces import Calibrator, StageContext
+from matchlab_core.provenance import LicenseAxes, ModelProvenance, sha256_file
+from matchlab_core.registry import register
 from matchlab_core.reid.motion import CameraMotion, estimate_camera_motion
 from matchlab_core.schemas import FrameCalibration
 from matchlab_core.schemas.calibration import CameraMotionStep, RawCalibrationRecord
@@ -174,17 +174,41 @@ class PnLCalibCalibrator(Calibrator):
             ),
         )
 
+        # Blackout frames additionally get DIRECT registration against their
+        # bracketing calibrated frames. Chaining alone drifts across a long gap;
+        # direct alone shakes. The smoother is handed both and picks per gap by
+        # self-consistency (matchlab_core.calib.gapmotion). Frames are re-decoded
+        # rather than retained: only the gap frames and their anchors are needed,
+        # and holding every decoded frame would cost hundreds of MB.
+        if p.camera_motion:
+            has_est = [by_idx.get(f) is not None and by_idx[f].homography is not None
+                       for f in order]
+            pairs = gap_anchor_pairs(order, has_est)
+            if pairs:
+                needed = {f for pair in pairs for f in pair}
+                gray = {
+                    frame.frame_idx: cv2.cvtColor(frame.image, cv2.COLOR_BGR2GRAY)
+                    for frame in ctx.frames()
+                    if frame.frame_idx in needed
+                }
+                camera_motion = DriftCorrectedMotion(
+                    camera_motion,
+                    register_pairs(gray, pairs),
+                    frame_size or (ctx.video.width, ctx.video.height),
+                )
+
         # Persist the recovered camera motion alongside the raw estimates, so a
         # later offline re-smooth can bridge blackouts without re-decoding video.
+        chain = getattr(camera_motion, "_chained", camera_motion)
         ctx.store.write_jsonl(
             ArtifactName.CAMERA_MOTION,
             (
                 CameraMotionStep(
-                    from_frame=camera_motion.frame_idxs[i],
-                    to_frame=camera_motion.frame_idxs[i + 1],
+                    from_frame=chain.frame_idxs[i],
+                    to_frame=chain.frame_idxs[i + 1],
                     homography=step.tolist(),
                 )
-                for i, step in enumerate(camera_motion.steps)
+                for i, step in enumerate(getattr(chain, "steps", []))
             ),
         )
 
