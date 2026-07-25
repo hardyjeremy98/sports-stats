@@ -55,6 +55,12 @@ BENCHMARK_METRIC_KEYS = (
     # the tracking keys above, so without this it would be ineligible for the
     # benchmark matrix entirely.
     "spotting_map_at_1",
+    # SPO-69: pitch-space game-state metrics -- score the calibration's
+    # projected geometry (via GT tracks), not the tracker.
+    "gs_coverage",
+    "gs_implausible_speed_rate",
+    "gs_teleports",
+    "gs_in_bounds_rate",
 )
 
 

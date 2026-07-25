@@ -1,7 +1,7 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-19  
+**Last verified:** 2026-07-24  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
@@ -74,7 +74,7 @@ project in Linear.
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Multi-cue learned tracking (in-repo `tdlp-shippable`, legacy name) | Superseded — **CLOSED, not the default, not maintained** | A partial in-repo TDLP rebuild from the retired SPO-36–44 rebuild program (closed 2026-07-20 by the research-mode pivot; TDLP-full — see the callout above — replaced it outright). This stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT. `tdlp-shippable` (`StageKind.TRACK`): RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder in place of KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). Runs end-to-end on arbitrary video (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint; only a preliminary eval-tier-trained head exists (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover). The once-planned permissive-data retrain (SPO-39/40) was **canceled, not blocked** — with TDLP-full implemented there is nothing left to rebuild. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
-| Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
+| Camera calibration | Implemented | Static, Roboflow keypoint (online EMA/carry-and-decay), local YOLO (online EMA/carry-and-decay), and `pnlcalib` (offline) variants. `pnlcalib` calibrates via a subprocess exchange seam to any contract-conforming external calibrator (`matchlab_core/calib/bridge.py`, typed `CalibrationBridgeError`, stdlib `matchlab_core/calib/reference_cli.py` reference implementation) and applies a whole-clip offline global homography smoother (`matchlab_core/calib/smoother.py`, point-correspondence parameterization, per-frame `fresh`/`smoothed`/`interpolated`/`absent` provenance `status`) instead of online EMA/carry-and-decay. The in-repo scaffolding for the real external PnLCalib environment (SPO-65) exists — setup runbook (`docs/reference/external-calibrators-setup.md`), the adapter CLI to copy into the sibling env (`docs/reference/adapters/pnlcalib_cli.py`), and the eval config (`configs/pipeline.pnlcalib-eval.yaml`, `pitch: fifa`, real image→FIFA-cm homography) — but **the sibling `external-calibrators/` environment itself is a pending human step (clone/venv/weights/GPU verify)**, so `pnlcalib` in CI still exercises only the in-repo permissive reference calibrator CLI, runnable end-to-end via `configs/pipeline.pnlcalib-smoke.yaml`. | `matchlab_core/stages/calibrate/`, `matchlab_core/calib/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
 | **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57; the Sinkhorn balance was removed by ADR 006 / SPO-72 after ADR 005's own removal condition fired — a row is now exactly that thread's own evidence), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`; SPO-73 adds `not_mutual_best`, `margin_too_small` from the mutual-best+margin decision rule, default-inert), the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance), and `reid_detail.json` — the engine's working (per-tracklet view prototypes with source/exemplar frames and part visibility, per-scored-pair winning-prototype + per-part cosine breakdown, ranked gate-passing candidates) — rendered by the Lab run viewer's merge inspector (Assoc tab ⧉): prototype player crops are cut client-side from the original video, no server-side crop images. Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. **Defaults superseded 2026-07-26** (SPO-85): similarity merging is now ON by default at the permissive end of the measured curve (`min_similarity: 0.80`, `merge_decision_rule: mutual-best`, `merge_min_margin: 0.0`) and the re-ID feature backbone is PRTreID — see the SPO-85 report and the "one scalar" finding below. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
@@ -100,6 +100,18 @@ stated.
 this field existed still parse — currently always `"observed"` from the in-repo tracker
 implementations; no stage yet writes `predicted`/`interpolated` frames.
 
+`FrameCalibration` (`schemas/calibration.py`) carries a `status` provenance field —
+`"fresh"`/`"smoothed"`/`"interpolated"`/`"absent"`, `None` for calibrators that predate it (the
+online EMA/carry-and-decay calibrators `yolo-pitch-local` and `roboflow-keypoints`, which still
+only set the legacy `smoothed` bool) — set by the `pnlcalib` stage's offline whole-clip smoother
+(`matchlab_core/calib/smoother.py`) after a subprocess calibrator run. `smoothed` is now a
+derived legacy bool (`status not in ("fresh", "absent")`) kept for back-compat with pre-`status`
+JSONL rows and consumers that predate `status`. A pipeline config's `pitch:` field (`roboflow`
+default — the non-physical 120×70 m template `yolo-pitch-local` was trained on; `fifa` — real
+105×68 m geometry, for accurate calibrators) selects the `PitchSpec` wired into
+`StageContext.pitch` (`matchlab_core/pitch.py::get_pitch`) and is recorded verbatim in
+`manifest.json`'s `config` block.
+
 ## Provenance and reproducibility
 
 - **Run provenance recorder** (SPO-10 part 1): every `manifest.json` written by
@@ -112,8 +124,8 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   Every declared field is always present — unknown values are the literal string
   `"unknown"` (or `null` where the schema allows it), never an absent key. `Stage.
   provenance()` is a hook (default `[]`), overridden by `yolo-local` detect,
-  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, the
-  `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
+  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, `pnlcalib`
+  calibrate, the `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
   identity — each reports architecture, local weights path + streaming SHA-256 (when
   applicable), lineage, and per-axis (`code`/`weights`/`training_data`) license status.
   `evaluation_set_hash` is `"unknown"` on every manifest as written by the pipeline runner
@@ -429,6 +441,123 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   - The `soccernet-ball` tier's licensing note is an **inference**, not a confirmed reading
     of SoccerNet's ball-action-specific terms. It is recorded as provenance only and does not
     qualify capability status (research posture); do not redistribute the data regardless.
+- Game-state (pitch-space calibration) metrics (SPO-69): a pure module
+  (`matchlab_core/gamestate_eval.py`) that projects a video's GROUND-TRUTH tracks
+  (player/goalkeeper/referee; ball excluded — it routinely exceeds human speed caps) through a
+  **run's own calibration** homographies and scores the geometry the calibration implies, not
+  tracker quality. Reports coverage (fraction of GT-covered sampled frames carrying a usable,
+  non-`absent` homography), an implausible-speed rate (consecutive-sampled-frame projected
+  steps whose implied speed exceeds a 12 m/s threshold), a teleport count (step displacement
+  over 2 m; plus a `teleports_at_refresh` subset where the two frames' `FrameCalibration.status`
+  differ), and an in-bounds rate (projected positions within a 500 cm margin of the pitch
+  rectangle). Per-step `dt` is derived from the pair's actual sampled-frame indices, not a
+  constant stride/fps, so a missing calibration row can't understate elapsed time and mask an
+  implausible speed. Thresholds are provisional and **NOT gates** — SPO-70 finalizes them; this
+  module reports rates only. Folded into `eval.json` under a `gamestate` key by `evaluate_run`
+  (`matchlab_core/evaluation.py`), with four headline `runs.metrics` keys (`gs_coverage`,
+  `gs_implausible_speed_rate`, `gs_teleports`, `gs_in_bounds_rate`) surfaced as dashboard columns
+  (`web/src/pages/LabDashboard.tsx`) and benchmark matrix cells (`web/src/pages/LabBenchmark.tsx`,
+  `matchlab_server/api/benchmark.py`'s `BENCHMARK_METRIC_KEYS`); `web/src/lib/types.ts` gains a
+  `GameStateEval` mirror. Resolves the scored `PitchSpec` from the manifest's `config.pitch`
+  (default `roboflow`). Omitted entirely (`gamestate` stays absent, never a crash) for
+  tracking-only runs with no `calibration.jsonl`. Benchmark numbers now exist — see the Gate 2
+  entry below.
+
+- Gate 2 calibration smoothing, smoother v3 (SPO-84): the offline smoother
+  (`matchlab_core/calib/smoother.py`) aggregates its window with a **per-grid-point median**
+  (was an arithmetic mean through v2) at a default `smoothing_window` of 15 (was 9).
+  Measured on the twelve `gate2-SNMOT-116..127` runs (config `oracle-pnlcalib-eval`, PnLCalib
+  SV weights, SoccerNet tracking test split, FIFA pitch spec, 750 frames each, stride 1,
+  25 fps), re-scored GPU-free from the persisted `calibration_raw.jsonl` artifacts via the
+  registered `gate2-resmooth` experiment, at code revision `0763d20`:
+
+  - **Windowed 0.5 s player-only implausible-speed rate (>12 m/s): better on all twelve.**
+    Worst clip SNMOT-122 24.58% → 2.49%; drift-clip mean 11.37% → 0.88%; clean-clip mean
+    0.69% → 0.24%. Coverage 1.000 on all twelve. SNMOT-122 in-bounds 92.40% → 99.96%.
+  - **Per-frame implausible-speed rate (what `gamestate_eval` currently computes): WORSE on
+    ten of twelve** (e.g. SNMOT-126 3.62% → 8.78%), better only on the two worst clips
+    (SNMOT-122 23.21% → 11.20%, SNMOT-117 15.15% → 8.54%).
+
+  The two metrics disagree, and the step distribution explains why: v3 removes the
+  catastrophic tail (SNMOT-122 worst per-frame step 453 km → 170 m, p99 341 m → 1.7 m) while
+  adding ~3 cm of uniform jitter, and a 12 m/s cap at 25 fps is a **48 cm per-frame**
+  threshold that sits inside the bulk of the step distribution — so the per-frame rate scores
+  noise rather than implausibility. **Which metric gates is SPO-70's open decision and is not
+  settled here**; no default was changed. The v2 report is retained alongside the v3 one as
+  `data/reports/gate2-gamestate/pnlcalib_arm_v2-smoother.json`.
+
+- Player-trajectory smoothing (SPO-84 follow-up): a second pure module,
+  `matchlab_core/gamestate/trajectory.py`, completing the PRD's "one coordinated smoothing
+  story" — the calibration smoother makes the *camera* coherent, this makes the *player*
+  coherent. Wired into `stages/fuse/minimap.py` for status-bearing calibration only (the
+  legacy EMA/carry path is untouched), and disableable via `track_smoothing: false`.
+  Rejects physically impossible positions against a motion-compensated robust prediction,
+  smooths with a local degree-2 fit windowed in **frame** units, and bridges gaps only when
+  short *and* humanly reachable. A rejected observation keeps its dot at a corrected
+  position; long absences stay absent rather than being fabricated.
+
+  Measured on the same twelve runs, comparing the rendered `minimap.jsonl` (what the Game
+  state view actually draws) with smoothing off vs on — note this is a **different metric
+  family** from `gamestate_eval`, which projects GT tracks through the homography and so
+  bypasses the fuse stage entirely:
+
+  | | pure projection | smoothed | |
+  |---|---|---|---|
+  | median rendered acceleration | 15.35 cm | **1.48 cm** | 10× (below the ~1.6 cm a human can produce) |
+  | p95 acceleration | 71.7 cm | **6.5 cm** | 11× |
+  | teleports (>2 m in one frame) | 0.287% | **0.005%** | 57× |
+  | implied speed >12 m/s | 7.14% | **1.01%** | 7× |
+  | blink events (dot winks out) | 68.4/run | **38.3/run** | 44% fewer |
+
+  Defaults are measured, not chosen: `track_window: 21` (0.84 s) is the widest that still
+  reproduces a 10 m/s² cut to within 6 cm — 25 and 31 buy further smoothness by flattening
+  real cuts (11 cm and 21 cm error).
+
+  Known residual: the blink **rate** (missing frame-time, 20.7%) is essentially unchanged,
+  and deliberately so. It is dominated by long tracker/association gaps — 23% of gaps carry
+  almost all missing frame-time, up to 482 consecutive frames — and bridging those would
+  invent positions for a player nobody tracked. **This is an association problem surfacing
+  as a visual one, not a calibration or fusion problem**: measured cause split is 20.8%
+  tracker gaps vs 0.3% fusion drops.
+
+- Blackout bridging (SPO-84): when pitch registration fails outright for a stretch (SNMOT-122
+  loses 73 consecutive frames, ~3 s), the gap is no longer filled by a straight line — which
+  assumes constant camera velocity, an assumption that clip violates by accelerating 4.5x and
+  reversing direction mid-blackout. Camera motion is recovered from the imagery instead
+  (`matchlab_core/calib/gapmotion.py`, new `camera_motion.jsonl` artifact).
+
+  Two recovery models, failing in opposite ways: chained frame-to-frame motion is smooth
+  (median rendered accel 8.8 cm) but drifts (6.1 m over 73 frames); direct ORB registration
+  against the anchors is unbiased (0.5-1.6 m) but 9.4x jitterier because each frame is
+  registered independently. Combining them — chain for shape, a low-order fit to their
+  difference for drift — gave 8x the accuracy at unchanged smoothness on SNMOT-122 (5.25 m ->
+  0.64 m). Drift correction is NOT uniformly safe (it loses on SNMOT-121, whose gaps are
+  longest and footage most repetitive), so neither model is hardcoded: the smoother is given
+  both and picks **per gap** by self-consistency — each candidate yields two independent
+  estimates carried from either anchor, and the one whose estimates agree wins. That can never
+  be worse than the best single candidate; when none is self-consistent the fill reverts to a
+  straight line.
+
+  Gate 2 windowed implausible-speed, straight-line -> selecting build: SNMOT-122 2.49% ->
+  1.19%, SNMOT-121 0.33% -> 0.19%, dirty max 2.49% -> 1.36%, dirty mean 0.88% -> 0.62%,
+  coverage 1.000, nothing regressed.
+
+  **The gate cannot see most of this improvement**, and that is a finding in its own right: a
+  smoothly-wrong calibration shifts every player together, leaving their relative motion
+  unchanged, so an 8x geometric improvement moved the windowed metric by 0.01pp. Gate 2 is
+  sensitive to the error's time-derivative, not its magnitude. Calibration ACCURACY is
+  currently tracked only by anchor self-consistency (an ad-hoc measure), not by any run metric
+  — worth closing before accuracy regressions can be caught automatically.
+
+  Known residual (calibration): SNMOT-120 is now the worst clip at 1.36% windowed, driven by a
+  ~150-frame stretch (frames 150-299) where the raw estimates are broken rather than missing;
+  no smoother fixes that. SNMOT-122 sits at 1.19%, above the PRD's provisional 1% threshold.
+  Its raw (unsmoothed) rate is 4.77%, so v3 is better than not smoothing; the residual reads
+  as estimator error on a hard clip, not a smoother defect. Camera-parameter-space smoothing
+  was evaluated as a design option and **not implemented** — the drift was located entirely in
+  aggregation, with v2 measuring 3.4× worse than not smoothing at all. See
+  `docs/superpowers/specs/2026-07-25-smoother-v3-design.md` for the full diagnosis and five
+  measured, rejected alternatives.
 
 Primary locations:
 

@@ -43,11 +43,18 @@ const METRICS: MetricDef[] = [
   { key: "cluster_purity", label: "Cluster purity", higherIsBetter: true },
   // SPO-49: action-spotting avg-mAP@1 (pure spotting runs, no tracking keys).
   { key: "spotting_map_at_1", label: "Spotting mAP@1", higherIsBetter: true },
+  // SPO-69: pitch-space game-state metrics -- score the calibration's
+  // projected geometry (via GT tracks), not the tracker.
+  { key: "gs_coverage", label: "Calib coverage", higherIsBetter: true },
+  { key: "gs_implausible_speed_rate", label: "Calib impl. speed", higherIsBetter: false },
+  { key: "gs_teleports", label: "Calib teleports", higherIsBetter: false, idsw: true },
+  { key: "gs_in_bounds_rate", label: "Calib in-bounds", higherIsBetter: true },
 ];
 
 // Metrics whose absence means the run predates the layer that computes them
-// (semantic identity — ADR 004; purity/HOTA — SPO-6/SPO-7) rather than a
-// failure. Re-evaluating on the run viewer backfills them.
+// (semantic identity — ADR 004; purity/HOTA — SPO-6/SPO-7; game-state —
+// SPO-69) rather than a failure. Re-evaluating on the run viewer backfills
+// them.
 const BACKFILLABLE_METRIC_KEYS = new Set([
   "identity_coverage",
   "cluster_purity",
@@ -57,6 +64,10 @@ const BACKFILLABLE_METRIC_KEYS = new Set([
   "mixed_track_seconds",
   "idsw_persistent_entity",
   "idsw_persistent_tracklet",
+  "gs_coverage",
+  "gs_implausible_speed_rate",
+  "gs_teleports",
+  "gs_in_bounds_rate",
 ]);
 
 function fmtMetric(def: MetricDef, v: number): string {

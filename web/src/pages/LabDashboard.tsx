@@ -11,8 +11,28 @@ import { Button, Card, EmptyState, Mono, PageTitle, Spinner, StatusChip } from "
 // column is the persistent (flicker-insensitive, >=1s) count, not raw IDsw --
 // runs evaluated before that metric existed show an empty cell until
 // re-evaluated. Raw IDsw stays available on the Benchmark and Diff views.
-const METRIC_KEYS = ["n_tracklets", "n_players", "n_events", "n_qa_items", "idf1_entity", "idsw_persistent_entity"] as const;
-const METRIC_LABELS: Record<string, string> = { idf1_entity: "idf1", idsw_persistent_entity: "idsw (1s)" };
+// gs_* (SPO-69) only exist for GT runs whose config has a calibrate stage --
+// they score the calibration's projected geometry, not the tracker.
+const METRIC_KEYS = [
+  "n_tracklets",
+  "n_players",
+  "n_events",
+  "n_qa_items",
+  "idf1_entity",
+  "idsw_persistent_entity",
+  "gs_coverage",
+  "gs_implausible_speed_rate",
+  "gs_teleports",
+  "gs_in_bounds_rate",
+] as const;
+const METRIC_LABELS: Record<string, string> = {
+  idf1_entity: "idf1",
+  idsw_persistent_entity: "idsw (1s)",
+  gs_coverage: "gs coverage",
+  gs_implausible_speed_rate: "gs impl. speed",
+  gs_teleports: "gs teleports",
+  gs_in_bounds_rate: "gs in-bounds",
+};
 
 type SortKey = (typeof METRIC_KEYS)[number] | "created_at" | "took";
 
