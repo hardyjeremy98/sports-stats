@@ -17,6 +17,7 @@ from matchlab_core.registry import register
 from matchlab_core.schemas import FrameCalibration
 from matchlab_core.schemas.geometry import Point
 from matchlab_core.schemas.run import StageKind
+from matchlab_core.stages.calibrate.smoothing import FreshCalibration, smooth_calibrations
 
 
 class Params(BaseModel):
@@ -64,10 +65,7 @@ class YoloPitchLocalCalibrator(Calibrator):
         p = self.params
         device = 0 if ctx.device == "cuda" else "cpu"
         vertices = np.array(ctx.pitch.vertices, dtype=np.float32)
-        out: list[FrameCalibration] = []
-        smoothed_h: np.ndarray | None = None
-        carry = 0
-        carried_conf = 0.0
+        fresh: list[FreshCalibration] = []
         total = ctx.video.frame_count / ctx.config.video.sample_stride or 1
 
         for i, frame in enumerate(ctx.frames()):
@@ -99,46 +97,23 @@ class YoloPitchLocalCalibrator(Calibrator):
                     if fresh_h is not None and inliers is not None:
                         inlier_ratio = float(inliers.sum()) / max(1, len(inliers))
 
-            if fresh_h is not None:
-                fresh_conf = min(0.99, inlier_ratio * min(1.0, n_used / 8))
-                smoothed_h = (
-                    fresh_h if smoothed_h is None else _blend(smoothed_h, fresh_h, p.ema_alpha)
+            fresh.append(
+                FreshCalibration(
+                    frame_idx=frame.frame_idx,
+                    t=frame.t,
+                    homography=fresh_h,
+                    confidence=min(0.99, inlier_ratio * min(1.0, n_used / 8)),
+                    n_keypoints=n_used,
+                    keypoints_image=pts_img,
+                    keypoint_confidences=confs,
                 )
-                carry = 0
-                carried_conf = fresh_conf
-                out.append(
-                    FrameCalibration(
-                        frame_idx=frame.frame_idx, t=frame.t,
-                        homography=smoothed_h.tolist(), n_keypoints=n_used,
-                        keypoints_image=pts_img, keypoint_confidences=confs,
-                        confidence=round(fresh_conf, 4), smoothed=False,
-                    )
-                )
-            elif smoothed_h is not None and carry < p.max_carry_frames:
-                carry += 1
-                carried_conf *= p.carry_decay
-                out.append(
-                    FrameCalibration(
-                        frame_idx=frame.frame_idx, t=frame.t,
-                        homography=smoothed_h.tolist(), n_keypoints=n_used,
-                        keypoints_image=pts_img, keypoint_confidences=confs,
-                        confidence=round(carried_conf, 4), smoothed=True,
-                    )
-                )
-            else:
-                out.append(
-                    FrameCalibration(
-                        frame_idx=frame.frame_idx, t=frame.t, homography=None,
-                        n_keypoints=n_used, keypoints_image=pts_img,
-                        keypoint_confidences=confs, confidence=0.0, smoothed=False,
-                    )
-                )
+            )
             if i % 20 == 0:
                 ctx.progress(StageKind.CALIBRATE, min(i / total, 0.99), f"calibrate: frame {i}")
-        return out
 
-
-def _blend(prev: np.ndarray, fresh: np.ndarray, alpha: float) -> np.ndarray:
-    a = prev / prev[2, 2]
-    b = fresh / fresh[2, 2]
-    return alpha * a + (1 - alpha) * b
+        return smooth_calibrations(
+            fresh,
+            ema_alpha=p.ema_alpha,
+            max_carry_frames=p.max_carry_frames,
+            carry_decay=p.carry_decay,
+        )

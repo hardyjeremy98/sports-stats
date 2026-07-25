@@ -10,7 +10,7 @@ from matchlab_core.schemas.association import (
     AssociationRejectReason,
     AssociationReport,
 )
-from matchlab_core.schemas.calibration import FrameCalibration
+from matchlab_core.schemas.calibration import ExternalHomography, FrameCalibration
 from matchlab_core.schemas.detections import (
     BallObservation,
     Detection,
@@ -58,6 +58,7 @@ __all__ = [
     "DetectionClass",
     "Event",
     "EventType",
+    "ExternalHomography",
     "FrameCalibration",
     "FrameDetections",
     "IdentityEvidence",

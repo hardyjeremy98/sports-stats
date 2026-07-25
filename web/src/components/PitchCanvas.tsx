@@ -6,16 +6,35 @@ import { floorRow } from "../lib/artifacts";
 import { teamColor } from "../lib/colors";
 import type { MinimapFrame } from "../lib/types";
 
-// Pitch geometry in cm — mirrors matchlab_core.pitch.SOCCER_PITCH.
-const L = 12000;
-const W = 7000;
-const PBL = 2015;
-const PBW = 4100;
-const GBL = 550;
-const GBW = 1832;
-const CCR = 915;
+// Pitch geometry in cm — mirrors matchlab_core.pitch.PITCH_SPECS. Which one a
+// run uses is carried in its config (`pitch:`); accurate calibrators (pnlcalib)
+// use real FIFA geometry, yolo-pitch-local uses the roboflow template.
+export interface PitchDims {
+  L: number;
+  W: number;
+  PBL: number;
+  PBW: number;
+  GBL: number;
+  GBW: number;
+  CCR: number;
+}
 
-export function drawPitch(ctx: CanvasRenderingContext2D, w: number, h: number) {
+const PITCH_SPECS: Record<string, PitchDims> = {
+  roboflow: { L: 12000, W: 7000, PBL: 2015, PBW: 4100, GBL: 550, GBW: 1832, CCR: 915 },
+  fifa: { L: 10500, W: 6800, PBL: 1650, PBW: 4032, GBL: 550, GBW: 1832, CCR: 915 },
+};
+
+export function pitchDims(name?: string | null): PitchDims {
+  return PITCH_SPECS[name ?? "roboflow"] ?? PITCH_SPECS.roboflow;
+}
+
+export function drawPitch(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  pitch: PitchDims,
+) {
+  const { L, W, PBL, PBW, GBL, GBW, CCR } = pitch;
   const sx = w / L;
   const sy = h / W;
   ctx.clearRect(0, 0, w, h);
@@ -49,14 +68,18 @@ export function PitchCanvas({
   minimap,
   getTime,
   highlightPlayerId,
+  pitchName,
   className = "",
 }: {
   minimap: MinimapFrame[] | null;
   getTime: () => number;
   highlightPlayerId?: number | null;
+  pitchName?: string | null;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pitch = pitchDims(pitchName);
+  const { L, W } = pitch;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -75,7 +98,7 @@ export function PitchCanvas({
         canvas.height = Math.round(cssH * dpr);
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawPitch(ctx, cssW, cssH);
+      drawPitch(ctx, cssW, cssH, pitch);
       if (!minimap || minimap.length === 0) return;
 
       const row = floorRow(minimap, getTime(), (r) => r.t);
@@ -105,7 +128,7 @@ export function PitchCanvas({
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [minimap, getTime, highlightPlayerId]);
+  }, [minimap, getTime, highlightPlayerId, pitch, L, W]);
 
   return (
     <canvas

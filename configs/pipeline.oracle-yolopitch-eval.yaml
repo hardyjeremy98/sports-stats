@@ -1,0 +1,49 @@
+name: oracle-yolopitch-eval
+description: "Oracle GT-box detector + IoU tracker with the previous default yolo-pitch-local\
+  \ calibrator (EMA/carry smoothing, roboflow template) \u2014 the Gate 2 before/after\
+  \ baseline."
+sport: soccer
+pitch: roboflow
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
+

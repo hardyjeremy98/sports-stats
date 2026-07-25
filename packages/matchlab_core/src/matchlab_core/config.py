@@ -36,6 +36,10 @@ class PipelineConfig(BaseModel):
     name: str
     description: str = ""
     sport: str = "soccer"  # single hardcoded sport in v1; the seam for later
+    # Pitch coordinate system for calibrate/fuse. "roboflow" (default) is the
+    # non-physical template the yolo-pitch-local model was trained on; "fifa" is
+    # real geometry, used by accurate calibrators. See matchlab_core.pitch.PITCH_SPECS.
+    pitch: str = "roboflow"
     video: VideoConfig = VideoConfig()
     stages: dict[StageKind, StageConfig]
 
