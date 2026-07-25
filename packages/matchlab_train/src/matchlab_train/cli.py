@@ -109,6 +109,25 @@ def main() -> int:
     pl_p.add_argument("--run-dir", required=True, help="Run dir (needs tracklets/ball/teams)")
     pl_p.add_argument("--out", required=True, help="Output labels JSON path")
 
+    ap_p = sub.add_parser(
+        "audit-possessor-labels",
+        help="Profile WEAK possessor labels on GT/oracle inputs (SPO-83; "
+        "label-risk profile, not an accuracy measure)",
+    )
+    ap_p.add_argument(
+        "--root",
+        default="data/soccernet/tracking/test",
+        help="Dir of SNMOT sequence dirs (each with gameinfo.ini)",
+    )
+    ap_p.add_argument("--limit", type=int, default=None, help="Audit at most N sequences")
+    ap_p.add_argument("--out", required=True, help="Output report JSON path")
+    ap_p.add_argument(
+        "--min-ball-coverage",
+        type=float,
+        default=0.5,
+        help="Exclude sequences with GT ball coverage below this from the aggregate",
+    )
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -223,6 +242,23 @@ def main() -> int:
         labels = derive_weak_possessor_labels(args.run_dir, out_path=args.out)
         print(f"wrote {len(labels.frames)} possessor-label frames to {args.out}")
         print(f"WEAK LABELS -- {labels.caveat}")
+        return 0
+
+    if args.command == "audit-possessor-labels":
+        from pathlib import Path
+
+        from matchlab_train.datasets.possessor_audit import audit_soccernet_tracking
+
+        report = audit_soccernet_tracking(
+            args.root, limit=args.limit, min_ball_coverage=args.min_ball_coverage
+        )
+        Path(args.out).write_text(report.model_dump_json(indent=2))
+        excluded = [s.sequence for s in report.sequences if s.excluded]
+        agg = report.aggregate
+        print(f"wrote audit of {len(report.sequences)} sequences to {args.out}")
+        print(f"excluded (ball coverage < {report.min_ball_coverage}): {excluded or 'none'}")
+        print(f"aggregate label coverage: {agg.coverage:.3f} over {agg.total_frames} frames")
+        print(f"NOT AN ACCURACY MEASURE -- {report.caveat}")
         return 0
 
     config = ExperimentConfig.from_yaml(args.config)
