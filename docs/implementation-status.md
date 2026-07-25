@@ -687,6 +687,22 @@ Measured local findings recorded by the repository guidance:
   frozen base run are gone from disk, so these numbers are also currently unreproducible).
   The direction of the finding is unchanged pending that run; its magnitudes and the derived
   bar for SPO-74 are not established.
+- **A soccer-trained embedder substantially outperforms the incumbent (SPO-85, 2026-07-25;
+  GT-tracklet harness, tuning SNMOT-116–123; report
+  [`2026-07-25-spo85-gt-tracklet-embedder-comparison.md`](reports/2026-07-25-spo85-gt-tracklet-embedder-comparison.md)):**
+  on a contamination-free substrate (GT tracks fragmented at natural gaps — tracklet purity
+  1.0 by construction, correct pairs known exactly, no tracker run), **PRTreID beats KPR by
+  +0.102 pooled rank-1 (0.898 vs 0.796), winning 7 of 8 sequences**, and beats both in-repo
+  controls (osnet 0.631, dinov2 0.502) — neither of which beats KPR, so the gain is specific
+  to the soccer-trained model rather than to any different backbone. **The mechanism is on
+  the negatives:** same-player affinity is unchanged (median 0.954 → 0.953) while
+  different-player affinity falls (median 0.790 → 0.756, p90 0.920 → 0.875), shrinking the
+  same-p10/different-p90 overlap from −0.055 to −0.005. Long gaps (>5 s) remain the hard case
+  for both (0.825 vs 0.772). **Not a do-no-harm gate:** GT fragments are easier than real
+  tracklets, so this licenses advancing to a real-substrate held-out gate (blocked on the
+  substrate rebuild), not a claim that the pipeline improved. The harness also carries ~7×
+  the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
+  held-out verdict.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
