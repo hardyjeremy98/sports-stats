@@ -704,9 +704,16 @@ Measured local findings recorded by the repository guidance:
   margin 0.07, floor 0.95, anchorless) PRTreID repairs **25 of 125 available merges (20%) but
   makes 3 wrong ones**, failing per-sequence do-no-harm on SNMOT-117 and SNMOT-123, while KPR
   repairs 3 of 125 with none — a clean sheet that reflects timidity, not safety. Better
-  ranking is not the same property as trustworthy top-1, and the operating point was
-  calibrated against KPR's affinity distribution, so re-deriving margin/floor for PRTreID is
-  the obvious next experiment. **Not a do-no-harm gate either way:** GT fragments are easier
+  ranking is not the same property as trustworthy top-1. **Re-deriving the operating point per
+  arm (pre-registered amendment #1) closed that question: at each arm's own zero-wrong
+  frontier KPR gets 14 correct and PRTreID 13, both of 125, and at matched wrong-merge budgets
+  the two curves interleave with neither dominating.** A +0.102 rank-1 advantage produced no
+  measurable gain on the merge operating curve, because rank-1 is a property of the affinity
+  distribution's body while do-no-harm is set by its extreme tail — which PRTreID left still
+  overlapping (−0.005). **On this evidence the embedder swap is not justified for the merge
+  task**, and the SPO-73 lesson stands with a better embedder: the binding problem is the
+  upper tail, and improving average separability does not fix a tail. **Not a do-no-harm gate
+  either way:** GT fragments are easier
   than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
   on the substrate rebuild), not a claim that the pipeline improved. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73

@@ -27,12 +27,14 @@ construction; correct pairs known exactly. No tracker run.
    teammates learns to separate teammates, not to recognise the same player better.
 4. **The overlap is reduced, not closed.** −0.005 is still negative: the distributions
    still touch. This is a materially better embedder, not a solved problem.
-5. **The retrieval win does not carry through to safe merging.** At the registered operating
-   point PRTreID repairs **25 of 125 available merges but makes 3 wrong ones**, failing
-   do-no-harm on two sequences; KPR repairs 3 of 125 with none. Better ranking did not
-   produce a usable merger, and the operating point was calibrated for KPR's affinity
-   distribution rather than PRTreID's. See the merge-accounting section — it qualifies
-   everything above.
+5. **The retrieval win does not transfer to merging — this is the headline finding, and it
+   overrides the optimistic reading of points 1–3.** Each arm tuned to its own zero-wrong
+   frontier (amendment #1, pre-registered): **KPR 14 correct, PRTreID 13**, both of 125. At
+   matched wrong-merge budgets the two curves interleave with neither dominating. A +0.102
+   rank-1 advantage bought **no measurable gain on the merge operating curve**. Rank-1 is a
+   property of the distribution's body; do-no-harm is set by its extreme tail, and PRTreID
+   moved the body while leaving the overlap still negative (−0.005). **On this evidence the
+   embedder swap is not justified for the merge task.**
 
 ## The substrate
 
@@ -126,6 +128,50 @@ Three things follow, and they matter more than the retrieval table:
    almost certainly want re-deriving for it. That is a pre-registered sweep, not an
    eyeballed adjustment, and it is the obvious next experiment — the current 25/125 with 3
    wrong is a lower bound on what this embedder can do under a rule tuned for it.
+
+## Amendment #1: operating-point sweep — the retrieval win does not transfer to merging
+
+The merge accounting above used thresholds derived against KPR's affinity distribution, so it
+under-rated PRTreID. Pre-registered on the SPO-85 issue before execution: sweep
+`merge_min_margin` × `min_similarity` over 9 × 4 cells for **both** arms on frozen features,
+and select by code (`select()`) under a rule fixed in advance — **maximise correct merges
+subject to zero wrong on every tuning sequence**, ties toward larger margin then larger floor.
+
+Selected points:
+
+| arm | margin | floor | correct | wrong | of 125 |
+|---|---|---|---|---|---|
+| kpr | 0.06 | 0.90 | **14** | 0 | 11.2% |
+| prtreid | 0.10 | 0.95 | **13** | 0 | 10.4% |
+
+**At its own zero-wrong frontier the soccer-trained embedder buys nothing.** 13 versus 14 is a
+tie in any practical sense — and it is *worse*, not better, than the incumbent.
+
+Comparing the full trade-off rather than a single point, at matched wrong-merge budgets
+(best correct achievable within each budget):
+
+| wrong budget | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 9 | 11 | 12 | 15 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| prtreid | 13 | **16** | 16 | 19 | 31 | **38** | **38** | **49** | 49 | **67** | 68 | **87** |
+| kpr | **14** | 14 | **37** | **37** | **37** | 37 | 37 | 37 | **55** | 55 | **72** | 72 |
+
+The curves **interleave** — neither arm dominates, and the crossings are within this grid's
+resolution. The conclusion is not "KPR is better at merging"; it is that **a +0.102 rank-1
+advantage produces no measurable advantage on the merge operating curve at all.**
+
+### Why the two metrics dissociate
+
+Rank-1 asks, per query, whether top-1 is correct — a property of the *body* of the affinity
+distribution. Do-no-harm is set by the single most confident impostor across the whole set: a
+property of the extreme *tail*. PRTreID moved the body substantially (different-player median
+0.790 → 0.756, p90 0.920 → 0.875) while the overlap it needed to close only went from −0.055
+to −0.005 — still negative. It merges more aggressively at every threshold, producing more
+correct *and* more wrong pairs, and its wrong pairs survive to higher margins. By the time the
+margin is raised far enough to eliminate them (0.10 vs KPR's 0.06), the yield has collapsed to
+the incumbent's level.
+
+This is the same lesson SPO-73 recorded, now with a better embedder: **the binding problem is
+the upper tail, and improving average separability does not fix a tail.**
 
 ## Interpretation & caveats
 
