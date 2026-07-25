@@ -129,11 +129,12 @@ def embed_external(
             str(weights.resolve()),
             "--reid-model",
             model,
-            "--no-pose",
             "--device",
             ctx.device,
             "--kpr-batch",
             str(batch),
+            # Flags last: keeps the arg list parseable pairwise.
+            "--no-pose",
         ],
         cwd=root,
         timeout_s=timeout_s,

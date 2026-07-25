@@ -213,3 +213,32 @@ curl -L -o hrnetv2_w32_imagenet_pretrained.pth \
 # torchreid IS the KPR fork. A default install silently breaks the kpr arm.
 VIRTUAL_ENV=.venv uv pip install --no-deps "prtreid @ git+https://github.com/VlSomers/prtreid"
 ```
+
+## Adoption decision (2026-07-25)
+
+**PRTreID is adopted as the re-ID backbone** — Jeremy's call, on the rationale that further
+re-ID work should build on the strongest available representation rather than lock itself to
+a weaker one.
+
+Recorded plainly because the evidence is split: the adoption rests on the **retrieval**
+result (+0.102 rank-1, 7 of 8 sequences), **not** on the merge measurement, which is neutral
+(13 vs 14 at each arm's zero-wrong frontier). This report should not be cited as showing that
+PRTreID improves merging. It does not.
+
+Implementation: `tdlp-full` gains `reid_model: {kpr, prtreid}`. The **tracker still runs KPR
+internally** — the released TDLP head consumes its 6-part `parts_appearance` shape — while
+`frame_features`, the associate layer's input, comes from a second PRTreID pass over the same
+staged frames. `configs/pipeline.tdlp-full-reid{,-oracle}.yaml` set `reid_model: prtreid`;
+the GT-tracklet harness defaults to the same.
+
+Costs, stated rather than buried:
+
+- **A second feature-gen pass per run** (~10 min/sequence at the observed rate). This spends
+  the PRD's "the engine reuses the tracker's own features at zero extra inference cost"
+  property. Deliberate, and reversible by setting `reid_model: kpr`.
+- **A new dependency** in the CAMELTrack venv, installed `--no-deps` because prtreid's own pin
+  would replace the KPR fork of torchreid and break the tracker. That constraint is recorded
+  in `oracle_external._ACQUIRE` and enforced by a loud error if the checkpoint is missing.
+- **The comparison remains confounded**: PRTreID differs from KPR in both training data and
+  embedding structure (1×256 `globl` vs 6×128 parts), so "soccer-trained is better" is not
+  cleanly isolated by this evidence.

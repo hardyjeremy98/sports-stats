@@ -712,8 +712,15 @@ Measured local findings recorded by the repository guidance:
   distribution's body while do-no-harm is set by its extreme tail — which PRTreID left still
   overlapping (−0.005). **On this evidence the embedder swap is not justified for the merge
   task**, and the SPO-73 lesson stands with a better embedder: the binding problem is the
-  upper tail, and improving average separability does not fix a tail. **Not a do-no-harm gate
-  either way:** GT fragments are easier
+  upper tail, and improving average separability does not fix a tail. **Adoption decision
+  (Jeremy, 2026-07-25): PRTreID becomes the re-ID backbone anyway** — `tdlp-full` gains a
+  `reid_model` param so the tracker keeps KPR internally (the released TDLP head consumes its
+  6-part shape) while `frame_features`, the associate layer's input, comes from a second
+  PRTreID pass; the re-ID pipeline configs set it. Adopted **by decision on the retrieval
+  evidence and to build future work on the strongest representation, not by a merge-metric
+  win** — the merge numbers are neutral, and the cost is a second feature-gen pass, spending
+  the PRD's "reuse the tracker's own features at zero extra inference cost" property. **Not a
+  do-no-harm gate either way:** GT fragments are easier
   than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
   on the substrate rebuild), not a claim that the pipeline improved. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73

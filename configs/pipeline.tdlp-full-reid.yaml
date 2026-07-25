@@ -27,6 +27,9 @@ stages:
       device: cuda:0
       timeout_s: 7200.0
       keep_work: false
+      # Backbone for the re-ID feature artifact (Jeremy, 2026-07-25). The
+      # tracker still runs KPR internally; this is the ASSOCIATE layer's input.
+      reid_model: prtreid
   team:
     impl: kit-color
     params:

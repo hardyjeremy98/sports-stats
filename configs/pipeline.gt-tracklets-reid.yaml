@@ -33,8 +33,10 @@ stages:
     params:
       gap_frames: 2
       min_fragment_frames: 1
-      features_backend: in-repo
-      features_model: osnet
+      # Adopted backbone (Jeremy, 2026-07-25). Swap to in-repo/osnet or
+      # external/kpr to reproduce the SPO-85 comparison arms.
+      features_backend: external
+      features_model: prtreid
   team:
     impl: oracle
     params: {}
