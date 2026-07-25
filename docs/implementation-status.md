@@ -722,7 +722,16 @@ Measured local findings recorded by the repository guidance:
   the PRD's "reuse the tracker's own features at zero extra inference cost" property. **Not a
   do-no-harm gate either way:** GT fragments are easier
   than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
-  on the substrate rebuild), not a claim that the pipeline improved. The harness carries ~7×
+  on the substrate rebuild), not a claim that the pipeline improved.
+  **(e) Merge quality is governed by one scalar, not by added machinery (2026-07-26).**
+  On the GT-tracklet substrate, relaxing the mutual-best margin requirement from 0.04 to 0.00
+  moves entity IDF1 0.8502 (no-op) → 0.9536 and identity switches 125 → 41. Against that,
+  three added subsystems produced **no** measurable merge improvement: the PRTreID backbone
+  (13 vs 14 correct at each arm's zero-wrong frontier; curves interleave), k-reciprocal
+  re-ranking (0.9060 vs 0.9177, worse), and a calibrated per-pair logistic model, which
+  reproduces `margin 0.00 / floor 0.80` **exactly** — identical metrics and an identical merge
+  partition on 8/8 sequences. Purity falls 1.0 → 0.9860 across that range, so the scalar is a
+  recall/contamination dial and the open question is where to set it, not what to add. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
   held-out verdict, over 198 person tracks fragmenting into 323 fragments.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
