@@ -1,4 +1,4 @@
-# SPO-85: GT-tracklet re-ID harness + embedder comparison — PRTreID wins the pre-registered decision
+# SPO-85: GT-tracklet re-ID harness + embedder comparison — PRTreID wins on retrieval, ties on merging
 
 **Date:** 2026-07-25 · **Author:** Claude (autonomous session; protocol pre-registered on the
 SPO-85 Linear issue before any arm executed)
@@ -14,9 +14,10 @@ construction; correct pairs known exactly. No tracker run.
 
 1. **PRTreID beats the incumbent KPR by +0.102 pooled rank-1 (0.898 vs 0.796)** — five times
    the pre-registered 0.02 tie band, winning 7 of 8 sequences and tying the eighth. It also
-   beats every control. Per the pre-registered interpretation rule this fires branch 1:
-   **in-domain soccer training is the cause, and SPO-74 proceeds as an incremental finetune
-   from a soccer-trained base rather than from generic-person KPR.**
+   beats every control, firing branch 1 of the pre-registered interpretation rule:
+   in-domain soccer training is the cause, not simply a different backbone.
+   (The rule's *consequence* — "so SPO-74 proceeds as a finetune from a soccer-trained base"
+   — was withdrawn after amendment #1; see point 5. The retrieval finding itself stands.)
 2. **Neither control beats KPR** (osnet 1W/1T/6L, dinov2 0W/3T/5L). The "any different
    backbone would have helped" explanation is refuted — the gain is specific to the one
    soccer-trained model, which is exactly what the controls existed to discriminate.
