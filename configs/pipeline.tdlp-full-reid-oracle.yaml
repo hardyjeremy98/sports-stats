@@ -40,13 +40,15 @@ stages:
   associate:
     impl: reid-engine
     params:
-      # >1.0 disables similarity-only merging: anchor-driven merges bypass this
-      # gate by design, so the engine merges on anchor evidence alone. SPO-59
-      # tuning measurement: similarity merging at its calibrated best (0.95)
-      # bought +0.004 entity IDF1 over anchor-only but failed do-no-harm on
-      # entity purity; anchor-only matched no-op purity exactly. Set 0.95 (the
-      # calibrated threshold) to re-enable similarity merging.
-      min_similarity: 1.01
+      # Permissive merging, adopted 2026-07-26 (SPO-85): mutual-best at zero
+      # margin, floor 0.80. Measured on GT fragments: entity IDF1 0.9536 vs
+      # 0.8502 no-op, identity switches 125 -> 41, entity purity 0.986.
+      # Deliberately admits ~15% wrong merges so downstream work can see them;
+      # this FAILS the zero-tolerance do-no-harm gate by design. Raise
+      # merge_min_margin to 0.04 for the conservative end of the curve.
+      min_similarity: 0.80
+      merge_decision_rule: mutual-best
+      merge_min_margin: 0.0
       overlap_tolerance_frames: 2
       max_prototypes: 4
       view_threshold: 0.7

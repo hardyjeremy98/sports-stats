@@ -61,6 +61,7 @@ def _fake_external_root(tmp_path: Path) -> Path:
         "TDLP/history/SportsMOT/tdlp.yaml",
         "CAMELTrack/pretrained_models/reid/"
         "kpr_dancetrack_sportsmot_posetrack21_occludedduke_market_split0.pth.tar",
+        "CAMELTrack/pretrained_models/reid/prtreid-soccernet-baseline.pth.tar",
     ]:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +136,7 @@ def test_stage_exports_frame_features(tmp_path, monkeypatch, stride):
         for k in range(4)
     ]
 
-    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu"})
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "reid_model": "kpr"})
     tracklets = stage.track(ctx, detections)
 
     assert len(tracklets) == 1
@@ -168,7 +169,7 @@ def test_stage_exports_features_with_keep_work(tmp_path, monkeypatch):
         )
         for k in range(4)
     ]
-    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "keep_work": True})
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "keep_work": True, "reid_model": "kpr"})
     stage.track(ctx, detections)
     assert ctx.store.path(ArtifactName.FRAME_FEATURES).exists()
     assert (ctx.store.run_dir / "_tdlp_work").exists()
@@ -219,7 +220,10 @@ def test_reid_model_prtreid_sources_frame_features_from_a_second_pass(tmp_path, 
     assert sum("feature generation (RTMPose + KPR)" in c for c in calls) == 1
 
 
-def test_reid_model_defaults_to_kpr_and_runs_one_feature_pass(tmp_path, monkeypatch):
+def test_reid_model_defaults_to_prtreid_and_runs_the_second_pass(tmp_path, monkeypatch):
+    """PRTreID is the adopted backbone (2026-07-26), so the default path must
+    source frame_features from the second pass. The fake emits 1x256 for
+    prtreid and 6x128 for kpr, so the artifact's shape identifies the source."""
     calls: list[str] = []
     monkeypatch.setattr(bridge, "run_external", _recorder(calls))
     root = _fake_external_root(tmp_path)
@@ -227,6 +231,22 @@ def test_reid_model_defaults_to_kpr_and_runs_one_feature_pass(tmp_path, monkeypa
 
     ctx = _make_ctx(tmp_path, stride=1)
     stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu"})
+    stage.track(ctx, _dets())
+
+    feats = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
+    assert feats.embeddings.shape[1:] == (1, 256)
+    assert feats.meta["reid_model"] == "prtreid"
+    assert sum("re-ID feature generation" in c for c in calls) == 1
+
+
+def test_reid_model_kpr_opts_out_of_the_second_pass(tmp_path, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "run_external", _recorder(calls))
+    root = _fake_external_root(tmp_path)
+    monkeypatch.setattr(tdlp_full_stage, "_default_external_root", lambda: root)
+
+    ctx = _make_ctx(tmp_path, stride=1)
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "reid_model": "kpr"})
     stage.track(ctx, _dets())
 
     feats = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))

@@ -58,7 +58,10 @@ class Params(BaseModel):
     # pass over the same staged frames, spending the PRD's "reuse the tracker's
     # own features at zero extra inference cost" property — deliberately, see
     # docs/reports/2026-07-25-spo85-gt-tracklet-embedder-comparison.md.
-    reid_model: str = "kpr"
+    # Default since 2026-07-26: PRTreID is the adopted re-ID backbone. Set
+    # "kpr" to skip the second feature-gen pass when a run needs tracking only
+    # and will never be associated.
+    reid_model: str = "prtreid"
     prtreid_weights: str = (
         "CAMELTrack/pretrained_models/reid/prtreid-soccernet-baseline.pth.tar"
     )
