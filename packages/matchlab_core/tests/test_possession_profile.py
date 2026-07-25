@@ -7,8 +7,14 @@ hand-built so each indicator's expected value is known by construction.
 
 from __future__ import annotations
 
+import json
+
 import pytest
-from matchlab_core.possession_profile import aggregate_profiles, profile_possessor_labels
+from matchlab_core.possession_profile import (
+    aggregate_profiles,
+    profile_possessor_labels,
+    profile_run_dir,
+)
 from matchlab_core.schemas import (
     BallObservation,
     Box,
@@ -290,3 +296,31 @@ def test_aggregate_of_nothing_is_empty_not_a_crash():
     agg = aggregate_profiles([])
     assert agg.total_frames == 0
     assert agg.coverage == 0.0
+
+
+def test_profile_run_dir_reads_a_run(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "possession_timeline.json").write_text(
+        json.dumps([_row(0, 1).model_dump(mode="json"), _row(1, 1).model_dump(mode="json")])
+    )
+    (run / "tracklets.json").write_text(
+        json.dumps([_tracklet(1, {0: (0, 0, 10, 20), 1: (0, 0, 10, 20)}).model_dump(mode="json")])
+    )
+    (run / "ball.jsonl").write_text(
+        "\n".join(json.dumps(_ball_obs(f, 5, 10).model_dump(mode="json")) for f in (0, 1))
+    )
+    (run / "manifest.json").write_text(json.dumps({"run_id": "r", "frame_count": 10, "fps": 25.0}))
+
+    p = profile_run_dir(run)
+    assert p.total_frames == 10
+    assert p.asserted_frames == 2
+    assert p.abstention.no_ball_observation == 8
+
+
+def test_profile_run_dir_without_a_timeline_raises(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "manifest.json").write_text(json.dumps({"run_id": "r", "frame_count": 5}))
+    with pytest.raises(FileNotFoundError, match="possession_timeline"):
+        profile_run_dir(run)

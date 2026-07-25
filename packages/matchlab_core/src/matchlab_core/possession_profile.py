@@ -23,9 +23,14 @@ without that caveat.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from pydantic import BaseModel
 
+from matchlab_core.artifacts import ArtifactStore
 from matchlab_core.schemas import BallObservation, PossessorFrame, Team, Tracklet
+from matchlab_core.schemas.run import ArtifactName
 from matchlab_core.stages.possession.heuristic_image import Params
 from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
@@ -276,3 +281,30 @@ def aggregate_profiles(profiles: list[PossessorLabelProfile]) -> PossessorLabelP
         ),
         implausible_team_flips=sum(p.implausible_team_flips for p in profiles),
     )
+
+
+def profile_run_dir(run_dir: str | Path, **kwargs) -> PossessorLabelProfile:
+    """Profile a completed run's possessor timeline from its artifacts.
+
+    Frame count and fps come from the manifest -- the timeline alone cannot
+    distinguish "ball not observed" from "clip ended".
+    """
+    store = ArtifactStore(run_dir)
+    if not store.exists(ArtifactName.POSSESSION_TIMELINE):
+        raise FileNotFoundError(f"no possession_timeline.json in {run_dir}")
+
+    timeline = store.read_json_list(ArtifactName.POSSESSION_TIMELINE, PossessorFrame)
+    tracklets = (
+        store.read_json_list(ArtifactName.TRACKLETS, Tracklet)
+        if store.exists(ArtifactName.TRACKLETS)
+        else []
+    )
+    ball = (
+        list(store.read_jsonl(ArtifactName.BALL, BallObservation))
+        if store.exists(ArtifactName.BALL)
+        else []
+    )
+    manifest = json.loads((Path(run_dir) / "manifest.json").read_text())
+    kwargs.setdefault("total_frames", int(manifest.get("frame_count") or len(timeline)))
+    kwargs.setdefault("fps", float(manifest.get("fps") or 25.0))
+    return profile_possessor_labels(timeline, tracklets, ball, Params(), **kwargs)
