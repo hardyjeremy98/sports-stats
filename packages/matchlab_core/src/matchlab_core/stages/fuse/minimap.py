@@ -23,6 +23,7 @@ from __future__ import annotations
 import numpy as np
 from pydantic import BaseModel
 
+from matchlab_core.gamestate.trajectory import SmoothedPoint, TrackPoint, smooth_track
 from matchlab_core.interfaces import MinimapFuser, StageContext
 from matchlab_core.registry import register
 from matchlab_core.schemas import (
@@ -39,9 +40,18 @@ from matchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
-    smoothing_alpha: float = 0.6      # EMA weight of the previous position
+    smoothing_alpha: float = 0.6      # EMA weight of the previous position (legacy path only)
     clamp_margin_cm: float = 300.0    # allow slight out-of-bounds before clamping
     min_calibration_confidence: float = 0.05
+    # Offline pitch-space trajectory smoothing (status-bearing calibration only).
+    # This is the SECOND half of the "one coordinated smoothing story": the
+    # calibration smoother makes the camera coherent, this makes the player
+    # coherent. Set `track_smoothing: false` to get raw projections back.
+    track_smoothing: bool = True
+    track_window: int = 21
+    track_max_gap_frames: int = 25
+    track_max_speed_mps: float = 12.0
+    track_reject_threshold_cm: float = 120.0
 
 
 @register(StageKind.FUSE, "minimap")
@@ -109,7 +119,12 @@ class MinimapFusion(MinimapFuser):
                 )
                 continue
 
-            # Status-bearing calibration: already globally smoothed upstream.
+            # Status-bearing calibration with trajectory smoothing: positions are
+            # produced in a second pass below, over whole-clip trajectories.
+            if p.track_smoothing:
+                continue
+
+            # Status-bearing calibration, smoothing disabled: pure projection.
             if calib.status == "absent" or calib.homography is None:
                 # Explicit gap: record the processed frame with no players so the
                 # 2D replay drops the dots instead of holding the previous frame.
@@ -138,7 +153,131 @@ class MinimapFusion(MinimapFuser):
                     calibration_confidence=calib.confidence,
                 )
             )
+
+        # Only when this run actually has status-bearing calibration; a legacy
+        # (EMA/carry) run keeps its historical behaviour untouched.
+        has_status = any(c.status is not None for c in calibration)
+        if p.track_smoothing and has_status:
+            smoothed_rows = self._fuse_smoothed_tracks(
+                ctx, per_frame, ball_by_frame, calib_by_frame, pitch
+            )
+            out.extend(smoothed_rows)
+            out.sort(key=lambda f: f.frame_idx)
         return out
+
+    def _fuse_smoothed_tracks(
+        self,
+        ctx: StageContext,
+        per_frame: dict[int, list[tuple[PlayerEntity, tuple[float, float], float]]],
+        ball_by_frame: dict[int, BallObservation],
+        calib_by_frame: dict[int, FrameCalibration],
+        pitch,
+    ) -> list[MinimapFrame]:
+        """Second pass for status-bearing calibration: project every entity, smooth
+        each trajectory over the whole clip, then emit frames from the result.
+
+        Offline by design — the same philosophy as the calibration smoother and
+        offline identity association. Because the whole clip is in hand, a dot can
+        be carried through a brief tracking dropout using observations from BOTH
+        sides, and a physically impossible jump can be rejected using the frames
+        that follow it, not just those before.
+        """
+        p = self.params
+        video = getattr(ctx, "video", None)
+        fps = float(getattr(video, "fps", None) or 25.0)
+
+        # Entity -> observed pitch positions, plus the per-frame detection
+        # confidence we need to reconstruct MinimapPlayer.confidence.
+        obs: dict[int, list[TrackPoint]] = {}
+        det_conf: dict[tuple[int, int], float] = {}
+        team_of: dict[int, Team] = {}
+        for frame_idx, entries in per_frame.items():
+            calib = calib_by_frame.get(frame_idx)
+            if calib is None or calib.status == "absent" or calib.homography is None:
+                continue
+            h = np.array(calib.homography)
+            seen: set[int] = set()
+            for ent, (ax, ay), dconf in entries:
+                if ent.team == Team.REFEREE or ent.player_id in seen:
+                    continue
+                seen.add(ent.player_id)
+                x, y = _project(h, ax, ay)
+                if not _plausible(x, y, pitch, p.clamp_margin_cm):
+                    continue  # keep garbage out of the trajectory fit
+                obs.setdefault(ent.player_id, []).append(TrackPoint(frame_idx, x, y))
+                det_conf[(ent.player_id, frame_idx)] = dconf
+                team_of[ent.player_id] = ent.team
+
+        # player_id -> frame_idx -> smoothed position
+        smoothed: dict[int, dict[int, SmoothedPoint]] = {}
+        for pid, points in obs.items():
+            track = smooth_track(
+                points,
+                fps=fps,
+                max_gap_frames=p.track_max_gap_frames,
+                max_speed_mps=p.track_max_speed_mps,
+                window=p.track_window,
+                reject_threshold_cm=p.track_reject_threshold_cm,
+            )
+            smoothed[pid] = {sp.frame_idx: sp for sp in track}
+
+        rows: list[MinimapFrame] = []
+        for frame_idx in sorted(per_frame.keys() | ball_by_frame.keys()):
+            calib = calib_by_frame.get(frame_idx)
+            if calib is None or calib.status is None:
+                continue  # legacy rows were handled in the first pass
+            if calib.status == "absent" or calib.homography is None:
+                # Explicit gap: the frame is recorded with no players so the replay
+                # drops the dots rather than freezing them on the last good frame.
+                rows.append(
+                    MinimapFrame(
+                        frame_idx=frame_idx,
+                        t=calib.t,
+                        players=[],
+                        ball=None,
+                        calibration_confidence=calib.confidence,
+                    )
+                )
+                continue
+
+            mps: list[MinimapPlayer] = []
+            for pid, by_frame in smoothed.items():
+                sp = by_frame.get(frame_idx)
+                if sp is None:
+                    continue
+                conf = det_conf.get((pid, frame_idx))
+                if conf is None:
+                    # Bridged/reconstructed point: no detection of its own, so
+                    # inherit the track's typical detection confidence.
+                    near = [det_conf[(pid, f)] for f in (frame_idx - 1, frame_idx + 1)
+                            if (pid, f) in det_conf]
+                    conf = float(np.mean(near)) if near else 0.5
+                mps.append(
+                    MinimapPlayer(
+                        player_id=pid,
+                        x=round(float(np.clip(sp.x, 0, pitch.length)), 1),
+                        y=round(float(np.clip(sp.y, 0, pitch.width)), 1),
+                        team=team_of[pid],
+                        confidence=round(conf * calib.confidence, 4),
+                    )
+                )
+
+            mb = self._project_ball(
+                ball_by_frame.get(frame_idx),
+                np.array(calib.homography),
+                pitch,
+                calib.confidence,
+            )
+            rows.append(
+                MinimapFrame(
+                    frame_idx=frame_idx,
+                    t=calib.t,
+                    players=sorted(mps, key=lambda m: m.player_id),
+                    ball=mb,
+                    calibration_confidence=calib.confidence,
+                )
+            )
+        return rows
 
     def _project_players(
         self,

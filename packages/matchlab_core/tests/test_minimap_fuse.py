@@ -96,7 +96,13 @@ def test_legacy_status_none_pins_ema_and_confidence_blankout():
 
 
 def test_status_bearing_projects_directly_no_ema_lag():
-    tr = _one_player_tracklet({0: (100.0, 200.0), 1: (110.0, 200.0), 2: (120.0, 200.0)})
+    # 2 px/frame at scale 10 -> 20 cm/frame -> 5 m/s: a jogging player. (This was
+    # 10 px/frame, i.e. 25 m/s — twice a world-record sprint. The pitch-space
+    # trajectory smoother rejects superhuman motion, so the fixture now moves at a
+    # speed a player can actually reach. The assertions below are unchanged in
+    # kind: a local quadratic reproduces three collinear points exactly, so pure
+    # projection and zero lag still hold.)
+    tr = _one_player_tracklet({0: (100.0, 200.0), 1: (102.0, 200.0), 2: (104.0, 200.0)})
     calibration = [
         _calib(0, status="fresh"),
         _calib(1, status="smoothed"),
@@ -108,11 +114,11 @@ def test_status_bearing_projects_directly_no_ema_lag():
     xs = [f.players[0].x for f in out]
     # Pure projection of the (already-smoothed) H — no second EMA. Equals
     # direct projection: 10 * anchor_x.
-    assert xs == [1000.0, 1100.0, 1200.0]
-    # Frame-to-frame step is bounded and matches the true motion (100 cm), i.e.
+    assert xs == [1000.0, 1020.0, 1040.0]
+    # Frame-to-frame step is bounded and matches the true motion (20 cm), i.e.
     # no EMA lag would have compressed the first steps.
     steps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-    assert steps == [100.0, 100.0]
+    assert steps == [20.0, 20.0]
 
 
 # --- Test 2: interpolated status projects players even below the legacy gate ---------
@@ -154,7 +160,8 @@ def test_absent_status_yields_explicit_empty_row():
 
 
 def test_transition_continuity_no_jump_beyond_true_motion():
-    tr = _one_player_tracklet({0: (100.0, 200.0), 1: (110.0, 200.0), 2: (120.0, 200.0)})
+    # 2 px/frame -> 5 m/s (see the note on the no-lag test above).
+    tr = _one_player_tracklet({0: (100.0, 200.0), 1: (102.0, 200.0), 2: (104.0, 200.0)})
     calibration = [
         _calib(0, status="fresh"),
         _calib(1, status="interpolated"),
@@ -165,7 +172,7 @@ def test_transition_continuity_no_jump_beyond_true_motion():
 
     xs = [f.players[0].x for f in out]
     steps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-    true_motion = 100.0  # 10px * scale 10
+    true_motion = 20.0  # 2px * scale 10
     # No status transition introduces a discontinuity beyond the true per-frame
     # motion (pure projection of a continuous H).
     assert all(abs(s - true_motion) < 1e-6 for s in steps)
