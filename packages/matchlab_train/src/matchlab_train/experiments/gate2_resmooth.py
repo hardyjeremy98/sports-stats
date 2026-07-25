@@ -39,6 +39,10 @@ class Params(BaseModel):
     gt_dir: str = "data/videos/soccernet"
     report_path: str = "data/reports/gate2-gamestate/pnlcalib_arm.json"
     smoother_label: str = "v3 (median aggregation, window 15)"
+    # Writing eval.json is NOT enough: the dashboard, diff view and benchmark
+    # matrix all read `runs.metrics` in the DB, so leaving it alone shows stale
+    # pre-resmooth numbers next to freshly-rewritten artifacts.
+    refresh_db_metrics: bool = True
     # Windowed metric, matching the SPO-84 diagnosis.
     window_s: float = 0.5
     speed_threshold_mps: float = 12.0
@@ -136,6 +140,29 @@ def _windowed_speed_rate(
     }
 
 
+def _refresh_db_metrics(run_id: str, eval_result: dict) -> None:
+    """Fold headline metrics into ``runs.metrics``, mirroring what the worker and
+    ``POST /api/runs/{id}/evaluate`` do. Imported lazily: train may reach into the
+    server for DB access, never the reverse. A missing DB or unknown run is not an
+    error — the re-score itself already succeeded and the artifacts are correct."""
+    try:
+        from matchlab_server.db import session
+        from matchlab_server.evaluation import merged_metrics
+        from matchlab_server.models import Run
+    except ImportError:
+        return
+
+    db = session()
+    try:
+        run = db.get(Run, run_id)
+        if run is None:
+            return
+        run.metrics = merged_metrics(run, eval_result)
+        db.commit()
+    finally:
+        db.close()
+
+
 @register("gate2-resmooth")
 class Gate2ResmoothExperiment(Experiment):
     task_name = "gate2-resmooth"
@@ -169,6 +196,8 @@ class Gate2ResmoothExperiment(Experiment):
                 eval_result = evaluate_run(run_dir, gt)
                 (run_dir / "eval.json").write_text(json.dumps(eval_result))
                 entry.update(eval_result.get("gamestate") or {})
+                if p.refresh_db_metrics:
+                    _refresh_db_metrics(run_dir.name, eval_result)
 
             entry.update(_windowed_speed_rate(gt, rows, fps, p.window_s, p.speed_threshold_mps))
             per_sequence[sequence] = entry
