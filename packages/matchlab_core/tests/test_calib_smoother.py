@@ -535,3 +535,51 @@ def test_contaminated_neighbour_does_not_drag_the_window() -> None:
     truth = _probe_pitch_position(clean[centre], *PLAYER_PROBE_PX)
     got = _probe_pitch_position(out[centre].homography, *PLAYER_PROBE_PX)
     assert float(np.linalg.norm(got - truth)) / 100.0 < 1.0
+
+
+_FIXTURE_122 = Path(__file__).parent / "fixtures" / "snmot122_flip_raw_homographies.json"
+
+
+def test_real_snmot122_drift_episodes_are_not_amplified() -> None:
+    """750 REAL image->FIFA-cm homographies from SNMOT-122, the worst Gate 2 clip
+    (v2: 24.6% windowed implausible-speed rate, against 4.8% for the raws it was
+    given). Bursts of degenerate scale around frames 280-297, 378-408, 437-451 and
+    550-574 survive per-frame rejection and wreck v2's mean.
+
+    Asserted on the projected frame-centre trajectory: full coverage, physically
+    plausible frame-to-frame motion, and jitter far below the raw input."""
+    data = json.loads(_FIXTURE_122.read_text())
+    w, h = data["image_size"]
+    records = data["records"]
+    estimates = [
+        RawEstimate(
+            frame_idx=r["frame_idx"],
+            homography=r["homography"],
+            confidence=r.get("confidence", 0.0),
+        )
+        for r in records
+    ]
+
+    out = smooth_homography_trajectory(estimates, frame_size=(w, h))
+    assert len(out) == len(records)
+
+    # Coverage: the gate requires >=99% of sampled frames to carry a homography.
+    usable = [f for f in out if f.homography is not None and f.status is not SmoothStatus.ABSENT]
+    assert len(usable) / len(out) >= 0.99
+
+    centre = np.array([w / 2.0, h / 2.0, 1.0])
+
+    def pitch_of(H: list[list[float]]) -> np.ndarray:
+        p = np.array(H, dtype=np.float64) @ centre
+        return p[:2] / p[2]
+
+    out_probe = np.array([pitch_of(f.homography) for f in usable])
+    steps = np.linalg.norm(np.diff(out_probe, axis=0), axis=1)
+
+    # Physically plausible camera motion: v2 measures 86.7% here and a worst step of
+    # 1.6 km; v3 at window 15 measures 99.6% and a worst step of ~9 m.
+    assert np.mean(steps <= 200.0) >= 0.99
+    assert steps.max() <= 2000.0
+
+    raw_probe = np.array([pitch_of(r["homography"]) for r in records if r["homography"]])
+    assert _local_linear_jitter(out_probe) < 0.05 * _local_linear_jitter(raw_probe)

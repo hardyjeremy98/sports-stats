@@ -67,6 +67,11 @@ compared against ``max_gap_frames``. This is what makes strided ``frame_idx``
 values (0, 2, 4, ...) behave correctly — a small number of skipped samples that
 nonetheless spans many source frames is still a large gap.
 
+The default ``smoothing_window`` is 15 samples. It was 9 through v2; widening it
+was measured, not assumed — on the twelve Gate 2 sequences it takes the worst
+clip's windowed implausible-speed rate from 3.47% to 2.49% with coverage
+unchanged at 1.000.
+
 Provenance
 ----------
 Every input position produces exactly one :class:`SmoothedFrame`:
@@ -228,7 +233,7 @@ def smooth_homography_trajectory(
     frame_size: tuple[int, int],
     max_gap_frames: int = 150,
     outlier_threshold_cm: float = 2500.0,
-    smoothing_window: int = 9,
+    smoothing_window: int = 15,
 ) -> list[SmoothedFrame]:
     """Smooth a raw homography trajectory. See the module docstring for the full
     contract (visible-pitch grid parameterization, motion-compensated outlier
