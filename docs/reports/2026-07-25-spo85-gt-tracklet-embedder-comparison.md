@@ -307,3 +307,65 @@ mostly noise. The technique is not wrong; the substrate is too small for it.
 
 **Recorded as a negative result** so it is not retried. It would become worth revisiting on
 full-match footage, where fragment counts are an order of magnitude larger.
+
+## Amendment #3: calibrated pair model — large gain, but it breaches the registered purity bar
+
+Pre-registered before execution, including the cross-validation protocol. Logistic regression
+over per-pair features (affinity, margin, mutual-best, gap, crop height, fragment length,
+candidate count, part visibility), replacing the global `(floor, margin)` threshold with
+`P(same player)`.
+
+**Every number below is out-of-fold**: leave-one-sequence-out, each sequence scored by a model
+fitted on the other seven. 1591 candidate pairs, 153 positives (9.6%).
+
+| arm | entity IDF1 | entity HOTA | purity (worst seq) | IDSW | correct / wrong |
+|---|---|---|---|---|---|
+| baseline plain affinity 0.04/0.80 | 0.9177 | 0.9415 | 0.9936 (0.9695) | 77 | 48 / 8 |
+| **calibrated, p\* = 0.5** | **0.9542** | **0.9652** | 0.9860 (0.9653) | **39** | 89 / 15 |
+| calibrated, p\* = 0.8 | 0.9512 | 0.9642 | 0.9894 (0.9663) | 41 | 87 / 14 |
+| calibrated, p\* = 0.9 | 0.9437 | 0.9597 | 0.9894 (0.9663) | 44 | 84 / 14 |
+
+**By the pre-registered selection rule the model is NOT selected: no threshold reaches mean
+entity purity ≥ 0.99.** The rule was fixed in advance and it returns "none eligible"; the bar
+is not being moved after the fact.
+
+What the numbers show underneath that verdict: the calibrated model nearly doubles correct
+merges (48 → 89), lifts entity IDF1 by **+0.037** over the adopted baseline and **+0.104** over
+no-op, and halves identity switches again (77 → 39, from 125 at no-op). It costs 0.8% mean
+purity against the baseline's 0.6%.
+
+**No overfitting.** In-fold best 0.9536 versus out-of-fold best 0.9542 — a gap of −0.0006, i.e.
+none. The model generalises across sequences, which is what the LOSO protocol was there to
+establish and the reason this can be reported as a real effect rather than a fit.
+
+### What the model learned
+
+Standardised coefficients, largest first:
+
+| feature | weight | reading |
+|---|---|---|
+| affinity | +3.278 | still dominant — appearance is the signal |
+| margin | +0.627 | runner-up distance genuinely adds information |
+| min_fragment_frames | −0.523 | **longer fragments are *less* likely to pair** |
+| candidate_count | +0.455 | more competitors correlates with a true pair |
+| gap_seconds | −0.224 | longer gaps less likely, as expected |
+| mutual_best | +0.066 | nearly redundant once margin is present |
+| min_crop_height, min_part_visibility | ≈0 | no independent contribution |
+
+Two of these are worth flagging rather than glossing. `min_fragment_frames` and
+`candidate_count` carry weight in directions that look like **substrate artefacts, not physics**:
+a long fragment is one the tracker held through the whole clip, so it has no partner to find,
+and crowded frames produce both more candidates and more true re-entries. Both are properties
+of how this GT substrate was constructed. They may not transfer to real tracklets, and a model
+leaning on them could degrade rather than generalise.
+
+Registered expectation #2 — that gains would come from admitting short-gap merges — is only
+partly borne out: `gap_seconds` earns a modest weight, well below margin.
+
+### Standing
+
+The trade on offer (0.4 points more purity cost for 3.4 points more IDF1, relative to the
+adopted baseline) is the same shape as the one already accepted on 2026-07-26 (0.6% purity for
+6.8 IDF1). Whether to take it is a decision, not a measurement, and it is not mine to make by
+relaxing a bar I registered hours earlier. Recorded for that decision, with the caveat above
+about the two suspicious features.
