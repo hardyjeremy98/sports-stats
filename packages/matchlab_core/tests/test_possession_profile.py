@@ -67,3 +67,31 @@ def test_total_frames_below_row_count_is_a_programming_error():
 def test_zero_total_frames_does_not_divide_by_zero():
     p = profile_possessor_labels([], [], [], Params(), total_frames=0)
     assert p.coverage == 0.0
+
+
+def test_contested_curve_counts_asserted_rows_below_each_tau():
+    timeline = [
+        _row(0, 1, margin=1.0),
+        _row(1, 1, margin=6.0),
+        _row(2, 1, margin=30.0),
+        _row(3, None, margin=0.5),  # abstained -- must not enter the curve
+    ]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=4, tau_grid_px=(0.0, 2.0, 10.0, 40.0)
+    )
+    assert [pt.threshold for pt in p.contested_curve] == [0.0, 2.0, 10.0, 40.0]
+    assert [pt.count for pt in p.contested_curve] == [0, 1, 2, 3]
+    assert p.contested_curve[-1].fraction == pytest.approx(1.0)
+
+
+def test_contested_curve_is_monotone_non_decreasing():
+    timeline = [_row(i, 1, margin=float(i)) for i in range(20)]
+    p = profile_possessor_labels(timeline, [], [], Params(), total_frames=20)
+    counts = [pt.count for pt in p.contested_curve]
+    assert counts == sorted(counts)
+
+
+def test_contested_curve_with_no_asserted_rows_is_all_zero():
+    timeline = [_row(0, None, margin=0.0)]
+    p = profile_possessor_labels(timeline, [], [], Params(), total_frames=1)
+    assert all(pt.count == 0 and pt.fraction == 0.0 for pt in p.contested_curve)

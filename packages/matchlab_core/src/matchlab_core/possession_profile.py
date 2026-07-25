@@ -104,9 +104,19 @@ def profile_possessor_labels(
         contested_tie=sum(1 for r in abstained if r.margin < params.min_margin_px),
     )
 
+    contested_curve = [
+        CurvePoint(
+            threshold=tau,
+            count=(c := sum(1 for r in asserted if r.margin < tau)),
+            fraction=_fraction(c, len(asserted)),
+        )
+        for tau in tau_grid_px
+    ]
+
     return PossessorLabelProfile(
         total_frames=total_frames,
         asserted_frames=len(asserted),
         coverage=_fraction(len(asserted), total_frames),
         abstention=abstention,
+        contested_curve=contested_curve,
     )
