@@ -520,7 +520,38 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   as a visual one, not a calibration or fusion problem**: measured cause split is 20.8%
   tracker gaps vs 0.3% fusion drops.
 
-  Known residual (calibration): SNMOT-122 sits at 2.49% windowed, above the PRD's provisional 1% threshold.
+- Blackout bridging (SPO-84): when pitch registration fails outright for a stretch (SNMOT-122
+  loses 73 consecutive frames, ~3 s), the gap is no longer filled by a straight line — which
+  assumes constant camera velocity, an assumption that clip violates by accelerating 4.5x and
+  reversing direction mid-blackout. Camera motion is recovered from the imagery instead
+  (`matchlab_core/calib/gapmotion.py`, new `camera_motion.jsonl` artifact).
+
+  Two recovery models, failing in opposite ways: chained frame-to-frame motion is smooth
+  (median rendered accel 8.8 cm) but drifts (6.1 m over 73 frames); direct ORB registration
+  against the anchors is unbiased (0.5-1.6 m) but 9.4x jitterier because each frame is
+  registered independently. Combining them — chain for shape, a low-order fit to their
+  difference for drift — gave 8x the accuracy at unchanged smoothness on SNMOT-122 (5.25 m ->
+  0.64 m). Drift correction is NOT uniformly safe (it loses on SNMOT-121, whose gaps are
+  longest and footage most repetitive), so neither model is hardcoded: the smoother is given
+  both and picks **per gap** by self-consistency — each candidate yields two independent
+  estimates carried from either anchor, and the one whose estimates agree wins. That can never
+  be worse than the best single candidate; when none is self-consistent the fill reverts to a
+  straight line.
+
+  Gate 2 windowed implausible-speed, straight-line -> selecting build: SNMOT-122 2.49% ->
+  1.19%, SNMOT-121 0.33% -> 0.19%, dirty max 2.49% -> 1.36%, dirty mean 0.88% -> 0.62%,
+  coverage 1.000, nothing regressed.
+
+  **The gate cannot see most of this improvement**, and that is a finding in its own right: a
+  smoothly-wrong calibration shifts every player together, leaving their relative motion
+  unchanged, so an 8x geometric improvement moved the windowed metric by 0.01pp. Gate 2 is
+  sensitive to the error's time-derivative, not its magnitude. Calibration ACCURACY is
+  currently tracked only by anchor self-consistency (an ad-hoc measure), not by any run metric
+  — worth closing before accuracy regressions can be caught automatically.
+
+  Known residual (calibration): SNMOT-120 is now the worst clip at 1.36% windowed, driven by a
+  ~150-frame stretch (frames 150-299) where the raw estimates are broken rather than missing;
+  no smoother fixes that. SNMOT-122 sits at 1.19%, above the PRD's provisional 1% threshold.
   Its raw (unsmoothed) rate is 4.77%, so v3 is better than not smoothing; the residual reads
   as estimator error on a hard clip, not a smoother defect. Camera-parameter-space smoothing
   was evaluated as a design option and **not implemented** — the drift was located entirely in
