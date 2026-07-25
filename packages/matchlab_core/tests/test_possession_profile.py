@@ -165,6 +165,40 @@ def test_depth_concordance_when_candidates_are_similar_height():
     assert [pt.count for pt in p.depth_discordance] == [0, 0]
 
 
+def test_distant_runner_up_is_not_a_rival_and_not_depth_evaluable():
+    """A candidate outside possession_radius_px could never be the possessor, so
+    it is not a false-possession alternative. Without this gate the indicator
+    fires on any frame where an unrelated player stands nearer the camera --
+    verified against SNMOT-140 frames 243-250, where the possessor was correct
+    and the "runner-up" was 170-184 px from the ball.
+    """
+    tracklets = [
+        _tracklet(1, {0: (0, 0, 10, 20)}),          # possessor, ball inside
+        _tracklet(2, {0: (400, 0, 460, 160)}),      # tall, but far from the ball
+    ]
+    ball = [_ball_obs(0, 5, 10)]
+    p = profile_possessor_labels(
+        [_row(0, 1)], tracklets, ball, Params(possession_radius_px=60.0), total_frames=1,
+        depth_ratio_grid=(1.2,),
+    )
+    assert p.depth_evaluable_frames == 0
+    assert p.depth_discordance[0].count == 0
+
+
+def test_nearby_runner_up_is_a_rival_and_is_depth_evaluable():
+    tracklets = [
+        _tracklet(1, {0: (0, 0, 10, 20)}),          # possessor, ball inside
+        _tracklet(2, {0: (30, 0, 90, 160)}),        # tall AND within the radius
+    ]
+    ball = [_ball_obs(0, 5, 10)]
+    p = profile_possessor_labels(
+        [_row(0, 1)], tracklets, ball, Params(possession_radius_px=60.0), total_frames=1,
+        depth_ratio_grid=(1.2,),
+    )
+    assert p.depth_evaluable_frames == 1
+    assert p.depth_discordance[0].count == 1
+
+
 def test_single_candidate_frames_are_not_depth_evaluable():
     tracklets = [_tracklet(1, {0: (0, 0, 10, 20)})]
     ball = [_ball_obs(0, 5, 10)]

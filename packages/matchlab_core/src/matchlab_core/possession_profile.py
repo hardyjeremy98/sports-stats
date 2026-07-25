@@ -16,9 +16,12 @@ built.
 The depth-discordance indicator is a PROXY for the "ball in front of a distant
 player" false-possession mode (Peral et al., VISAPP 2025). Bounding-box height
 is the only depth cue available without calibration, so the proxy also fires on
-two players at genuinely the same depth whose boxes differ in height -- one
-crouching, one occluded, one truncated at the frame edge. Never quote the rate
-without that caveat.
+two players at genuinely the same depth whose boxes differ in height. Frame
+inspection on SNMOT-200 (frames 523-532) confirmed that failure mode is real and
+common: the flagged "distant" possessor was a player LYING ON THE GROUND, whose
+box is short through posture, not depth. The labels there were genuinely
+doubtful, but not for the reason the indicator names. Never quote the rate as a
+depth-driven contamination measurement.
 """
 
 from __future__ import annotations
@@ -149,9 +152,16 @@ def profile_possessor_labels(
 
     boxes_by_frame = index_possessor_boxes(tracklets)
     ball_by_frame = {b.frame_idx: b for b in ball}
-    # Height ratio of the nearest *other* candidate to the possessor. Deliberately
-    # "nearest other" rather than ranked[1]: smoothing can leave a possessor who
-    # was not the raw nearest, and the runner-up must stay a genuine rival.
+    # Height ratio of the nearest *other* candidate to the possessor. Two
+    # deliberate constraints:
+    #  - "nearest other" rather than ranked[1]: smoothing can leave a possessor
+    #    who was not the raw nearest, and the runner-up must stay a genuine rival.
+    #  - the runner-up must itself be within possession_radius_px. A candidate
+    #    outside that radius could never be the possessor, so it is not a
+    #    false-possession alternative. Without this gate the indicator fires on
+    #    any frame where an unrelated player stands nearer the camera -- SNMOT-140
+    #    frames 243-250 flagged at ratio 1.87 with a "runner-up" 184 px from the
+    #    ball, while the possessor was plainly correct at 21 px.
     depth_ratios: list[float] = []
     for r in asserted:
         obs = ball_by_frame.get(r.frame_idx)
@@ -161,7 +171,12 @@ def profile_possessor_labels(
         possessor = next(
             (c for c in ranked if c.tracklet_id == r.possessor_tracklet_id), None
         )
-        others = [c for c in ranked if c.tracklet_id != r.possessor_tracklet_id]
+        others = [
+            c
+            for c in ranked
+            if c.tracklet_id != r.possessor_tracklet_id
+            and c.distance <= params.possession_radius_px
+        ]
         if possessor is None or not others:
             continue
         possessor_h = possessor.box.y2 - possessor.box.y1
