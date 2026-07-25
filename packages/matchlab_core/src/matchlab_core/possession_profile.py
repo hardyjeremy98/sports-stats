@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from matchlab_core.schemas import BallObservation, PossessorFrame, Tracklet
+from matchlab_core.schemas import BallObservation, PossessorFrame, Team, Tracklet
 from matchlab_core.stages.possession.heuristic_image import Params
 from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
@@ -79,6 +79,27 @@ class PossessorLabelProfile(BaseModel):
 
 def _fraction(count: int, denom: int) -> float:
     return count / denom if denom else 0.0
+
+
+def _segments(timeline: list[PossessorFrame]) -> list[list[PossessorFrame]]:
+    """Maximal runs of the same non-None possessor over contiguous frames.
+
+    A frame gap breaks a run even when the possessor id matches: the ball was
+    unobserved in between, so the two runs are not one continuous possession.
+    """
+    runs: list[list[PossessorFrame]] = []
+    for row in timeline:
+        if row.possessor_tracklet_id is None:
+            continue
+        if (
+            runs
+            and runs[-1][-1].possessor_tracklet_id == row.possessor_tracklet_id
+            and runs[-1][-1].frame_idx + 1 == row.frame_idx
+        ):
+            runs[-1].append(row)
+        else:
+            runs.append([row])
+    return runs
 
 
 def profile_possessor_labels(
@@ -152,6 +173,37 @@ def profile_possessor_labels(
         for ratio in depth_ratio_grid
     ]
 
+    ordered = sorted(timeline, key=lambda r: r.frame_idx)
+    runs = _segments(ordered)
+    changes = sum(
+        1
+        for prev, nxt in zip(ordered, ordered[1:])
+        if prev.possessor_tracklet_id != nxt.possessor_tracklet_id
+    )
+    span_seconds = (
+        (ordered[-1].frame_idx - ordered[0].frame_idx + 1) / fps if ordered and fps else 0.0
+    )
+    below_te = sum(1 for run in runs if len(run) < te_frames)
+    total_segment_frames = sum(len(run) for run in runs)
+    segments = SegmentStats(
+        count=len(runs),
+        total_segment_frames=total_segment_frames,
+        mean_frames=_fraction(total_segment_frames, len(runs)),
+        below_te_count=below_te,
+        below_te_fraction=_fraction(below_te, len(runs)),
+        changes=changes,
+        span_seconds=span_seconds,
+        changes_per_second=changes / span_seconds if span_seconds else 0.0,
+    )
+
+    implausible_team_flips = sum(
+        1
+        for prev, nxt in zip(runs, runs[1:])
+        if len(prev) < te_frames
+        and prev[-1].team != nxt[0].team
+        and Team.UNKNOWN not in (prev[-1].team, nxt[0].team)
+    )
+
     return PossessorLabelProfile(
         total_frames=total_frames,
         asserted_frames=len(asserted),
@@ -160,4 +212,67 @@ def profile_possessor_labels(
         contested_curve=contested_curve,
         depth_evaluable_frames=len(depth_ratios),
         depth_discordance=depth_discordance,
+        segments=segments,
+        implausible_team_flips=implausible_team_flips,
+    )
+
+
+def _sum_curves(profiles: list[PossessorLabelProfile], attr: str, denom: int) -> list[CurvePoint]:
+    grids = {tuple(pt.threshold for pt in getattr(p, attr)) for p in profiles}
+    if len(grids) > 1:
+        raise ValueError(
+            f"cannot aggregate {attr}: profiles were computed on different "
+            f"threshold grids {sorted(grids)}"
+        )
+    grid = next(iter(grids))
+    totals = [sum(getattr(p, attr)[i].count for p in profiles) for i in range(len(grid))]
+    return [
+        CurvePoint(threshold=th, count=c, fraction=_fraction(c, denom))
+        for th, c in zip(grid, totals)
+    ]
+
+
+def aggregate_profiles(profiles: list[PossessorLabelProfile]) -> PossessorLabelProfile:
+    """Pool per-sequence profiles: sum every count, recompute every fraction.
+
+    Fractions are never averaged -- a 20-frame sequence would otherwise weigh as
+    much as a 750-frame one.
+    """
+    if not profiles:
+        return PossessorLabelProfile(
+            total_frames=0, asserted_frames=0, coverage=0.0, abstention=AbstentionBreakdown()
+        )
+
+    total_frames = sum(p.total_frames for p in profiles)
+    asserted = sum(p.asserted_frames for p in profiles)
+    depth_evaluable = sum(p.depth_evaluable_frames for p in profiles)
+    seg_count = sum(p.segments.count for p in profiles)
+    seg_frames = sum(p.segments.total_segment_frames for p in profiles)
+    below_te = sum(p.segments.below_te_count for p in profiles)
+    changes = sum(p.segments.changes for p in profiles)
+    span_seconds = sum(p.segments.span_seconds for p in profiles)
+
+    return PossessorLabelProfile(
+        total_frames=total_frames,
+        asserted_frames=asserted,
+        coverage=_fraction(asserted, total_frames),
+        abstention=AbstentionBreakdown(
+            no_ball_observation=sum(p.abstention.no_ball_observation for p in profiles),
+            outside_radius=sum(p.abstention.outside_radius for p in profiles),
+            contested_tie=sum(p.abstention.contested_tie for p in profiles),
+        ),
+        contested_curve=_sum_curves(profiles, "contested_curve", asserted),
+        depth_evaluable_frames=depth_evaluable,
+        depth_discordance=_sum_curves(profiles, "depth_discordance", depth_evaluable),
+        segments=SegmentStats(
+            count=seg_count,
+            total_segment_frames=seg_frames,
+            mean_frames=_fraction(seg_frames, seg_count),
+            below_te_count=below_te,
+            below_te_fraction=_fraction(below_te, seg_count),
+            changes=changes,
+            span_seconds=span_seconds,
+            changes_per_second=changes / span_seconds if span_seconds else 0.0,
+        ),
+        implausible_team_flips=sum(p.implausible_team_flips for p in profiles),
     )

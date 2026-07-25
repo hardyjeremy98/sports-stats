@@ -8,7 +8,7 @@ hand-built so each indicator's expected value is known by construction.
 from __future__ import annotations
 
 import pytest
-from matchlab_core.possession_profile import profile_possessor_labels
+from matchlab_core.possession_profile import aggregate_profiles, profile_possessor_labels
 from matchlab_core.schemas import (
     BallObservation,
     Box,
@@ -183,3 +183,110 @@ def test_runner_up_is_nearest_other_not_rank_one_after_smoothing():
     )
     assert p.depth_evaluable_frames == 1
     assert p.depth_discordance[0].count == 1  # 100/20 = 5.0 > 2.0
+
+
+def test_segments_split_on_possessor_change():
+    timeline = [_row(0, 1), _row(1, 1), _row(2, 2), _row(3, 2), _row(4, 2)]
+    p = profile_possessor_labels(timeline, [], [], Params(), total_frames=5)
+    assert p.segments.count == 2
+    assert p.segments.total_segment_frames == 5
+    assert p.segments.mean_frames == pytest.approx(2.5)
+
+
+def test_segments_split_on_a_frame_gap_even_with_the_same_possessor():
+    timeline = [_row(0, 1), _row(1, 1), _row(5, 1)]  # frames 2-4 unobserved
+    p = profile_possessor_labels(timeline, [], [], Params(), total_frames=6)
+    assert p.segments.count == 2
+
+
+def test_below_te_counts_short_segments():
+    # Segment lengths 1, 2, 3, 4 with te=3 -> two segments below threshold.
+    timeline = [
+        _row(0, 1),
+        _row(1, 2), _row(2, 2),
+        _row(3, 3), _row(4, 3), _row(5, 3),
+        _row(6, 4), _row(7, 4), _row(8, 4), _row(9, 4),
+    ]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=10, te_frames=3
+    )
+    assert p.segments.count == 4
+    assert p.segments.below_te_count == 2
+    assert p.segments.below_te_fraction == pytest.approx(0.5)
+
+
+def test_changes_per_second_uses_fps_and_span():
+    # 25 rows spanning 1 second at 25 fps, alternating every 5 frames -> 4 changes.
+    timeline = [_row(i, 1 + i // 5) for i in range(25)]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=25, fps=25.0
+    )
+    assert p.segments.changes == 4
+    assert p.segments.span_seconds == pytest.approx(1.0)
+    assert p.segments.changes_per_second == pytest.approx(4.0)
+
+
+def test_abstention_rows_count_as_a_change():
+    timeline = [_row(0, 1), _row(1, None), _row(2, 1)]
+    p = profile_possessor_labels(timeline, [], [], Params(), total_frames=3)
+    assert p.segments.changes == 2
+
+
+def test_short_segment_switching_team_is_implausible():
+    timeline = [
+        _row(0, 1, team=Team.HOME),                       # 1-frame segment
+        _row(1, 2, team=Team.AWAY), _row(2, 2, team=Team.AWAY),
+    ]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=3, te_frames=3
+    )
+    assert p.implausible_team_flips == 1
+
+
+def test_long_segment_switching_team_is_plausible():
+    timeline = [
+        _row(0, 1, team=Team.HOME), _row(1, 1, team=Team.HOME),
+        _row(2, 1, team=Team.HOME), _row(3, 1, team=Team.HOME),
+        _row(4, 2, team=Team.AWAY),
+    ]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=5, te_frames=3
+    )
+    assert p.implausible_team_flips == 0
+
+
+def test_unknown_team_never_counts_as_a_flip():
+    timeline = [_row(0, 1, team=Team.UNKNOWN), _row(1, 2, team=Team.AWAY)]
+    p = profile_possessor_labels(
+        timeline, [], [], Params(), total_frames=2, te_frames=3
+    )
+    assert p.implausible_team_flips == 0
+
+
+def test_aggregate_sums_counts_and_recomputes_fractions():
+    a = profile_possessor_labels(
+        [_row(0, 1, margin=1.0), _row(1, 1, margin=100.0)], [], [], Params(),
+        total_frames=4, tau_grid_px=(2.0,),
+    )
+    b = profile_possessor_labels(
+        [_row(0, 1, margin=1.0)], [], [], Params(), total_frames=6, tau_grid_px=(2.0,),
+    )
+    agg = aggregate_profiles([a, b])
+    assert agg.total_frames == 10
+    assert agg.asserted_frames == 3
+    assert agg.coverage == pytest.approx(0.3)
+    assert agg.contested_curve[0].count == 2
+    assert agg.contested_curve[0].fraction == pytest.approx(2 / 3)
+
+
+def test_aggregate_rejects_mismatched_curve_grids():
+    a = profile_possessor_labels([], [], [], Params(), total_frames=1, tau_grid_px=(2.0,))
+    b = profile_possessor_labels([], [], [], Params(), total_frames=1, tau_grid_px=(5.0,))
+    with pytest.raises(ValueError, match="grid"):
+        aggregate_profiles([a, b])
+
+
+def test_aggregate_of_nothing_is_empty_not_a_crash():
+    agg = aggregate_profiles([])
+    assert agg.total_frames == 0
+    assert agg.coverage == 0.0
