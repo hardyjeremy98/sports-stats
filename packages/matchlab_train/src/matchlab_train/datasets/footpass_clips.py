@@ -284,19 +284,30 @@ class FootpassClipDataset:
     # --- sampling ------------------------------------------------------------------
 
     def _clip_start(self, anchor: ClipAnchor, rng: np.random.Generator) -> int:
-        """A start frame that keeps the anchor event inside the clip.
+        """A start frame that ALWAYS keeps the anchor event inside the clip.
 
-        The reference's window places the event between 10 frames after the start and
-        10 frames before the midpoint-derived bound, so the action never sits exactly
-        at the clip centre -- otherwise the model could learn "the action is always at
+        The preferred window puts the event between clip positions 15 and 35, never
+        exactly at the centre -- otherwise the model can learn "the action is at
         t=25" instead of looking at the player.
+
+        Near a half boundary that preferred window can fall outside the half, so it
+        is intersected with the hard bound that keeps the event in the clip at all
+        (`[event - length + 1, event]`). Only if the half is shorter than one clip
+        does the event risk falling outside, and there is no valid clip in that case.
         """
-        half = self.clip_length // 2
-        lo = max(anchor.min_frame, anchor.frame_idx - half - 10)
-        hi = min(anchor.max_frame - self.clip_length, anchor.frame_idx - (half - 10))
-        if hi <= lo:
-            return max(anchor.min_frame, min(lo, anchor.max_frame - self.clip_length))
-        return int(rng.integers(lo, hi))
+        length = self.clip_length
+        half = length // 2
+
+        # Hard bound: the event must land somewhere in [start, start + length).
+        hard_lo = max(anchor.min_frame, anchor.frame_idx - length + 1)
+        hard_hi = min(anchor.max_frame - length + 1, anchor.frame_idx)
+        if hard_hi < hard_lo:
+            return max(0, min(hard_lo, max(anchor.max_frame - length + 1, 0)))
+
+        # Preferred bound, clamped into the hard one.
+        lo = min(max(anchor.frame_idx - half - 10, hard_lo), hard_hi)
+        hi = min(max(anchor.frame_idx - (half - 10), lo + 1), hard_hi + 1)
+        return int(rng.integers(lo, hi)) if hi > lo else int(lo)
 
     def _select_players(
         self, rows: np.ndarray, anchor: ClipAnchor, rng: np.random.Generator

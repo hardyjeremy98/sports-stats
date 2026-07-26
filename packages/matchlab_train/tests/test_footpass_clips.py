@@ -89,7 +89,7 @@ def _dataset(fixture_split, **kw):
 # --- anchors ----------------------------------------------------------------------
 
 
-def test_every_labelled_row_becomes_an_anchor(fixture_split):
+def test_labelled_rows_with_a_box_become_anchors(fixture_split):
     anchors = build_anchors(fixture_split[0])
     assert len(anchors) == 4
     assert class_histogram(anchors) == {"pass": 2, "shot": 1, "tackle": 1}
@@ -330,3 +330,23 @@ def test_anchors_match_the_reference_sample_list():
     assert class_histogram(build_anchors(h5)) == dict(
         sorted(reference.items(), key=lambda kv: -kv[1])
     )
+
+
+@pytest.mark.parametrize("event_frame", [0, 1, 5, 100, 179, 180, 195, 199])
+def test_clip_always_contains_its_anchor_even_at_the_half_boundary(
+    fixture_split, event_frame
+):
+    """The preferred window (event at clip position 15-35) falls outside the half
+    near either boundary. It must be clamped, not abandoned -- an event outside its
+    own clip trains the model that the class is present when it is not."""
+    h5_path, video_root = fixture_split
+    anchor = ClipAnchor("game_1_H1", event_frame, 10, 2, 0, N_FRAMES - 1)
+    ds = FootpassClipDataset(
+        h5_path, video_root, [anchor], clip_length=CLIP, nb_tracklets=1
+    )
+    for seed in range(25):
+        start = ds._clip_start(anchor, np.random.default_rng(seed))
+        assert 0 <= start <= N_FRAMES - CLIP, f"start {start} out of the half"
+        assert start <= event_frame < start + CLIP, (
+            f"event {event_frame} outside clip [{start}, {start + CLIP})"
+        )

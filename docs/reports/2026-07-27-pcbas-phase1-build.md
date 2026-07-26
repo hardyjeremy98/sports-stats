@@ -19,18 +19,18 @@ and is explicitly **not** claimed here.
 |---|---|---|
 | Column schema, class order, role slots | `matchlab_core/pcbas/schema.py` | 10 |
 | Slot-attributed event models | `matchlab_core/pcbas/events.py` | (via eval) |
-| Player-centric metric | `matchlab_core/pcbas/eval.py` | 20 |
+| Player-centric metric | `matchlab_core/pcbas/eval.py` | 25 |
 | `(9,26,T)` contract + window averaging | `matchlab_core/pcbas/logits.py` | 17 |
 | Logits → events (softmax, NMS) | `matchlab_core/pcbas/decode.py` | 16 |
 | Action head (X3D-S + FPN + ROI pooling) | `matchlab_core/pcbas/action_head.py` | 9 |
 | DST sequence denoiser (2 encoders) | `matchlab_core/pcbas/denoiser.py` | 19 |
 | Tactical HDF5 ingest + roster remap | `matchlab_train/datasets/footpass_pcbas.py` | 17 |
 | Match video reader | `matchlab_train/datasets/footpass_video.py` | 11 |
-| Clip sampler | `matchlab_train/datasets/footpass_clips.py` | 17 |
+| Clip sampler | `matchlab_train/datasets/footpass_clips.py` | 27 |
 | DST window dataset + pitch symmetry | `matchlab_train/datasets/footpass_windows.py` | 28 |
 | 4 experiments (train / infer / score / denoise) | `matchlab_train/experiments/pcbas_*.py` | 15 |
 
-Full suite: **1,247 passed, 15 skipped**. `ruff` clean.
+Full suite: **1,266 passed, 16 skipped**. `ruff` clean.
 
 ---
 
