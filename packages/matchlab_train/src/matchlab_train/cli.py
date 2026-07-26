@@ -167,6 +167,14 @@ def main() -> int:
         "timeline. Comparing the two is a GUARD (nearest-prediction matching means "
         "removing events can only raise the error), never a score",
     )
+    fs_p = sub.add_parser(
+        "footpass-stats",
+        help="Summarise a FOOTPASS/PCBAS tactical HDF5 split (SPO-96 Phase 0 ingest "
+        "gate): halves, rows, events per class, bbox coverage, slots seen",
+    )
+    fs_p.add_argument("--h5", required=True, help="Path to <split>_tactical_data.h5")
+    fs_p.add_argument("--out", default=None, help="Write the report JSON here")
+
     g1_p = sub.add_parser(
         "gate1-calibration-eval",
         help="Gate 1 (SPO-60): reproduce PnLCalib's SoccerNet-Calibration test-split "
@@ -233,6 +241,25 @@ def main() -> int:
         print(f"gate passed: {record['passed']}")
         print(f"gate record written under {args.out}")
         return 0 if record["passed"] else 1
+
+    if args.command == "footpass-stats":
+        from pathlib import Path
+
+        from matchlab_train.datasets.footpass_pcbas import split_stats
+
+        stats = split_stats(args.h5)
+        payload = stats.model_dump(mode="json")
+        if args.out:
+            Path(args.out).write_text(json.dumps(payload, indent=2))
+            print(f"wrote {args.out}")
+        print(
+            f"{stats.n_halves} halves, {stats.n_rows:,} rows, {stats.n_events:,} events, "
+            f"{stats.frac_events_with_bbox:.1%} of events have a bbox, "
+            f"{len(stats.slots_seen)} slots seen"
+        )
+        for name, count in sorted(stats.events_per_class.items(), key=lambda kv: -kv[1]):
+            print(f"  {name:<10} {count:>7,}")
+        return 0
 
     if args.command == "tasks":
         for task in registry.available():

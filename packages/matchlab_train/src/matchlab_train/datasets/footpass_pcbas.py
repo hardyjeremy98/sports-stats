@@ -31,6 +31,7 @@ import numpy as np
 from matchlab_core.pcbas.events import PCBASEvent, PCBASEvents
 from matchlab_core.pcbas.schema import (
     BACKGROUND,
+    CLASS_NAMES,
     CLS,
     FRAME,
     LEFT_TO_RIGHT,
@@ -50,6 +51,7 @@ from matchlab_core.schemas.detections import DetectionClass
 from matchlab_core.schemas.geometry import Box
 from matchlab_core.schemas.team import Team, TeamAssignment
 from matchlab_core.schemas.tracks import Tracklet, TrackletFrame
+from pydantic import BaseModel
 
 DEFAULT_FPS = 25.0
 
@@ -174,6 +176,79 @@ def half_to_events(
             )
         )
     return PCBASEvents(key=key, game_id=game_id, half=half, fps=fps, events=events)
+
+
+class PCBASSplitStats(BaseModel):
+    """What one split's HDF5 actually contains -- the Phase 0 ingest gate.
+
+    `frac_rows_with_bbox` and `frac_events_with_bbox` are deliberately separate.
+    They are very different numbers (roughly 41% of ROWS carry a box against 82.5%
+    of EVENTS), and conflating them would either overstate or understate what a
+    purely visual model can reach.
+    """
+
+    path: str
+    labelled: bool
+    n_columns: int
+    n_halves: int
+    keys: list[str]
+    n_rows: int
+    n_events: int
+    events_per_class: dict[str, int]
+    rows_with_bbox: int
+    frac_rows_with_bbox: float
+    events_with_bbox: int
+    frac_events_with_bbox: float
+    slots_seen: list[int]
+    frame_range_per_half: dict[str, tuple[int, int]]
+
+
+def split_stats(h5_path: str | Path) -> PCBASSplitStats:
+    """Summarise a whole split without materialising every half at once."""
+    keys = list_halves(h5_path)
+    n_columns = 0
+    n_rows = n_events = rows_with_bbox = events_with_bbox = 0
+    per_class: dict[str, int] = {}
+    slots: set[int] = set()
+    frame_range: dict[str, tuple[int, int]] = {}
+
+    for key in keys:
+        arr = load_half(h5_path, key)
+        n_columns = arr.shape[1]
+        n_rows += arr.shape[0]
+        has_box = ~np.isnan(arr[:, ROI_X])
+        rows_with_bbox += int(has_box.sum())
+        frames = arr[:, FRAME]
+        if len(frames):
+            frame_range[key] = (int(np.nanmin(frames)), int(np.nanmax(frames)))
+        for row in arr:
+            slot = _row_slot(row)
+            if slot is not None:
+                slots.add(slot)
+        if n_columns >= N_COLUMNS_LABELLED:
+            is_event = ~np.isnan(arr[:, CLS]) & (arr[:, CLS] != BACKGROUND)
+            n_events += int(is_event.sum())
+            events_with_bbox += int((is_event & has_box).sum())
+            for cls_value in arr[is_event, CLS]:
+                name = CLASS_NAMES[int(cls_value)]
+                per_class[name] = per_class.get(name, 0) + 1
+
+    return PCBASSplitStats(
+        path=str(h5_path),
+        labelled=n_columns >= N_COLUMNS_LABELLED,
+        n_columns=n_columns,
+        n_halves=len(keys),
+        keys=keys,
+        n_rows=n_rows,
+        n_events=n_events,
+        events_per_class=dict(sorted(per_class.items())),
+        rows_with_bbox=rows_with_bbox,
+        frac_rows_with_bbox=rows_with_bbox / n_rows if n_rows else 0.0,
+        events_with_bbox=events_with_bbox,
+        frac_events_with_bbox=events_with_bbox / n_events if n_events else 0.0,
+        slots_seen=sorted(slots),
+        frame_range_per_half=frame_range,
+    )
 
 
 def load_playbyplay(
