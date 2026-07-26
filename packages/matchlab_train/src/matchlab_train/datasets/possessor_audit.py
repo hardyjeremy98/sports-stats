@@ -13,6 +13,7 @@ and do not mean.
 
 from __future__ import annotations
 
+import statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -38,6 +39,11 @@ from matchlab_core.schemas import (
     TeamAssignment,
     Tracklet,
     TrackletFrame,
+)
+from matchlab_core.snmot_action_gt import (
+    LocalizationResult,
+    load_snmot_action_gt,
+    snmot_localization_error,
 )
 from matchlab_core.stages.detect.ball_utils import resolve_ball_track
 from matchlab_core.stages.possession.events_from_possession import transition_to_events
@@ -312,3 +318,99 @@ def crossval_soccernet_tracking(
     if limit is not None:
         seq_dirs = seq_dirs[:limit]
     return crossval_sequences([load_soccernet_sequence(d) for d in seq_dirs], **kwargs)
+
+
+LOCALIZATION_CAVEAT = (
+    "Localisation/recall ONLY. SNMOT labels exactly one action per 30s clip and "
+    "leaves everything else in those 30 seconds unlabelled, so an unmatched "
+    "prediction is very likely a real action nobody labelled -- precision, F1 "
+    "and mAP are all unsupported against this tier. Ball-contact and non-ball "
+    "classes are reported separately because a ball-motion spotter SHOULD miss "
+    "cards, substitutions and offsides."
+)
+
+
+class LocalizationSummary(BaseModel):
+    n: int
+    median_error_frames: float | None = None
+    median_error_seconds: float | None = None
+    within_5_frames: float = 0.0
+    within_25_frames: float = 0.0
+    matched: int = 0
+
+
+class SpottingLocalizationReport(BaseModel):
+    tier: str
+    caveat: str
+    signal: str
+    kinematics_params: dict
+    results: list[LocalizationResult]
+    ball_contact: LocalizationSummary
+    non_ball: LocalizationSummary
+    by_class: dict[str, LocalizationSummary]
+
+
+def _summarize(results: list[LocalizationResult], fps: float = 25.0) -> LocalizationSummary:
+    matched = [r for r in results if r.matched and r.error_frames is not None]
+    if not matched:
+        return LocalizationSummary(n=len(results), matched=0)
+    errs = sorted(r.error_frames for r in matched)
+    med = statistics.median(errs)
+    return LocalizationSummary(
+        n=len(results),
+        matched=len(matched),
+        median_error_frames=med,
+        median_error_seconds=round(med / fps, 4),
+        within_5_frames=round(sum(1 for e in errs if e <= 5) / len(errs), 4),
+        within_25_frames=round(sum(1 for e in errs if e <= 25) / len(errs), 4),
+    )
+
+
+def localize_soccernet_tracking(
+    root: str | Path,
+    *,
+    limit: int | None = None,
+    signal: str = "ball-trajectory",
+    kinematics: KinematicsParams | None = None,
+    **params,
+) -> SpottingLocalizationReport:
+    """Score a spotting signal's localisation against SNMOT's action labels.
+
+    `signal` selects which predictions to score: "ball-trajectory" (ball
+    kinematics) or "possession" (events derived from possessor transitions).
+    """
+    kin = kinematics or KinematicsParams()
+    seq_dirs = sorted(
+        p for p in Path(root).iterdir() if p.is_dir() and (p / "gameinfo.ini").exists()
+    )
+    if limit is not None:
+        seq_dirs = seq_dirs[:limit]
+
+    results: list[LocalizationResult] = []
+    for seq in seq_dirs:
+        action_gt = load_snmot_action_gt(seq)
+        if not action_gt.events:
+            continue
+        gt = load_soccernet_sequence(seq)
+        tracklets, teams, ball = gt_to_possession_inputs(gt)
+        if signal == "possession":
+            timeline = HeuristicImagePossession(**params).estimate(None, tracklets, teams, ball)
+            frames = [e.frame_idx for e in transition_to_events(timeline)]
+        else:
+            frames = [t.frame_idx for t in detect_touches(ball, tracklets, kin)]
+        results.append(snmot_localization_error(action_gt, frames))
+
+    by_class: dict[str, list[LocalizationResult]] = defaultdict(list)
+    for r in results:
+        by_class[r.class_ or "unknown"].append(r)
+
+    return SpottingLocalizationReport(
+        tier="soccernet-tracking",
+        caveat=LOCALIZATION_CAVEAT,
+        signal=signal,
+        kinematics_params=kin.model_dump(mode="json"),
+        results=results,
+        ball_contact=_summarize([r for r in results if r.ball_contact]),
+        non_ball=_summarize([r for r in results if not r.ball_contact]),
+        by_class={k: _summarize(v) for k, v in sorted(by_class.items())},
+    )

@@ -145,6 +145,18 @@ def main() -> int:
         help="Max frame distance for an event and a touch to count as agreeing",
     )
 
+    loc_p = sub.add_parser(
+        "spot-localization",
+        help="Score a spotting signal against SNMOT's one-action-per-clip labels "
+        "(B3; localisation/recall only -- precision is unsupported)",
+    )
+    loc_p.add_argument("--root", default="data/soccernet/tracking/test")
+    loc_p.add_argument("--limit", type=int, default=None)
+    loc_p.add_argument("--out", required=True, help="Output report JSON path")
+    loc_p.add_argument(
+        "--signal", default="ball-trajectory", choices=["ball-trajectory", "possession"]
+    )
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -299,6 +311,29 @@ def main() -> int:
             f"tolerance=+/-{a.tolerance_frames} frames"
         )
         print(f"NOT ACCURACY -- {report.caveat}")
+        return 0
+
+    if args.command == "spot-localization":
+        from pathlib import Path
+
+        from matchlab_train.datasets.possessor_audit import localize_soccernet_tracking
+
+        report = localize_soccernet_tracking(
+            args.root, limit=args.limit, signal=args.signal
+        )
+        Path(args.out).write_text(report.model_dump_json(indent=2))
+        b, n = report.ball_contact, report.non_ball
+        print(f"wrote localisation report ({report.signal}) to {args.out}")
+        print(
+            f"ball-contact classes: n={b.n} median={b.median_error_frames}f "
+            f"({b.median_error_seconds}s) within-5f={b.within_5_frames:.0%} "
+            f"within-25f={b.within_25_frames:.0%}"
+        )
+        print(
+            f"non-ball classes:     n={n.n} median={n.median_error_frames}f "
+            f"within-5f={n.within_5_frames:.0%}  (a ball spotter SHOULD miss these)"
+        )
+        print(f"LOCALISATION ONLY -- {report.caveat}")
         return 0
 
     config = ExperimentConfig.from_yaml(args.config)
