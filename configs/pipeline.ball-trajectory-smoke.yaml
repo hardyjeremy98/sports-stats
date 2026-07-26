@@ -1,0 +1,74 @@
+# Keyless/GPU-less smoke for the ball-trajectory spotting baseline (B3).
+#
+# Stub upstream (synthetic detector supplies player boxes and a ball) + BOTH
+# signals: the image-space possession estimator (SPO-79) writes
+# possession_timeline.json and events.json, while the `ball-trajectory` spotter
+# reads ball.jsonl and writes spotting.json from the ball's own kinematics.
+#
+# The two are deliberately independent -- possession decides WHO is nearest the
+# ball, trajectory decides WHEN the ball's motion changed -- so they fail
+# differently and can corroborate each other. Because a real spotter runs here,
+# spotting.json holds trajectory touches rather than the possession-derived
+# passes (the runner only falls back to those when no spotter wrote the file).
+# Compare the two with matchlab_core.event_crossval.
+#
+# HONEST BOUNDS: touches are UNTYPED ball contacts, not passes/shots, and carry
+# no player attribution. Depth change is uncompensated (no calibration), so a
+# ball moving toward the camera can register as a touch. Runs anywhere
+# matchlab-core installs; pair with a `matchlab-demo` clip. No models, no GPU.
+name: ball-trajectory-smoke
+description: >-
+  Synthetic upstream + possession estimator + ball-trajectory spotter; writes
+  possession_timeline.json, events.json and trajectory-based spotting.json.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: synthetic
+    params:
+      dropout_rate: 0.05
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  possession:
+    impl: possession-heuristic-image
+    params:
+      possession_radius_px: 60.0
+      min_margin_px: 0.0
+      smooth_radius: 2
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: ball-trajectory
+    params:
+      touch_threshold: 0.35
+      min_separation_frames: 6
+      compensate_camera: true
+  annotate:
+    impl: overlay
+    params: {}

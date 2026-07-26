@@ -22,7 +22,12 @@ from matchlab_core.stages.detect import (  # noqa: F401
     yolo_local,
     yolox_local,
 )
-from matchlab_core.stages.events import possession, spotting_stub, tdeed  # noqa: F401
+from matchlab_core.stages.events import (  # noqa: F401
+    ball_trajectory,
+    possession,
+    spotting_stub,
+    tdeed,
+)
 from matchlab_core.stages.fuse import minimap  # noqa: F401
 from matchlab_core.stages.identity import face, none  # noqa: F401
 from matchlab_core.stages.possession import (  # noqa: F401
