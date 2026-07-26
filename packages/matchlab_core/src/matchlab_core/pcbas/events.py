@@ -13,28 +13,58 @@ GT plumbing, discarding identity -- see `docs/superpowers/specs/
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from matchlab_core.event_gt import EventGroundTruth, GroundTruthEvent
-from matchlab_core.pcbas.schema import CLASS_NAMES, N_CLASSES, N_SLOTS
+from matchlab_core.pcbas.schema import CLASS_NAMES, N_CLASSES, N_ROLES, N_SLOTS, slot_index
 
 
 class PCBASEvent(BaseModel):
-    """One action, attributed to one tactical role slot at one frame.
+    """One action, attributed to one player at one frame.
 
-    `slot` is the scored identity. `shirt_number` rides along for reporting and for
-    the ADR 008 export-time roster remap; it is NEVER what the metric matches on,
-    because a slot-native model does not predict shirts.
+    Two identities coexist and they are NOT interchangeable:
+
+    * `slot` -- the tactical role slot (ADR 008). What our model predicts, and what
+      `score_events(identity="slot")` matches on.
+    * `shirt_number` -- the jersey. What the reference's on-disk playbyplay JSON
+      exchange uses, reachable only via the export-time roster remap.
+
+    Both are optional because neither format carries both: the reference JSON has no
+    role, and a slot-native prediction has no shirt until it is remapped. `slot` is
+    derived from `left_to_right` + `role_id` when omitted, and cross-checked when
+    both are supplied -- a disagreement there is a silent-corruption bug.
     """
 
     frame_idx: int
     left_to_right: int = Field(ge=0, le=1)
-    role_id: int = Field(ge=1, le=13)
-    slot: int = Field(ge=0, lt=N_SLOTS)
-    shirt_number: int
+    role_id: int | None = Field(default=None, ge=1, le=N_ROLES)
+    slot: int | None = Field(default=None, ge=0, lt=N_SLOTS)
+    shirt_number: int | None = None
     class_id: int = Field(ge=0, lt=N_CLASSES)
     score: float = 1.0
     t: float | None = None
+
+    # Ground-truth-only observability flags, carried by the reference's playbyplay
+    # GT rows. `has_bbox` is False for the 17.5% of VAL actions whose player is
+    # off-screen; those are the events only the sequence stage can recover, and the
+    # TAAD-vs-DST gap on them (33 vs 390 recovered) is the argument for the two-stage
+    # split. `is_replay` marks frames with no visible players at all.
+    has_bbox: bool | None = None
+    is_replay: bool | None = None
+
+    @model_validator(mode="after")
+    def _reconcile_slot(self) -> PCBASEvent:
+        if self.role_id is None:
+            return self
+        derived = slot_index(self.left_to_right, self.role_id)
+        if self.slot is None:
+            object.__setattr__(self, "slot", derived)
+        elif self.slot != derived:
+            raise ValueError(
+                f"slot {self.slot} contradicts left_to_right={self.left_to_right} "
+                f"role_id={self.role_id} (which packs to {derived})"
+            )
+        return self
 
     @property
     def class_name(self) -> str:

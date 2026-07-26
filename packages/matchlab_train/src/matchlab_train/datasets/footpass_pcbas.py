@@ -23,7 +23,9 @@ Two facts drive every function here:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from matchlab_core.pcbas.events import PCBASEvent, PCBASEvents
@@ -172,6 +174,51 @@ def half_to_events(
             )
         )
     return PCBASEvents(key=key, game_id=game_id, half=half, fps=fps, events=events)
+
+
+def load_playbyplay(
+    path: str | Path, kind: Literal["gt", "pred"]
+) -> dict[str, list[PCBASEvent]]:
+    """Read the reference's playbyplay JSON exchange format, keyed by half.
+
+    The two row layouts differ in a way that a width sniff would get silently wrong
+    -- GT column 4 is a bbox FLAG, prediction column 4 is a SCORE -- so `kind` is
+    required rather than inferred:
+
+        GT   [frame, team, shirt, class, bbox, replay]
+        pred [frame, team, shirt, class, score]
+
+    These rows are SHIRT-native and carry no role, so the returned events have no
+    `slot`. Score them with `score_events(..., identity="shirt")`.
+    """
+    raw = json.loads(Path(path).read_text())
+    out: dict[str, list[PCBASEvent]] = {}
+    for key in (str(k) for k in raw.get("keys", [])):
+        events: list[PCBASEvent] = []
+        for row in raw["events"].get(key, []):
+            if len(row) < 4:
+                continue
+            common = {
+                "frame_idx": int(row[0]),
+                "left_to_right": int(row[1]),
+                "shirt_number": int(row[2]),
+                "class_id": int(row[3]),
+            }
+            if kind == "gt":
+                events.append(
+                    PCBASEvent(
+                        **common,
+                        score=1.0,
+                        has_bbox=bool(int(row[4])) if len(row) > 4 else None,
+                        is_replay=bool(int(row[5])) if len(row) > 5 else None,
+                    )
+                )
+            else:
+                events.append(
+                    PCBASEvent(**common, score=float(row[4]) if len(row) > 4 else 1.0)
+                )
+        out[key] = events
+    return out
 
 
 def roster_lookup(arr: np.ndarray) -> dict[tuple[int, int], int]:
