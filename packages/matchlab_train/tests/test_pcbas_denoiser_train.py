@@ -123,3 +123,19 @@ def test_padded_target_positions_do_not_contribute_to_the_loss():
             model, collate([_sample(2), _sample(2)], FRAMESPAN), device, Params()
         )
     assert float(short["action"]) == pytest.approx(float(padded["action"]), abs=1e-4)
+
+
+def test_every_shipped_pcbas_config_parses_and_resolves():
+    """A config with a typo'd task name fails only when someone tries to run it,
+    typically hours into a session."""
+    from pathlib import Path
+
+    from matchlab_train.config import ExperimentConfig
+    from matchlab_train.registry import available
+
+    root = Path(__file__).resolve().parents[1] / "src/matchlab_train/experiments"
+    configs = sorted(root.glob("pcbas_*.yaml"))
+    assert len(configs) == 4
+    for path in configs:
+        cfg = ExperimentConfig.from_yaml(path)
+        assert cfg.task in available(), f"{path.name} -> unknown task {cfg.task}"

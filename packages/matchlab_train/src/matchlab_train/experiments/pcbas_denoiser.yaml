@@ -1,0 +1,16 @@
+# Stage 2: DST sequence denoiser. BLOCKED until stage-1 logits exist for TRAIN,
+# which means running pcbas-infer-logits over all 96 TRAIN halves first.
+# Set `encoder: attn` for the PAVE-style arm.
+name: pcbas-denoiser
+task: pcbas-denoiser
+description: DST encoder-decoder over (9,26,T) logits -> ordered event list.
+output_dir: data/experiments
+seed: 345
+params:
+  h5_path: data/footpass/tactical/train_tactical_data.h5
+  logits_dir: data/footpass/logits/train
+  val_h5_path: data/footpass/tactical/val_tactical_data.h5
+  val_logits_dir: data/footpass/logits/val
+  checkpoint_dir: data/weights/pcbas
+  encoder: flat
+  epochs: 15

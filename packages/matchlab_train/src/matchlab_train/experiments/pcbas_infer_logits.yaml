@@ -1,0 +1,11 @@
+# Stage 1 inference: write the frozen (9,26,T) contract for every VAL half.
+# ~0.32 s per 50-frame window at stride 25; a 90-minute half is ~3,000 windows.
+name: pcbas-infer-logits-val
+task: pcbas-infer-logits
+description: Run the trained action head over VAL, writing avg_logits_<half>.npy.
+output_dir: data/experiments
+params:
+  h5_path: data/footpass/tactical/val_tactical_data.h5
+  video_root: data/footpass/videos_352x640
+  checkpoint: data/weights/pcbas/action_head_best.pt
+  out_dir: data/footpass/logits/val
