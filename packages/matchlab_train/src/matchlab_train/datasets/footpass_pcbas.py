@@ -36,6 +36,7 @@ from matchlab_core.pcbas.schema import (
     FRAME,
     LEFT_TO_RIGHT,
     N_COLUMNS_LABELLED,
+    N_SLOTS,
     PLAYER_ID,
     ROI_HEIGHT,
     ROI_SCALE_X,
@@ -293,6 +294,69 @@ def load_playbyplay(
                     PCBASEvent(**common, score=float(row[4]) if len(row) > 4 else 1.0)
                 )
         out[key] = events
+    return out
+
+
+def slot_shirt_table(arr: np.ndarray, n_frames: int) -> np.ndarray:
+    """`(26, n_frames)` int table of which shirt occupies each slot at each frame.
+
+    This is the ADR 008 **export-time remap**, and the reason ADR 007's per-match
+    bijection is impossible: a slot is a tactical role, so a substitution rebinds it
+    mid-match and `left_to_right` inverts at half time. The mapping is therefore
+    per frame, never per match.
+
+    Gaps are forward-filled from the last known occupant and then backward-filled for
+    the frames before anyone was seen -- a slot's occupant does not change while the
+    camera is looking elsewhere. Slots never occupied stay -1.
+
+    Where several rows claim one slot at one frame (substitution overlap) the LAST
+    wins, matching the reference. Note that inference's `slot_rois_masks` keeps the
+    FIRST for the box; the two are inconsistent in the reference and the
+    inconsistency is reproduced rather than quietly fixed, because changing it would
+    move the numbers away from the comparand.
+    """
+    table = np.full((N_SLOTS, n_frames), -1, dtype=np.int64)
+    have_shirt = ~np.isnan(arr[:, SHIRT_NUMBER])
+    for row in arr[have_shirt]:
+        frame = row[FRAME]
+        slot = _row_slot(row)
+        if slot is None or np.isnan(frame):
+            continue
+        frame = int(frame)
+        if 0 <= frame < n_frames:
+            table[slot, frame] = int(row[SHIRT_NUMBER])
+
+    for slot in range(N_SLOTS):
+        last = -1
+        for t in range(n_frames):
+            if table[slot, t] == -1:
+                table[slot, t] = last
+            else:
+                last = table[slot, t]
+        nxt = -1
+        for t in range(n_frames - 1, -1, -1):
+            if table[slot, t] == -1:
+                table[slot, t] = nxt
+            else:
+                nxt = table[slot, t]
+    return table
+
+
+def assign_shirts(events: list[PCBASEvent], table: np.ndarray) -> list[PCBASEvent]:
+    """Attach a shirt number to each slot-native event, via the per-frame roster.
+
+    Events keep their slot: the shirt is added, never substituted for it. An event
+    whose slot was never occupied gets shirt -1 rather than being dropped, so a
+    roster gap is visible in the output instead of silently shrinking the prediction
+    set (which would flatter precision).
+    """
+    out: list[PCBASEvent] = []
+    n_frames = table.shape[1]
+    for e in events:
+        shirt = -1
+        if e.slot is not None and 0 <= e.frame_idx < n_frames:
+            shirt = int(table[e.slot, e.frame_idx])
+        out.append(e.model_copy(update={"shirt_number": shirt}))
     return out
 
 

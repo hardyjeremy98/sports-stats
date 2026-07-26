@@ -104,3 +104,70 @@ def test_downcast_to_event_ground_truth_drops_identity():
     assert egt.kind == "action_events"
     assert [e.class_ for e in egt.events] == ["pass"]
     assert egt.events[0].half == 1
+
+
+# --- ADR 008 export-time roster remap ---------------------------------------------
+
+
+def test_slot_shirt_table_forward_fills_between_sightings():
+    """A slot's occupant does not change while the camera is looking elsewhere."""
+    from matchlab_train.datasets.footpass_pcbas import slot_shirt_table
+
+    rows = np.stack([_row(0, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0)])
+    table = slot_shirt_table(rows, 5)
+    assert table[0].tolist() == [7, 7, 7, 7, 7]
+
+
+def test_slot_shirt_table_backward_fills_before_the_first_sighting():
+    from matchlab_train.datasets.footpass_pcbas import slot_shirt_table
+
+    rows = np.stack([_row(3, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0)])
+    table = slot_shirt_table(rows, 5)
+    assert table[0].tolist() == [7, 7, 7, 7, 7]
+
+
+def test_slot_shirt_table_tracks_a_substitution():
+    """The ADR 008 fact: a slot is a tactical ROLE, so a substitution rebinds it
+    mid-match. A per-match bijection cannot express this."""
+    from matchlab_train.datasets.footpass_pcbas import slot_shirt_table
+
+    rows = np.stack(
+        [
+            _row(0, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0),
+            _row(5, 101, 0, 21, 1, 0.5, 0.5, 0, 0, None, 0),
+        ]
+    )
+    table = slot_shirt_table(rows, 8)
+    assert table[0].tolist() == [7, 7, 7, 7, 7, 21, 21, 21]
+
+
+def test_never_occupied_slots_stay_unknown():
+    from matchlab_train.datasets.footpass_pcbas import slot_shirt_table
+
+    rows = np.stack([_row(0, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0)])
+    assert (slot_shirt_table(rows, 3)[25] == -1).all()
+
+
+def test_assign_shirts_keeps_the_slot():
+    """The shirt is ADDED at export time, never substituted for the slot -- the slot
+    is what the model actually predicted."""
+    from matchlab_core.pcbas.events import PCBASEvent
+    from matchlab_train.datasets.footpass_pcbas import assign_shirts, slot_shirt_table
+
+    rows = np.stack([_row(0, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0)])
+    table = slot_shirt_table(rows, 5)
+    ev = PCBASEvent(frame_idx=2, left_to_right=0, role_id=1, class_id=2)
+    out = assign_shirts([ev], table)[0]
+    assert (out.slot, out.shirt_number, out.class_id) == (0, 7, 2)
+
+
+def test_events_in_unoccupied_slots_are_kept_with_shirt_minus_one():
+    """Dropping them would shrink the prediction set and flatter precision."""
+    from matchlab_core.pcbas.events import PCBASEvent
+    from matchlab_train.datasets.footpass_pcbas import assign_shirts, slot_shirt_table
+
+    rows = np.stack([_row(0, 100, 0, 7, 1, 0.5, 0.5, 0, 0, None, 0)])
+    table = slot_shirt_table(rows, 5)
+    ev = PCBASEvent(frame_idx=2, left_to_right=1, role_id=13, class_id=2)
+    out = assign_shirts([ev], table)
+    assert len(out) == 1 and out[0].shirt_number == -1
