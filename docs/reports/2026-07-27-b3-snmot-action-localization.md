@@ -20,7 +20,7 @@ scored against.
 | Label source | `gameinfo.ini` → `actionClass`, `actionPosition` (ms), `clipStart` |
 | Action frame | `(actionPosition − clipStart) / 1000 × fps` |
 | Inputs | **Oracle**: GT boxes, GT teams, GT ball |
-| Code revision | `9c9a4bd` |
+| Code revision | `4306b40` |
 | Command | `uv run matchlab-train spot-localization --signal {ball-trajectory,possession}` |
 
 ## The finding
