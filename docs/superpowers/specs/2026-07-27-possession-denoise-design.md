@@ -69,7 +69,7 @@ every input the trellis needs. Nothing downstream changes: the output is still
 
 | File | Responsibility |
 |---|---|
-| `matchlab_core/possession_denoise.py` | Pure trellis construction + Viterbi decode. No stage imports, no I/O. |
+| `matchlab_core/possession_denoise.py` | Pure trellis construction + Viterbi decode. No registry or `StageContext` dependency, no I/O — it may import `stages/possession/ranking.py`, exactly as `possession_profile.py` already does. |
 | `matchlab_core/stages/possession/viterbi.py` | Registers `possession-viterbi`; adapts stage inputs, calls the decoder. |
 | `configs/pipeline.possession-viterbi-smoke.yaml` | Smoke config mirroring the heuristic smoke config. |
 
@@ -89,9 +89,15 @@ At frame *f* with a ball observation, the state set is
               c.distance ≤ possession_radius_px }
 ```
 
-capped at `max_candidates` nearest (default 4) for tractability. Frames **with
-no ball observation admit only `LOOSE`** — the heuristic's honest limitation is
-preserved, not papered over. A clip with no ball yields an all-`LOOSE` timeline.
+capped at `max_candidates` nearest (default 4) for tractability.
+
+The trellis has **one column per ball observation**, matching the heuristic
+exactly — `HeuristicImagePossession.estimate` iterates `ball`, so a timeline row
+exists only where the ball was observed (or gap-filled by `resolve_ball_track`).
+A column whose candidate set is empty — ball observed, no player within the
+radius — admits only `LOOSE`. A clip with no ball observations yields an **empty
+timeline**, same as the heuristic. The ball dependency is preserved, not papered
+over: dropping it is the learned estimator's job, not the denoiser's.
 
 ### Emissions (costs; lower is better)
 
@@ -189,8 +195,8 @@ Unit tests against hand-built timelines with known-correct decodes:
   and the one that fails if the priors are too strong
 * a team flip with no ball travel is removed
 * a team flip *with* ball travel and a touch survives
-* frames with no ball observation decode to `LOOSE`
-* an empty ball list yields an all-`LOOSE` timeline of the right length
+* a column with no candidate inside the radius decodes to `LOOSE`
+* an empty ball list yields an empty timeline (parity with the heuristic)
 * each prior at weight 0 reproduces the un-prior'd decode
 * decode is deterministic under equal costs (tracklet-id tie-break)
 
