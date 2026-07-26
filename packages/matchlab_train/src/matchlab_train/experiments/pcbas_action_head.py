@@ -25,6 +25,7 @@ import json
 import time
 from pathlib import Path
 
+from matchlab_core.pcbas.eval import score_events
 from matchlab_core.pcbas.schema import N_CLASSES
 from pydantic import BaseModel
 
@@ -67,6 +68,10 @@ class Params(BaseModel):
     # Validation is expensive (a full pass over the balanced VAL sample), so it runs
     # every `val_every` epochs and on the last one.
     val_every: int = 2
+    # What `action_head_best.pt` is selected on. "micro_f1" is the clip-level
+    # player-centric metric; "val_loss" is the reference's criterion and is MEASURABLY
+    # WRONG for this task -- see `_validate`.
+    select_best_on: str = "micro_f1"
     max_val_samples_per_class: int = 60
 
     device: str = "cuda"
@@ -282,13 +287,26 @@ class PCBASActionHeadExperiment(Experiment):
             }
 
             if epoch % p.val_every == 0 or epoch == p.epochs:
-                record["val_loss"] = self._validate(model, val_ds, p, device, weights)
-                if record["val_loss"] < best_val:
-                    best_val = record["val_loss"]
+                record.update(self._validate(model, val_ds, p, device, weights))
+                # Higher is better for micro_f1, lower for val_loss.
+                score = (
+                    -record["val_micro_f1"]
+                    if p.select_best_on == "micro_f1"
+                    else record["val_loss"]
+                )
+                if score < best_val:
+                    best_val = score
                     torch.save(
                         {"model": model.state_dict(), "epoch": epoch, "params": p.model_dump()},
                         ckpt_dir / "action_head_best.pt",
                     )
+                    print(f"  new best on {p.select_best_on}", flush=True)
+            # Every epoch is kept, not just best+last: selection on a small validation
+            # sample is noisy, so the final choice is made afterwards over all of them.
+            torch.save(
+                {"model": model.state_dict(), "epoch": epoch, "params": p.model_dump()},
+                ckpt_dir / f"action_head_epoch{epoch}.pt",
+            )
 
             torch.save(
                 {"model": model.state_dict(), "epoch": epoch, "params": p.model_dump()},
@@ -313,7 +331,8 @@ class PCBASActionHeadExperiment(Experiment):
             "history": history,
             "epochs_run": len(history),
             "epochs_planned": p.epochs,
-            "best_val_loss": best_val if best_val < float("inf") else None,
+            "best_selection_score": best_val if best_val < float("inf") else None,
+            "select_best_on": p.select_best_on,
             "checkpoint": str(ckpt_dir / "action_head_best.pt"),
             "train_anchor_histogram": hist,
             "hours": (time.time() - started) / 3600,
@@ -321,22 +340,61 @@ class PCBASActionHeadExperiment(Experiment):
         self.write_result(workdir, result)
         return result
 
-    def _validate(self, model, val_ds, p: Params, device, weights) -> float:
+    def _validate(self, model, val_ds, p: Params, device, weights) -> dict:
+        """Validation loss AND the clip-level player-centric metric.
+
+        Both, because **validation loss is the wrong selection criterion for this
+        task and it is not close.** It is dominated by background cells (~99% of a
+        clip, weighted 0.05), so a model can get materially better at spotting while
+        its loss rises. Measured on this very run: from epoch 4 to epoch 6 val loss
+        got WORSE (0.0385 -> 0.0399) while clip micro-F1 went 0.298 -> 0.372 and the
+        model went from emitting 7 of the 8 action classes to all 8.
+
+        The metric here reuses `decode_logits` and `score_events` -- the same NMS and
+        the same matching rule as the reference-validated gate -- so it is a small
+        version of the real thing, not a different measure.
+        """
         import torch
         from torch.utils.data import DataLoader
+
+        from matchlab_train.experiments.pcbas_checkpoint_health import (
+            clip_events,
+            label_events,
+        )
 
         loader = DataLoader(
             val_ds, batch_size=p.batch_size, shuffle=False, num_workers=p.num_workers
         )
         model.eval()
         total, n = 0.0, 0
+        gt_events, pred_events = [], []
         with torch.no_grad():
-            for video, rois, masks, _sharp, dilated in loader:
+            for video, rois, masks, sharp, dilated in loader:
                 video, rois = video.to(device), rois.to(device)
-                masks, dilated = masks.to(device), dilated.to(device)
+                masks_d, dilated = masks.to(device), dilated.to(device)
                 with torch.autocast("cuda", dtype=torch.float16, enabled=device.type == "cuda"):
-                    logits = model(video, rois, masks)
-                    loss = masked_weighted_ce(logits, dilated, masks, weights)
+                    logits = model(video, rois, masks_d)
+                    loss = masked_weighted_ce(logits, dilated, masks_d, weights)
                 total += float(loss)
-                n += 1
-        return total / max(n, 1)
+                raw = logits.float().cpu()
+                for b in range(raw.shape[0]):
+                    offset = n * 10_000  # keep clips from matching one another
+                    for e in clip_events(raw[b].numpy(), masks[b]):
+                        pred_events.append(
+                            e.model_copy(update={"frame_idx": e.frame_idx + offset})
+                        )
+                    for e in label_events(sharp[b]):
+                        gt_events.append(
+                            e.model_copy(update={"frame_idx": e.frame_idx + offset})
+                        )
+                    n += 1
+        model.train()
+        report = score_events(gt_events, pred_events, identity="slot")
+        return {
+            "val_loss": total / max(len(gt_events) and n or 1, 1),
+            "val_micro_f1": report.micro_f1,
+            "val_macro_f1": report.macro_f1,
+            "val_tp": report.tp,
+            "val_fp": report.fp,
+            "val_fn": report.fn,
+        }

@@ -113,3 +113,34 @@ def test_anchor_is_json_round_trippable(tmp_path):
     anchors = [ClipAnchor("game_1_H1", 50, 10, 2, 0, 999)]
     save_anchors(anchors, tmp_path / "a.json")
     assert load_anchors(tmp_path / "a.json") == anchors
+
+
+def test_best_checkpoint_is_selected_on_the_task_metric_not_val_loss():
+    """Measured on the live 2026-07-27 run: from epoch 4 to 6 val loss got WORSE
+    (0.0385 -> 0.0399) while clip micro-F1 went 0.298 -> 0.372 and the model went
+    from emitting 7 of 8 action classes to all 8. Selecting on val loss would have
+    frozen `best` at a demonstrably worse model."""
+    assert Params().select_best_on == "micro_f1"
+
+
+def test_validate_reports_both_criteria():
+    """Both are recorded even though only one selects, so the divergence stays
+    visible in history.json rather than having to be rediscovered."""
+    import inspect
+
+    from matchlab_train.experiments.pcbas_action_head import PCBASActionHeadExperiment
+
+    source = inspect.getsource(PCBASActionHeadExperiment._validate)
+    for key in ("val_loss", "val_micro_f1", "val_macro_f1", "val_tp", "val_fp", "val_fn"):
+        assert f'"{key}"' in source
+
+
+def test_every_epoch_is_checkpointed():
+    """Selection on a small validation sample is noisy, so the final choice is made
+    afterwards over all epochs -- which requires keeping them."""
+    import inspect
+
+    from matchlab_train.experiments.pcbas_action_head import PCBASActionHeadExperiment
+
+    source = inspect.getsource(PCBASActionHeadExperiment.run)
+    assert 'f"action_head_epoch{epoch}.pt"' in source

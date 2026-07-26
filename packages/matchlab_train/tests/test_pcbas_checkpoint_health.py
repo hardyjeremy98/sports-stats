@@ -33,3 +33,36 @@ def test_empty_counts_do_not_divide_by_zero():
     s = summarise(Counter(), 0, 0)
     assert s["background_fraction"] == 0.0
     assert s["cells"] == 0
+
+
+def test_clip_events_pads_unused_slots_as_background():
+    """The sampler's M is 5, the decoder expects 26. Padding must be CONFIDENT
+    background, not zeros -- zeros would tie with every class and emit phantom
+    events in slots that hold no player at all."""
+    import numpy as np
+    from matchlab_train.experiments.pcbas_checkpoint_health import clip_events
+
+    logits = np.zeros((9, 3, 40), dtype=np.float32)
+    logits[0] = 5.0
+    logits[2, 1, 20] = 9.0  # player 1 passes at frame 20
+    events = clip_events(logits, None)
+    assert len(events) == 1
+    assert (events[0].slot, events[0].class_id, events[0].frame_idx) == (1, 2, 20)
+
+
+def test_label_events_reads_sharp_labels():
+    import numpy as np
+    from matchlab_train.experiments.pcbas_checkpoint_health import label_events
+
+    sharp = np.zeros((3, 10), dtype=np.int64)
+    sharp[2, 7] = 5
+    events = label_events(sharp)
+    assert len(events) == 1
+    assert (events[0].slot, events[0].class_id, events[0].frame_idx) == (2, 5, 7)
+
+
+def test_label_events_ignores_background():
+    import numpy as np
+    from matchlab_train.experiments.pcbas_checkpoint_health import label_events
+
+    assert label_events(np.zeros((3, 10), dtype=np.int64)) == []
