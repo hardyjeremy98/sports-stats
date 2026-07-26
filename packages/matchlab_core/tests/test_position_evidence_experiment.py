@@ -15,6 +15,7 @@ from matchlab_train.experiments.position_evidence import (
     build_fragments,
     footprint_matrix,
     pairwise_js,
+    relative_coords,
     role_distance,
     sample_pairs,
     spans_overlap,
@@ -111,6 +112,56 @@ def test_sample_pairs_labels_same_and_different_players_correctly():
     assert all(frags[i].player_id == frags[j].player_id for i, j in same)
     assert all(frags[i].player_id != frags[j].player_id for i, j in diff)
     assert len(same) == 1
+
+
+def test_relative_coords_cancel_a_shared_team_shift():
+    """The mechanism variant B exists for.
+
+    A player is only observable when play is near them, so absolute occupancy
+    partly measures where the BALL was. Two players holding fixed formation
+    offsets while the whole team shifts up the pitch must come out with
+    identical relative footprints, even though their absolute ones differ.
+    """
+    rows = []
+    for f in range(20):
+        shift = 0.02 * f  # the whole team advances
+        for pid, off in ((100, -0.1), (101, +0.1)):
+            rows.append(
+                [f, pid, 0, 7, 2, 0.4 + shift + off, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+            )
+    half = FootpassHalf(game_id="g", half=1, rows=np.asarray(rows, dtype=np.float32))
+
+    rel = relative_coords(half)
+    assert rel.shape == (len(rows), 2)
+    # Each player's relative x is constant despite the moving team centroid.
+    for pid, want in ((100, 0.5 - 0.1), (101, 0.5 + 0.1)):
+        sel = half.rows[:, COL.PLAYER_ID] == pid
+        assert np.allclose(rel[sel, 0], want, atol=1e-6)
+
+
+def test_relative_coords_are_nan_where_the_player_is_not_observable():
+    rows = [
+        [0, 100, 0, 7, 2, 0.4, 0.5, 0.0, 0.0, NAN, 0.0, 0.0, 0.0, 0.0],
+        [0, 101, 0, 7, 3, 0.6, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+    ]
+    half = FootpassHalf(game_id="g", half=1, rows=np.asarray(rows, dtype=np.float32))
+    rel = relative_coords(half)
+    assert np.isnan(rel[0]).all()
+    assert not np.isnan(rel[1]).any()
+
+
+def test_build_fragments_relative_uses_relative_coordinates():
+    rows = []
+    for f in range(20):
+        for pid, off in ((100, -0.1), (101, +0.1)):
+            rows.append(
+                [f, pid, 0, 7, 2, 0.5 + off, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+            )
+    half = FootpassHalf(game_id="g", half=1, rows=np.asarray(rows, dtype=np.float32))
+    frags = build_fragments(half, min_frames=1, relative=True)
+    by_pid = {f.player_id: f for f in frags}
+    assert np.allclose(by_pid[100].xs, 0.4, atol=1e-6)
+    assert np.allclose(by_pid[101].xs, 0.6, atol=1e-6)
 
 
 def test_build_fragments_drops_fragments_below_min_frames():

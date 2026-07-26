@@ -131,17 +131,60 @@ def auc(same, diff) -> float:
     return float(1.0 - u_same / (len(s) * len(d)))
 
 
+def relative_coords(half: FootpassHalf) -> np.ndarray:
+    """(n_rows, 2) formation-relative position, NaN where not observable.
+
+    Variant B. A player is observable only when play is near them, so absolute
+    occupancy partly measures where the BALL was, not where the player's role
+    is -- a selection effect, not a coordinate shift (FOOTPASS positions are
+    pitch coordinates). Subtracting the team's OBSERVABLE centroid per frame
+    removes the shared play-location component and leaves formation-relative
+    position, which is the part that should identify a player.
+
+    Only observable teammates enter the centroid: the deployed system cannot
+    see the others either.
+    """
+    rows = half.rows
+    out = np.full((len(rows), 2), np.nan, dtype=np.float64)
+    observable = (~np.isnan(rows[:, COL.ROI_X])).astype(np.float64)
+    key = rows[:, COL.FRAME].astype(np.int64) * 4 + rows[:, COL.TEAM].astype(np.int64)
+    _, inv = np.unique(key, return_inverse=True)
+    n_groups = int(inv.max()) + 1 if len(inv) else 0
+    counts = np.bincount(inv, weights=observable, minlength=n_groups)
+    valid = counts > 0
+    for axis, col in ((0, COL.X), (1, COL.Y)):
+        vals = np.nan_to_num(rows[:, col].astype(np.float64))
+        sums = np.bincount(inv, weights=vals * observable, minlength=n_groups)
+        means = np.divide(sums, counts, out=np.zeros_like(sums), where=valid)
+        rel = rows[:, col].astype(np.float64) - means[inv] + 0.5
+        out[:, axis] = np.where((observable > 0) & valid[inv], rel, np.nan)
+    return out
+
+
 def build_fragments(
-    half: FootpassHalf, *, max_gap_frames: int = 2, min_frames: int = 25
+    half: FootpassHalf,
+    *,
+    max_gap_frames: int = 2,
+    min_frames: int = 25,
+    relative: bool = False,
 ) -> list[Fragment]:
     """One fragment per observable span, carrying ONLY observable positions.
 
     FOOTPASS knows a player's position while off-camera; the deployed system
     never will, so those rows are dropped rather than interpolated.
+
+    `relative=True` selects variant B (formation-relative coordinates, see
+    `relative_coords`) instead of absolute pitch position.
     """
     rows = half.rows
+    coords = (
+        relative_coords(half)
+        if relative
+        else np.stack([rows[:, COL.X], rows[:, COL.Y]], axis=1).astype(np.float64)
+    )
     order = np.lexsort((rows[:, COL.FRAME], rows[:, COL.PLAYER_ID]))
     rows = rows[order]
+    coords = coords[order]
     pids = rows[:, COL.PLAYER_ID]
     boundaries = np.flatnonzero(np.diff(pids)) + 1
     out: list[Fragment] = []
@@ -149,9 +192,10 @@ def build_fragments(
         if not len(chunk):
             continue
         sub = rows[chunk]
+        sub_coords = coords[chunk]
         pid = int(sub[0, COL.PLAYER_ID])
         frames = sub[:, COL.FRAME].astype(int)
-        visible = ~np.isnan(sub[:, COL.ROI_X])
+        visible = ~np.isnan(sub[:, COL.ROI_X]) & ~np.isnan(sub_coords).any(axis=1)
         vis_frames = frames[visible]
         if not len(vis_frames):
             continue
@@ -168,8 +212,8 @@ def build_fragments(
                     player_id=pid,
                     start=start,
                     end=end,
-                    xs=sub[sel, COL.X].astype(np.float64),
-                    ys=sub[sel, COL.Y].astype(np.float64),
+                    xs=sub_coords[sel, 0],
+                    ys=sub_coords[sel, 1],
                     role=role,
                     team=team,
                 )
@@ -266,8 +310,8 @@ def sample_pairs(
     return np.stack([si, sj], axis=1) if len(si) else np.zeros((0, 2), int), uniq
 
 
-def _half_scores(path: Path, key: str, rng, *, min_frames: int, max_diff: int):
-    frags = build_fragments(load_half(path, key), min_frames=min_frames)
+def _half_scores(path: Path, key: str, rng, *, min_frames: int, max_diff: int, relative: bool):
+    frags = build_fragments(load_half(path, key), min_frames=min_frames, relative=relative)
     if len(frags) < 2:
         return frags, np.zeros((0, 2), int), np.zeros(0), np.zeros((0, 2), int), np.zeros(0)
     mat = footprint_matrix(frags)
@@ -284,6 +328,7 @@ def phase_a(
     n_train_halves: int = 4,
     min_frames: int = 50,
     max_diff: int = 200_000,
+    relative: bool = False,
 ) -> dict:
     rng = np.random.default_rng(0)
     train_keys = half_keys(train_path)[:n_train_halves]
@@ -292,7 +337,7 @@ def phase_a(
     fit_same, fit_diff = [], []
     for key in train_keys:
         _, _, ds, _, dd = _half_scores(
-            train_path, key, rng, min_frames=min_frames, max_diff=max_diff
+            train_path, key, rng, min_frames=min_frames, max_diff=max_diff, relative=relative
         )
         fit_same.append(ds)
         fit_diff.append(dd)
@@ -304,7 +349,7 @@ def phase_a(
     per_half = {}
     for key in val_keys:
         frags, same, ds, diff, dd = _half_scores(
-            val_path, key, rng, min_frames=min_frames, max_diff=max_diff
+            val_path, key, rng, min_frames=min_frames, max_diff=max_diff, relative=relative
         )
         per_half[key] = {
             "fragments": len(frags),
@@ -379,6 +424,7 @@ def phase_a(
         "train_keys": train_keys,
         "val_keys": val_keys,
         "min_frames": min_frames,
+        "variant": "B-formation-relative" if relative else "A-absolute",
         "per_half": per_half,
         "n_same_pairs": int(len(same_d)),
         "n_diff_pairs": int(len(diff_d)),
@@ -412,16 +458,20 @@ def main() -> None:
     ap.add_argument("--min-frames", type=int, default=50)
     ap.add_argument("--train-halves", type=int, default=4)
     ap.add_argument("--max-diff", type=int, default=200_000)
+    ap.add_argument("--relative", action="store_true", help="variant B: formation-relative")
     ap.add_argument("--out", type=Path, default=Path("docs/reports/2026-07-27-phase-a-raw.json"))
     args = ap.parse_args()
 
     r = phase_a(
-        n_train_halves=args.train_halves, min_frames=args.min_frames, max_diff=args.max_diff
+        n_train_halves=args.train_halves,
+        min_frames=args.min_frames,
+        max_diff=args.max_diff,
+        relative=args.relative,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(r, indent=2))
 
-    print(f"min_frames={r['min_frames']}  pairs: same={r['n_same_pairs']} diff={r['n_diff_pairs']}")
+    print(f"variant={r['variant']} min_frames={r['min_frames']}  pairs: same={r['n_same_pairs']} diff={r['n_diff_pairs']}")
     print(
         f"H1 AUC(calibrated LLR)={r['auc_llr']:.4f}  [raw distance {r['auc_raw_distance']:.4f}]"
         f"  -> {_verdict(r['h1_pass'], r['h1_fail'])}"
