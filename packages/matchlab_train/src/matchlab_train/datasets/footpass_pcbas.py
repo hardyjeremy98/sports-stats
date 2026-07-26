@@ -174,6 +174,7 @@ def half_to_events(
                 class_id=int(row[CLS]),
                 score=1.0,
                 t=frame_idx / fps,
+                has_bbox=not np.isnan(row[ROI_X]),
             )
         )
     return PCBASEvents(key=key, game_id=game_id, half=half, fps=fps, events=events)

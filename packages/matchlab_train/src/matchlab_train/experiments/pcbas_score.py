@@ -75,6 +75,15 @@ class PCBASScoreExperiment(Experiment):
             table = slot_shirt_table(rows, logits.shape[2])
 
             gt[key] = half_to_events(rows, key).events
+            uncovered_gt = sum(1 for e in gt[key] if e.frame_idx >= logits.shape[2])
+            if uncovered_gt:
+                # Every one of these is counted as a false negative, which is right
+                # for a full run and badly misleading for a truncated one.
+                print(
+                    f"WARNING {key}: {uncovered_gt} of {len(gt[key])} GT events lie "
+                    f"beyond the logits' {logits.shape[2]} frames and will all count "
+                    f"as false negatives"
+                )
             pred_slot[key] = events
             pred_shirt[key] = assign_shirts(events, table)
             per_half.append(
@@ -86,6 +95,7 @@ class PCBASScoreExperiment(Experiment):
                     "unknown_shirt": sum(
                         1 for e in pred_shirt[key] if e.shirt_number == -1
                     ),
+                    "gt_beyond_logits": uncovered_gt,
                 }
             )
 

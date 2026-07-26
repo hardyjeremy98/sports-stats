@@ -135,10 +135,19 @@ class PCBASInferLogitsExperiment(Experiment):
             acc = WindowAccumulator(last - first + 1, offset=first)
             starts = window_starts(first, last, p.clip_length, p.stride)
 
+            # Sort once and slice per window. Scanning the half's ~1.6M rows for
+            # every one of ~3,000 windows dominated the wall clock -- 0.28s of a
+            # 0.45s window against a 0.13s model forward.
+            observable = rows[~np.isnan(rows[:, ROI_X])]
+            observable = observable[np.argsort(observable[:, FRAME], kind="stable")]
+            sorted_frames = observable[:, FRAME]
+
             for i, start in enumerate(starts):
                 clip = video.read_clip(start, p.clip_length)
                 window_frames = list(range(start, start + p.clip_length))
-                rois, masks = slot_rois_masks(rows, window_frames)
+                lo = int(np.searchsorted(sorted_frames, start, side="left"))
+                hi = int(np.searchsorted(sorted_frames, start + p.clip_length, side="left"))
+                rois, masks = slot_rois_masks(observable[lo:hi], window_frames)
 
                 from matchlab_train.datasets.footpass_clips import NORM_MEAN, NORM_STD
 
