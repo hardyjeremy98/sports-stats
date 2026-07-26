@@ -51,6 +51,20 @@ class Params(BaseModel):
         "CAMELTrack/pretrained_models/reid/"
         "kpr_dancetrack_sportsmot_posetrack21_occludedduke_market_split0.pth.tar"
     )
+    # Appearance model behind the frame_features artifact — the re-ID engine's
+    # input layer. The TRACKER always uses KPR internally (the released TDLP
+    # head consumes its 6-part parts_appearance shape); this selects what the
+    # ASSOCIATE layer downstream gets. "prtreid" costs a second feature-gen
+    # pass over the same staged frames, spending the PRD's "reuse the tracker's
+    # own features at zero extra inference cost" property — deliberately, see
+    # docs/reports/2026-07-25-spo85-gt-tracklet-embedder-comparison.md.
+    # Default since 2026-07-26: PRTreID is the adopted re-ID backbone. Set
+    # "kpr" to skip the second feature-gen pass when a run needs tracking only
+    # and will never be associated.
+    reid_model: str = "prtreid"
+    prtreid_weights: str = (
+        "CAMELTrack/pretrained_models/reid/prtreid-soccernet-baseline.pth.tar"
+    )
     # Device passed to both external steps. KPR/RTMPose want CUDA; "cpu" works
     # but is very slow (onnxruntime here is CPU-only anyway for pose).
     device: str = "cuda:0"
@@ -104,6 +118,11 @@ class TdlpFullTracker(Tracker):
             "head_weights": root / self.params.head_weights,
             "history_yaml": root / self.params.history_yaml,
             "kpr_weights": root / self.params.kpr_weights,
+            **(
+                {"prtreid_weights": root / self.params.prtreid_weights}
+                if self.params.reid_model == "prtreid"
+                else {}
+            ),
         }
 
     def prepare(self, ctx: StageContext) -> None:
@@ -133,6 +152,26 @@ class TdlpFullTracker(Tracker):
                 license=LicenseAxes(
                     code="MIT", weights="CC-BY-NC-4.0", training_data="SportsMOT (CC-BY-NC)"
                 ),
+            ),
+            *(
+                [
+                    ModelProvenance(
+                        architecture="PRTreID (SoccerNet-trained, hrnet32, 'globl' 1x256)",
+                        revision="prtreid-soccernet-baseline",
+                        weights_path=str(p.get("prtreid_weights", "")),
+                        lineage=(
+                            "VlSomers/prtreid; SoccerNet-trained; behind frame_features "
+                            "(the re-ID engine's input) — the tracker still uses KPR"
+                        ),
+                        license=LicenseAxes(
+                            code="Hippocratic HL3-LAW-MEDIA-MIL-SOC-SV",
+                            weights="research",
+                            training_data="SoccerNet",
+                        ),
+                    )
+                ]
+                if self.params.reid_model == "prtreid"
+                else []
             ),
             ModelProvenance(
                 architecture="KPR (keypoint-promptable ReID, 6-part appearance)",
@@ -235,13 +274,39 @@ class TdlpFullTracker(Tracker):
         # Persist the bridge's per-frame KPR embeddings + pose keypoints as the
         # frame_features artifact (SPO-51) — the re-ID engine's input layer —
         # before the work dir (and its pkls) can be cleaned up.
+        reid_feat_dir = feat_dir
+        if params.reid_model == "prtreid":
+            # 3) Second appearance pass for the ASSOCIATE layer only. Pose is
+            #    skipped: nothing under matchlab_core/reid/ reads keypoints.
+            reid_feat_dir = work / "feat_prtreid"
+            reid_feat_dir.mkdir(parents=True, exist_ok=True)
+            bridge.run_external(
+                p["camel_python"],
+                p["gen_features"],
+                [
+                    "--img-dir", str(layout.img_dir),
+                    "--det-file", str(layout.det_file),
+                    "--out-dir", str(reid_feat_dir),
+                    "--weights", str(p["prtreid_weights"]),
+                    "--reid-model", "prtreid",
+                    "--device", params.device,
+                    # Flags last: keeps the arg list parseable pairwise.
+                    "--no-pose",
+                ],
+                cwd=p["root"],
+                timeout_s=params.timeout_s,
+                label="re-ID feature generation (PRTreID)",
+                progress=prog,
+            )
+
         features = bridge.join_features_to_tracklets(
             tracklets,
-            feat_dir,
+            reid_feat_dir,
             layout.local_to_source,
             width=layout.width,
             height=layout.height,
         )
+        features.meta["reid_model"] = params.reid_model
         features.save(ctx.store.path(ArtifactName.FRAME_FEATURES))
         prog(f"TDLP-full: {len(features)} feature rows exported")
 

@@ -73,7 +73,11 @@ export default function Report() {
               <h2 className="text-sm font-medium">Minimap replay</h2>
               <span className="text-[12px] text-ink-500">synced to the video</span>
             </div>
-            <PitchCanvas minimap={artifacts.minimap} getTime={getTime} />
+            <PitchCanvas
+              minimap={artifacts.minimap}
+              getTime={getTime}
+              pitchName={(r.manifest?.config?.pitch as string | undefined) ?? undefined}
+            />
           </Card>
         </div>
 

@@ -61,6 +61,7 @@ def _fake_external_root(tmp_path: Path) -> Path:
         "TDLP/history/SportsMOT/tdlp.yaml",
         "CAMELTrack/pretrained_models/reid/"
         "kpr_dancetrack_sportsmot_posetrack21_occludedduke_market_split0.pth.tar",
+        "CAMELTrack/pretrained_models/reid/prtreid-soccernet-baseline.pth.tar",
     ]:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +78,8 @@ def _fake_run_external(python_exe, script, args, *, cwd, timeout_s, label,
     for key, value in opts.items():
         if key in ("--img-dir", "--det-file", "--out-dir", "--data-root"):
             assert Path(value).is_absolute(), f"{key} must be absolute, got {value}"
+    reid_model = opts.get("--reid-model", "kpr")
+    parts, dim = (1, 256) if reid_model == "prtreid" else (6, 128)
     if "feature generation" in label:
         img_dir = Path(opts["--img-dir"])
         out_dir = Path(opts["--out-dir"])
@@ -98,8 +101,8 @@ def _fake_run_external(python_exe, script, args, *, cwd, timeout_s, label,
                     "keypoints_xyc": [[0.5, 0.5, 0.9]] * 17,
                     "keypoints_conf": 0.9,
                     # embedding fill = LOCAL frame idx: proves index mapping
-                    "appearance_embeddings": np.full((6, 128), float(i)).tolist(),
-                    "appearance_visibility": [1.0] * 6,
+                    "appearance_embeddings": np.full((parts, dim), float(i)).tolist(),
+                    "appearance_visibility": [1.0] * parts,
                 })
             with open(out_dir / f"{i:06d}.pkl", "wb") as f:
                 pickle.dump(dets, f)
@@ -133,7 +136,7 @@ def test_stage_exports_frame_features(tmp_path, monkeypatch, stride):
         for k in range(4)
     ]
 
-    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu"})
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "reid_model": "kpr"})
     tracklets = stage.track(ctx, detections)
 
     assert len(tracklets) == 1
@@ -166,7 +169,86 @@ def test_stage_exports_features_with_keep_work(tmp_path, monkeypatch):
         )
         for k in range(4)
     ]
-    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "keep_work": True})
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "keep_work": True, "reid_model": "kpr"})
     stage.track(ctx, detections)
     assert ctx.store.path(ArtifactName.FRAME_FEATURES).exists()
     assert (ctx.store.run_dir / "_tdlp_work").exists()
+
+
+def _dets(stride: int = 1) -> list[FrameDetections]:
+    return [
+        FrameDetections(
+            frame_idx=k * stride,
+            t=k * stride / 10.0,
+            detections=[Detection(box=BOX, confidence=0.9, cls=DetectionClass.PLAYER)],
+        )
+        for k in range(4)
+    ]
+
+
+def _recorder(calls: list[str]):
+    def _run(python_exe, script, args, *, cwd, timeout_s, label,
+             extra_pythonpath=None, progress=None):
+        calls.append(label)
+        return _fake_run_external(
+            python_exe, script, args, cwd=cwd, timeout_s=timeout_s, label=label,
+            extra_pythonpath=extra_pythonpath, progress=progress,
+        )
+
+    return _run
+
+
+def test_reid_model_prtreid_sources_frame_features_from_a_second_pass(tmp_path, monkeypatch):
+    """The tracker keeps KPR internally (the released TDLP head consumes its
+    6-part shape), but frame_features — the ASSOCIATE layer's input — must come
+    from the PRTreID pass. The fake emits 1x256 for prtreid and 6x128 for kpr,
+    so the written artifact's shape identifies which pass produced it."""
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "run_external", _recorder(calls))
+    root = _fake_external_root(tmp_path)
+    (root / "CAMELTrack/pretrained_models/reid/prtreid-soccernet-baseline.pth.tar").touch()
+    monkeypatch.setattr(tdlp_full_stage, "_default_external_root", lambda: root)
+
+    ctx = _make_ctx(tmp_path, stride=1)
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "reid_model": "prtreid"})
+    stage.track(ctx, _dets())
+
+    feats = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
+    assert feats.embeddings.shape[1:] == (1, 256), "frame_features must come from PRTreID"
+    assert feats.meta["reid_model"] == "prtreid"
+    assert sum("re-ID feature generation" in c for c in calls) == 1
+    assert sum("feature generation (RTMPose + KPR)" in c for c in calls) == 1
+
+
+def test_reid_model_defaults_to_prtreid_and_runs_the_second_pass(tmp_path, monkeypatch):
+    """PRTreID is the adopted backbone (2026-07-26), so the default path must
+    source frame_features from the second pass. The fake emits 1x256 for
+    prtreid and 6x128 for kpr, so the artifact's shape identifies the source."""
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "run_external", _recorder(calls))
+    root = _fake_external_root(tmp_path)
+    monkeypatch.setattr(tdlp_full_stage, "_default_external_root", lambda: root)
+
+    ctx = _make_ctx(tmp_path, stride=1)
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu"})
+    stage.track(ctx, _dets())
+
+    feats = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
+    assert feats.embeddings.shape[1:] == (1, 256)
+    assert feats.meta["reid_model"] == "prtreid"
+    assert sum("re-ID feature generation" in c for c in calls) == 1
+
+
+def test_reid_model_kpr_opts_out_of_the_second_pass(tmp_path, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "run_external", _recorder(calls))
+    root = _fake_external_root(tmp_path)
+    monkeypatch.setattr(tdlp_full_stage, "_default_external_root", lambda: root)
+
+    ctx = _make_ctx(tmp_path, stride=1)
+    stage = build(StageKind.TRACK, "tdlp-full", {"device": "cpu", "reid_model": "kpr"})
+    stage.track(ctx, _dets())
+
+    feats = FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
+    assert feats.embeddings.shape[1:] == (6, 128)
+    assert not any("re-ID feature generation" in c for c in calls)

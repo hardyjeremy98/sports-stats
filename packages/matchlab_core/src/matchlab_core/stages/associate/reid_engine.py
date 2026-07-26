@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.gt import GroundTruth
@@ -65,22 +65,47 @@ from matchlab_core.schemas.run import StageKind
 
 
 class Params(BaseModel):
-    # Minimum part-aware similarity between tracklet representations to
-    # consider a similarity-only merge; anchor-driven merges bypass it. The
-    # default (>1.0) DISABLES similarity-only merging — measured on the
-    # SoccerNet tuning tier (SPO-59, 2026-07-24): even at the calibrated
-    # threshold (0.95: same-player pairs score 0.94-0.98, different-player
-    # p90 0.912) similarity merges bought +0.004 entity IDF1 over anchor-only
-    # while failing the do-no-harm gate on entity purity; anchor-only merging
-    # matched no-op purity exactly at +0.016 IDF1 / +0.011 HOTA. Set 0.95 to
-    # re-enable similarity merging as a measured trade-off.
-    min_similarity: float = 1.01
+    # Unknown params are a loud error, not a silent no-op: a stale override
+    # left in a benchmark config (e.g. sinkhorn_iterations after ADR 006)
+    # would otherwise quietly do nothing and mislabel the arm.
+    model_config = ConfigDict(extra="forbid")
+
+    # Minimum part-aware similarity for a similarity merge; anchor-driven
+    # merges bypass it. **Similarity merging is ON by default** (Jeremy,
+    # 2026-07-26) at the permissive end of the measured curve.
+    #
+    # This reverses the SPO-59 default (1.01 = disabled). That default came
+    # from a zero-tolerance do-no-harm reading; SPO-85 measured the whole
+    # curve downstream on the GT-tracklet substrate and found the trade
+    # strongly favourable (entity IDF1 0.8502 no-op -> 0.9536 here, identity
+    # switches 125 -> 41, for entity purity 1.0 -> 0.986):
+    #
+    #   margin 0.04 / floor 0.80 -> IDF1 0.9177, purity 0.9936, 48 ok / 8 bad
+    #   margin 0.02 / floor 0.80 -> IDF1 0.9301, purity 0.9906, 67 ok / 11 bad
+    #   margin 0.00 / floor 0.80 -> IDF1 0.9536, purity 0.9860, 87 ok / 15 bad  <- default
+    #
+    # Merge quality is governed by `merge_min_margin` alone: a calibrated
+    # per-pair model reproduces this exact partition on 8/8 sequences, and
+    # neither a stronger embedder nor k-reciprocal re-ranking moved the curve
+    # (SPO-85 report, 2026-07-25 + correction).
+    #
+    # TWO THINGS TO KNOW BEFORE TRUSTING THIS DEFAULT:
+    #  * It deliberately admits wrong merges (~15% of merges on tuning) so
+    #    downstream work can see and handle them. It therefore FAILS the PRD's
+    #    zero-tolerance do-no-harm gate by design, not by accident.
+    #  * It was measured only on GT fragments, which are pure by construction.
+    #    Real TDLP-full tracklets carry their own swaps and no equivalent
+    #    measurement exists yet. Raise `merge_min_margin` toward 0.04 (or set
+    #    min_similarity > 1.0 to disable) if contamination matters more than
+    #    recall for your run.
+    min_similarity: float = 0.80
     # Similarity-pair admission rule (SPO-73). "threshold": any gate-passing
     # pair at/above min_similarity. "mutual-best": additionally each side must
     # rank the other first among its gate-passing candidates and beat its own
     # runner-up by merge_min_margin — the GSR-winner recipe, which tolerates
-    # the upper-tail overlap that sinks absolute thresholds.
-    merge_decision_rule: str = "threshold"
+    # the upper-tail overlap that sinks absolute thresholds. Default since
+    # 2026-07-26: mutual-best at zero margin is the measured operating point.
+    merge_decision_rule: str = "mutual-best"
     merge_min_margin: float = 0.0
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
@@ -116,11 +141,9 @@ class Params(BaseModel):
     anchor_min_box_height: float = 0.0
     anchor_seed: int = 0
     # Naming decoder (SPO-57): posterior/margin bars below which a thread
-    # abstains, and the Sinkhorn balancing passes (few by design — see
-    # matchlab_core.reid.naming for why running to convergence is wrong here).
+    # abstains. There is no balancing step — see ADR 006 (SPO-72).
     min_posterior: float = 0.6
     min_margin: float = 0.2
-    sinkhorn_iterations: int = 2
     # Confidence tiers (SPO-58): named threads clearing both bars auto-accept;
     # the rest enter the adjudication band (v1 adjudicator is a pass-through
     # to human QA); abstained threads go straight to QA.
@@ -227,8 +250,7 @@ class ReidEngineAssociator(Associator):
             thread_spans=thread_spans,
             min_posterior=p.min_posterior,
             min_margin=p.min_margin,
-            sinkhorn_iterations=p.sinkhorn_iterations,
-            overlap_tolerance_frames=p.overlap_tolerance_frames,
+                overlap_tolerance_frames=p.overlap_tolerance_frames,
         )
         assign_tiers(
             threads,

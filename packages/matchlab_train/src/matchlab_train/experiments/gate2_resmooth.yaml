@@ -1,0 +1,12 @@
+name: gate2-resmooth
+task: gate2-resmooth
+description: >
+  Re-score the Gate 2 panel under the current smoother by re-smoothing each run's
+  persisted calibration_raw.jsonl. GPU-free: no frames are decoded and PnLCalib is
+  never invoked. Reports both the per-frame gamestate metrics and the windowed
+  0.5 s speed metric the SPO-84 drift diagnosis used.
+params:
+  runs_glob: data/runs/gate2-SNMOT-*
+  gt_dir: data/videos/soccernet
+  report_path: data/reports/gate2-gamestate/pnlcalib_arm.json
+  smoother_label: v3 (median aggregation, window 15)

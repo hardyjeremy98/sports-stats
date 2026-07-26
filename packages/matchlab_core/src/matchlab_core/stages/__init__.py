@@ -9,6 +9,7 @@ from matchlab_core.stages.associate import (  # noqa: F401
     reid_engine,
 )
 from matchlab_core.stages.calibrate import (  # noqa: F401
+    pnlcalib,
     roboflow_keypoints,
     static,
     yolo_pitch_local,
@@ -44,5 +45,6 @@ from matchlab_core.stages.track import (  # noqa: F401
     learned_stub,
     ocsort,
 )
+from matchlab_core.stages.track import oracle as track_oracle  # noqa: F401
 from matchlab_core.stages.track.tdlp import stage as tdlp_shippable  # noqa: F401
 from matchlab_core.stages.track.tdlp_full import stage as tdlp_full  # noqa: F401

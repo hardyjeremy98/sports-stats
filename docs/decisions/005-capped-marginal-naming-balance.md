@@ -1,7 +1,14 @@
 # ADR 005: Naming belief balance is capped-marginal (unbalanced OT), not doubly-stochastic Sinkhorn
 
-**Status:** Accepted
+**Status:** Superseded by [ADR 006](006-no-naming-balance.md) (2026-07-25)
 **Date:** 2026-07-24
+
+> **Superseded.** This ADR's own pre-registered removal condition fired on the SPO-59
+> held-out benchmark (0 vs 2 iterations differ by <0.01 with inconsistent sign), and the
+> balance was removed in SPO-72. The reasoning below is retained as the record of why the
+> capped-marginal variant was chosen over textbook Sinkhorn in the first place — that part
+> still stands, and ADR 006 builds on it. What no longer holds is the conclusion that the
+> balance should exist at all.
 
 ## Context
 

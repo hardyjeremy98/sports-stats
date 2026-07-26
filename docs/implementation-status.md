@@ -1,7 +1,7 @@
 # Implementation Status
 
 **Status:** Canonical factual inventory  
-**Last verified:** 2026-07-19  
+**Last verified:** 2026-07-24  
 **Purpose:** Distinguish implemented behavior from prototypes, stubs, research candidates, and plans.
 
 Update this document when a capability is added, removed, materially changed, or measured. Product
@@ -74,9 +74,9 @@ project in Linear.
 | Learned query-propagation tracking | Stub | `learned-motr` raises `NotImplementedError` | `stages/track/learned_stub.py` |
 | Multi-cue learned tracking (in-repo `tdlp-shippable`, legacy name) | Superseded — **CLOSED, not the default, not maintained** | A partial in-repo TDLP rebuild from the retired SPO-36–44 rebuild program (closed 2026-07-20 by the research-mode pivot; TDLP-full — see the callout above — replaced it outright). This stage (weaker DINOv2 appearance) does **not** beat the default BoT-SORT. `tdlp-shippable` (`StageKind.TRACK`): RF-DETR detections + RTMPose keypoints + DINOv2 global appearance → **vendored TDLP link-prediction head** (`matchlab_core/_vendor/tdlp/`, MIT @50344b9, arch only; local `global_appearance` encoder in place of KPR 6-part) → in-repo offline association loop (SciPy Hungarian, no `motrack`). Runs end-to-end on arbitrary video (verified: `configs/pipeline.tdlp-shippable-smoke.yaml`, 40 frames → 24 tracklets). Head behind a swappable interface: random-init (plumbing, logs loudly) or a checkpoint; only a preliminary eval-tier-trained head exists (`matchlab_train/tdlp_head_train.py`, corrupt-and-recover). The once-planned permissive-data retrain (SPO-39/40) was **canceled, not blocked** — with TDLP-full implemented there is nothing left to rebuild. See [`docs/reports/2026-07-19-spo42-assembled-shippable-tdlp.md`](reports/2026-07-19-spo42-assembled-shippable-tdlp.md). | `stages/track/tdlp/`, `_vendor/tdlp/`, `stages/associate/embedders/dinov2.py`, `pose/rtmpose.py`, `stages/detect/rfdetr.py` |
 | Team classification | Implemented | Lab-space kit colour and SigLIP/KMeans variants | `matchlab_core/stages/team/` |
-| Camera calibration | Implemented | Static, Roboflow keypoint, and local YOLO variants | `matchlab_core/stages/calibrate/` |
+| Camera calibration | Implemented | Static, Roboflow keypoint (online EMA/carry-and-decay), local YOLO (online EMA/carry-and-decay), and `pnlcalib` (offline) variants. `pnlcalib` calibrates via a subprocess exchange seam to any contract-conforming external calibrator (`matchlab_core/calib/bridge.py`, typed `CalibrationBridgeError`, stdlib `matchlab_core/calib/reference_cli.py` reference implementation) and applies a whole-clip offline global homography smoother (`matchlab_core/calib/smoother.py`, point-correspondence parameterization, per-frame `fresh`/`smoothed`/`interpolated`/`absent` provenance `status`) instead of online EMA/carry-and-decay. The in-repo scaffolding for the real external PnLCalib environment (SPO-65) exists — setup runbook (`docs/reference/external-calibrators-setup.md`), the adapter CLI to copy into the sibling env (`docs/reference/adapters/pnlcalib_cli.py`), and the eval config (`configs/pipeline.pnlcalib-eval.yaml`, `pitch: fifa`, real image→FIFA-cm homography) — but **the sibling `external-calibrators/` environment itself is a pending human step (clone/venv/weights/GPU verify)**, so `pnlcalib` in CI still exercises only the in-repo permissive reference calibrator CLI, runnable end-to-end via `configs/pipeline.pnlcalib-smoke.yaml`. | `matchlab_core/stages/calibrate/`, `matchlab_core/calib/` |
 | Cross-tracklet association | Prototype | Greedy union-find using team/time/speed constraints and mean torso colour; records per-pair decisions (affinity, rejection reason) to `association.json` | `stages/associate/global_embed.py` |
-| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a Sinkhorn-balanced belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`; SPO-73 adds `not_mutual_best`, `margin_too_small` from the mutual-best+margin decision rule, default-inert), the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance), and `reid_detail.json` — the engine's working (per-tracklet view prototypes with source/exemplar frames and part visibility, per-scored-pair winning-prototype + per-part cosine breakdown, ranked gate-passing candidates) — rendered by the Lab run viewer's merge inspector (Assoc tab ⧉): prototype player crops are cut client-side from the original video, no server-side crop images. Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging (the measured default; similarity-only merging is disabled by default after failing the gate even at its calibrated 0.95 threshold) improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
+| **Re-ID engine (B2): merging + naming (SPO-51–58)** | Implemented | Composite `reid-engine` associate stage (identity slot `none`): consumes the TDLP-full bridge's exported per-frame KPR embeddings + pose keypoints (`frame_features.npz`, SPO-51), builds ≤4 view-clustered quality-weighted prototypes per tracklet with part-visibility-aware similarity (SPO-54), merges under hard gates — temporal non-overlap, team consistency, GMC/pitch-metric motion feasibility soft beyond 15 s (SPO-55), anchor conflict — with anchor-labelled tracklets merged first (SPO-56), then names threads against a closed roster via a belief matrix decoded under co-occurrence constraints with first-class abstention (SPO-57; the Sinkhorn balance was removed by ADR 006 / SPO-72 after ADR 005's own removal condition fired — a row is now exactly that thread's own evidence), and routes each thread into auto-accept / adjudicate (pass-through) / human-QA tiers (SPO-58). Benchmark anchors are oracle jersey anchors from GT (coverage/noise/box-height/seed knobs); the face stream is a registered stub. Emits incumbent-format `association.json` (+ new reasons `team_mismatch`, `motion_infeasible`, `anchor_conflict`; SPO-73 adds `not_mutual_best`, `margin_too_small` from the mutual-best+margin decision rule, default-inert), the new `naming.json` (roster, per-thread posterior/margin/decision/tier, anchors consumed, calibration provenance), and `reid_detail.json` — the engine's working (per-tracklet view prototypes with source/exemplar frames and part visibility, per-scored-pair winning-prototype + per-part cosine breakdown, ranked gate-passing candidates) — rendered by the Lab run viewer's merge inspector (Assoc tab ⧉): prototype player crops are cut client-side from the original video, no server-side crop images. Config: [`configs/pipeline.tdlp-full-reid.yaml`](../configs/pipeline.tdlp-full-reid.yaml). **Benchmarked (SPO-59, 2026-07-24): do-no-harm gate PASSED on held-out** — anchor-only merging improves entity IDF1 +0.040 / entity HOTA +0.027 over no-op association at exactly zero entity-purity cost, roster precision 1.0. **Defaults superseded 2026-07-26** (SPO-85): similarity merging is now ON by default at the permissive end of the measured curve (`min_similarity: 0.80`, `merge_decision_rule: mutual-best`, `merge_min_margin: 0.0`) and the re-ID feature backbone is PRTreID — see the SPO-85 report and the "one scalar" finding below. See [`docs/reports/2026-07-24-spo59-reid-b2-benchmark.md`](reports/2026-07-24-spo59-reid-b2-benchmark.md). | `reid/` (pure modules), `stages/associate/reid_engine.py`, `frame_features.py`, `schemas/naming.py` |
 | Association null baseline | Implemented | One player entity per tracklet | `stages/associate/identity_fallback.py` |
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
@@ -104,6 +104,18 @@ stated.
 this field existed still parse — currently always `"observed"` from the in-repo tracker
 implementations; no stage yet writes `predicted`/`interpolated` frames.
 
+`FrameCalibration` (`schemas/calibration.py`) carries a `status` provenance field —
+`"fresh"`/`"smoothed"`/`"interpolated"`/`"absent"`, `None` for calibrators that predate it (the
+online EMA/carry-and-decay calibrators `yolo-pitch-local` and `roboflow-keypoints`, which still
+only set the legacy `smoothed` bool) — set by the `pnlcalib` stage's offline whole-clip smoother
+(`matchlab_core/calib/smoother.py`) after a subprocess calibrator run. `smoothed` is now a
+derived legacy bool (`status not in ("fresh", "absent")`) kept for back-compat with pre-`status`
+JSONL rows and consumers that predate `status`. A pipeline config's `pitch:` field (`roboflow`
+default — the non-physical 120×70 m template `yolo-pitch-local` was trained on; `fifa` — real
+105×68 m geometry, for accurate calibrators) selects the `PitchSpec` wired into
+`StageContext.pitch` (`matchlab_core/pitch.py::get_pitch`) and is recorded verbatim in
+`manifest.json`'s `config` block.
+
 ## Provenance and reproducibility
 
 - **Run provenance recorder** (SPO-10 part 1): every `manifest.json` written by
@@ -116,8 +128,8 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   Every declared field is always present — unknown values are the literal string
   `"unknown"` (or `null` where the schema allows it), never an absent key. `Stage.
   provenance()` is a hook (default `[]`), overridden by `yolo-local` detect,
-  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, the
-  `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
+  `yolo-pitch-local` calibrate, `roboflow` detect, `roboflow-keypoints` calibrate, `pnlcalib`
+  calibrate, the `global-reid` associator's OSNet embedder, `siglip` team classification, and `face`
   identity — each reports architecture, local weights path + streaming SHA-256 (when
   applicable), lineage, and per-axis (`code`/`weights`/`training_data`) license status.
   `evaluation_set_hash` is `"unknown"` on every manifest as written by the pipeline runner
@@ -433,6 +445,123 @@ implementations; no stage yet writes `predicted`/`interpolated` frames.
   - The `soccernet-ball` tier's licensing note is an **inference**, not a confirmed reading
     of SoccerNet's ball-action-specific terms. It is recorded as provenance only and does not
     qualify capability status (research posture); do not redistribute the data regardless.
+- Game-state (pitch-space calibration) metrics (SPO-69): a pure module
+  (`matchlab_core/gamestate_eval.py`) that projects a video's GROUND-TRUTH tracks
+  (player/goalkeeper/referee; ball excluded — it routinely exceeds human speed caps) through a
+  **run's own calibration** homographies and scores the geometry the calibration implies, not
+  tracker quality. Reports coverage (fraction of GT-covered sampled frames carrying a usable,
+  non-`absent` homography), an implausible-speed rate (consecutive-sampled-frame projected
+  steps whose implied speed exceeds a 12 m/s threshold), a teleport count (step displacement
+  over 2 m; plus a `teleports_at_refresh` subset where the two frames' `FrameCalibration.status`
+  differ), and an in-bounds rate (projected positions within a 500 cm margin of the pitch
+  rectangle). Per-step `dt` is derived from the pair's actual sampled-frame indices, not a
+  constant stride/fps, so a missing calibration row can't understate elapsed time and mask an
+  implausible speed. Thresholds are provisional and **NOT gates** — SPO-70 finalizes them; this
+  module reports rates only. Folded into `eval.json` under a `gamestate` key by `evaluate_run`
+  (`matchlab_core/evaluation.py`), with four headline `runs.metrics` keys (`gs_coverage`,
+  `gs_implausible_speed_rate`, `gs_teleports`, `gs_in_bounds_rate`) surfaced as dashboard columns
+  (`web/src/pages/LabDashboard.tsx`) and benchmark matrix cells (`web/src/pages/LabBenchmark.tsx`,
+  `matchlab_server/api/benchmark.py`'s `BENCHMARK_METRIC_KEYS`); `web/src/lib/types.ts` gains a
+  `GameStateEval` mirror. Resolves the scored `PitchSpec` from the manifest's `config.pitch`
+  (default `roboflow`). Omitted entirely (`gamestate` stays absent, never a crash) for
+  tracking-only runs with no `calibration.jsonl`. Benchmark numbers now exist — see the Gate 2
+  entry below.
+
+- Gate 2 calibration smoothing, smoother v3 (SPO-84): the offline smoother
+  (`matchlab_core/calib/smoother.py`) aggregates its window with a **per-grid-point median**
+  (was an arithmetic mean through v2) at a default `smoothing_window` of 15 (was 9).
+  Measured on the twelve `gate2-SNMOT-116..127` runs (config `oracle-pnlcalib-eval`, PnLCalib
+  SV weights, SoccerNet tracking test split, FIFA pitch spec, 750 frames each, stride 1,
+  25 fps), re-scored GPU-free from the persisted `calibration_raw.jsonl` artifacts via the
+  registered `gate2-resmooth` experiment, at code revision `0763d20`:
+
+  - **Windowed 0.5 s player-only implausible-speed rate (>12 m/s): better on all twelve.**
+    Worst clip SNMOT-122 24.58% → 2.49%; drift-clip mean 11.37% → 0.88%; clean-clip mean
+    0.69% → 0.24%. Coverage 1.000 on all twelve. SNMOT-122 in-bounds 92.40% → 99.96%.
+  - **Per-frame implausible-speed rate (what `gamestate_eval` currently computes): WORSE on
+    ten of twelve** (e.g. SNMOT-126 3.62% → 8.78%), better only on the two worst clips
+    (SNMOT-122 23.21% → 11.20%, SNMOT-117 15.15% → 8.54%).
+
+  The two metrics disagree, and the step distribution explains why: v3 removes the
+  catastrophic tail (SNMOT-122 worst per-frame step 453 km → 170 m, p99 341 m → 1.7 m) while
+  adding ~3 cm of uniform jitter, and a 12 m/s cap at 25 fps is a **48 cm per-frame**
+  threshold that sits inside the bulk of the step distribution — so the per-frame rate scores
+  noise rather than implausibility. **Which metric gates is SPO-70's open decision and is not
+  settled here**; no default was changed. The v2 report is retained alongside the v3 one as
+  `data/reports/gate2-gamestate/pnlcalib_arm_v2-smoother.json`.
+
+- Player-trajectory smoothing (SPO-84 follow-up): a second pure module,
+  `matchlab_core/gamestate/trajectory.py`, completing the PRD's "one coordinated smoothing
+  story" — the calibration smoother makes the *camera* coherent, this makes the *player*
+  coherent. Wired into `stages/fuse/minimap.py` for status-bearing calibration only (the
+  legacy EMA/carry path is untouched), and disableable via `track_smoothing: false`.
+  Rejects physically impossible positions against a motion-compensated robust prediction,
+  smooths with a local degree-2 fit windowed in **frame** units, and bridges gaps only when
+  short *and* humanly reachable. A rejected observation keeps its dot at a corrected
+  position; long absences stay absent rather than being fabricated.
+
+  Measured on the same twelve runs, comparing the rendered `minimap.jsonl` (what the Game
+  state view actually draws) with smoothing off vs on — note this is a **different metric
+  family** from `gamestate_eval`, which projects GT tracks through the homography and so
+  bypasses the fuse stage entirely:
+
+  | | pure projection | smoothed | |
+  |---|---|---|---|
+  | median rendered acceleration | 15.35 cm | **1.48 cm** | 10× (below the ~1.6 cm a human can produce) |
+  | p95 acceleration | 71.7 cm | **6.5 cm** | 11× |
+  | teleports (>2 m in one frame) | 0.287% | **0.005%** | 57× |
+  | implied speed >12 m/s | 7.14% | **1.01%** | 7× |
+  | blink events (dot winks out) | 68.4/run | **38.3/run** | 44% fewer |
+
+  Defaults are measured, not chosen: `track_window: 21` (0.84 s) is the widest that still
+  reproduces a 10 m/s² cut to within 6 cm — 25 and 31 buy further smoothness by flattening
+  real cuts (11 cm and 21 cm error).
+
+  Known residual: the blink **rate** (missing frame-time, 20.7%) is essentially unchanged,
+  and deliberately so. It is dominated by long tracker/association gaps — 23% of gaps carry
+  almost all missing frame-time, up to 482 consecutive frames — and bridging those would
+  invent positions for a player nobody tracked. **This is an association problem surfacing
+  as a visual one, not a calibration or fusion problem**: measured cause split is 20.8%
+  tracker gaps vs 0.3% fusion drops.
+
+- Blackout bridging (SPO-84): when pitch registration fails outright for a stretch (SNMOT-122
+  loses 73 consecutive frames, ~3 s), the gap is no longer filled by a straight line — which
+  assumes constant camera velocity, an assumption that clip violates by accelerating 4.5x and
+  reversing direction mid-blackout. Camera motion is recovered from the imagery instead
+  (`matchlab_core/calib/gapmotion.py`, new `camera_motion.jsonl` artifact).
+
+  Two recovery models, failing in opposite ways: chained frame-to-frame motion is smooth
+  (median rendered accel 8.8 cm) but drifts (6.1 m over 73 frames); direct ORB registration
+  against the anchors is unbiased (0.5-1.6 m) but 9.4x jitterier because each frame is
+  registered independently. Combining them — chain for shape, a low-order fit to their
+  difference for drift — gave 8x the accuracy at unchanged smoothness on SNMOT-122 (5.25 m ->
+  0.64 m). Drift correction is NOT uniformly safe (it loses on SNMOT-121, whose gaps are
+  longest and footage most repetitive), so neither model is hardcoded: the smoother is given
+  both and picks **per gap** by self-consistency — each candidate yields two independent
+  estimates carried from either anchor, and the one whose estimates agree wins. That can never
+  be worse than the best single candidate; when none is self-consistent the fill reverts to a
+  straight line.
+
+  Gate 2 windowed implausible-speed, straight-line -> selecting build: SNMOT-122 2.49% ->
+  1.19%, SNMOT-121 0.33% -> 0.19%, dirty max 2.49% -> 1.36%, dirty mean 0.88% -> 0.62%,
+  coverage 1.000, nothing regressed.
+
+  **The gate cannot see most of this improvement**, and that is a finding in its own right: a
+  smoothly-wrong calibration shifts every player together, leaving their relative motion
+  unchanged, so an 8x geometric improvement moved the windowed metric by 0.01pp. Gate 2 is
+  sensitive to the error's time-derivative, not its magnitude. Calibration ACCURACY is
+  currently tracked only by anchor self-consistency (an ad-hoc measure), not by any run metric
+  — worth closing before accuracy regressions can be caught automatically.
+
+  Known residual (calibration): SNMOT-120 is now the worst clip at 1.36% windowed, driven by a
+  ~150-frame stretch (frames 150-299) where the raw estimates are broken rather than missing;
+  no smoother fixes that. SNMOT-122 sits at 1.19%, above the PRD's provisional 1% threshold.
+  Its raw (unsmoothed) rate is 4.77%, so v3 is better than not smoothing; the residual reads
+  as estimator error on a hard clip, not a smoother defect. Camera-parameter-space smoothing
+  was evaluated as a design option and **not implemented** — the drift was located entirely in
+  aggregation, with v2 measuring 3.4× worse than not smoothing at all. See
+  `docs/superpowers/specs/2026-07-25-smoother-v3-design.md` for the full diagnosis and five
+  measured, rejected alternatives.
 
 Primary locations:
 
@@ -658,13 +787,14 @@ Measured local findings recorded by the repository guidance:
   cannot clear do-no-harm at any threshold** (extends the kit-colour finding to KPR
   part-based features): same-player and different-player affinity distributions overlap in
   the upper tail (same p10 0.938 vs diff p90 0.912 on tuning), so even the calibrated 0.95
-  threshold admits wrong merges; similarity-only merging is therefore disabled by default.
+  threshold admits wrong merges; similarity-only merging was therefore disabled by default **until 2026-07-26, when SPO-85 re-measured the whole curve downstream and the default was reversed** (see finding (e) below).
   (c) **Anchor economics: coverage buys coverage, not precision** — naming precision stays
   ~1.0 across coverage 0.1–1.0 at zero noise (abstention 0.95→0.57) and noise is absorbed
   primarily as abstention; a real anchor stream with ≥25% coverage and ≤5% label noise
   clears ≥0.96 naming precision on this substrate. (d) **ADR 005's own removal condition
-  fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity,
-  removal/dustbin follow-up filed.
+  fired**: sinkhorn_iterations 0 vs 2 differ by <0.01 — the balance is unearned complexity.
+  **Removed 2026-07-25** (SPO-72, [ADR 006](decisions/006-no-naming-balance.md)); the dustbin
+  variant is deliberately not built until a real anchor stream produces contested evidence.
 - **Anchorless appearance merging fails do-no-harm under the GSR-recipe decision rule too
   (SPO-73, 2026-07-24; same frozen substrate; report
   [`2026-07-24-spo73-mutual-best-appearance-merge.md`](reports/2026-07-24-spo73-mutual-best-appearance-merge.md)):**
@@ -679,8 +809,72 @@ Measured local findings recorded by the repository guidance:
   in the embedder"**. Next lever: soccer-finetuned embedder re-tested on the same
   pre-registered harness. Secondary defects measured: kit-color team gate falsely vetoes
   19% of true re-entry pairs; 24% of true pairs score below floor from degraded re-entry
-  crops. Similarity merging remains disabled by default (`min_similarity: 1.01`); the
+  crops. Similarity merging was disabled by default at the time (`min_similarity: 1.01`); **reversed 2026-07-26**, see finding (e). The
   rule + reject reasons (`not_mutual_best`, `margin_too_small`) remain as tested machinery.
+  **⚠️ Provisional (annotated 2026-07-25): these held-out numbers are contaminated by
+  SPO-73's own protocol amendment and are not the verdict of record.** The team gate was fed
+  by kit-colour in every arm, falsely vetoing 4/21 true pairs *before the rule evaluated
+  them*, so those pairs' outcomes were never measured. The decontaminated (oracle-team)
+  tuning grid ran and moved the zero-wrong frontier down in yield ("the contaminated run
+  flattered the rule"); the decontaminated held-out gate was pre-registered but **never
+  executed** — SPO-87, blocked by the substrate rebuild (SPO-86: `data/experiments/` and the
+  frozen base run are gone from disk, so these numbers are also currently unreproducible).
+  The direction of the finding is unchanged pending that run; its magnitudes and the derived
+  bar for SPO-74 are not established.
+- **A soccer-trained embedder substantially outperforms the incumbent (SPO-85, 2026-07-25;
+  GT-tracklet harness, tuning SNMOT-116–123; report
+  [`2026-07-25-spo85-gt-tracklet-embedder-comparison.md`](reports/2026-07-25-spo85-gt-tracklet-embedder-comparison.md)):**
+  on a contamination-free substrate (GT tracks fragmented at natural gaps — tracklet purity
+  1.0 by construction, correct pairs known exactly, no tracker run), **PRTreID beats KPR by
+  +0.102 pooled rank-1 (0.898 vs 0.796), winning 7 of 8 sequences**, and beats both in-repo
+  controls (osnet 0.631, dinov2 0.502) — neither of which beats KPR, so the gain is specific
+  to the soccer-trained model rather than to any different backbone. **The mechanism is on
+  the negatives:** same-player affinity is unchanged (median 0.954 → 0.953) while
+  different-player affinity falls (median 0.790 → 0.756, p90 0.920 → 0.875), shrinking the
+  same-p10/different-p90 overlap from −0.055 to −0.005. Long gaps (>5 s) remain the hard case
+  for both (0.825 vs 0.772). **But the retrieval win does not carry through to safe merging:**
+  at the operating point pre-registered on SPO-73's oracle-team amendment (mutual-best,
+  margin 0.07, floor 0.95, anchorless) PRTreID repairs **25 of 125 available merges (20%) but
+  makes 3 wrong ones**, failing per-sequence do-no-harm on SNMOT-117 and SNMOT-123, while KPR
+  repairs 3 of 125 with none — a clean sheet that reflects timidity, not safety. Better
+  ranking is not the same property as trustworthy top-1. **Re-deriving the operating point per
+  arm (pre-registered amendment #1) closed that question: at each arm's own zero-wrong
+  frontier KPR gets 14 correct and PRTreID 13, both of 125, and at matched wrong-merge budgets
+  the two curves interleave with neither dominating.** A +0.102 rank-1 advantage produced no
+  measurable gain on the merge operating curve, because rank-1 is a property of the affinity
+  distribution's body while do-no-harm is set by its extreme tail — which PRTreID left still
+  overlapping (−0.005). **On this evidence the embedder swap is not justified for the merge
+  task**, and the SPO-73 lesson stands with a better embedder: the binding problem is the
+  upper tail, and improving average separability does not fix a tail. **Adoption decision
+  (Jeremy, 2026-07-25): PRTreID becomes the re-ID backbone anyway** — `tdlp-full` gains a
+  `reid_model` param so the tracker keeps KPR internally (the released TDLP head consumes its
+  6-part shape) while `frame_features`, the associate layer's input, comes from a second
+  PRTreID pass; the re-ID pipeline configs set it. Adopted **by decision on the retrieval
+  evidence and to build future work on the strongest representation, not by a merge-metric
+  win** — the merge numbers are neutral, and the cost is a second feature-gen pass, spending
+  the PRD's "reuse the tracker's own features at zero extra inference cost" property. **Not a
+  do-no-harm gate either way:** GT fragments are easier
+  than real tracklets, so this licenses advancing to a real-substrate held-out gate (blocked
+  on the substrate rebuild), not a claim that the pipeline improved.
+  **(e) Merge quality is governed by one scalar, not by added machinery (2026-07-26).**
+  On the GT-tracklet substrate, relaxing the mutual-best margin requirement from 0.04 to 0.00
+  moves entity IDF1 0.8502 (no-op) → 0.9536 and identity switches 125 → 41. Against that,
+  three added subsystems produced **no** measurable merge improvement: the PRTreID backbone
+  (13 vs 14 correct at each arm's zero-wrong frontier; curves interleave), k-reciprocal
+  re-ranking (0.9060 vs 0.9177, worse), and a calibrated per-pair logistic model, which
+  reproduces `margin 0.00 / floor 0.80` **exactly** — identical metrics and an identical merge
+  partition on 8/8 sequences. Purity falls 1.0 → 0.9860 across that range, so the scalar is a
+  recall/contamination dial and the open question is where to set it, not what to add.
+  **Defaults changed (Jeremy, 2026-07-26):** the shipped `reid-engine` now merges permissively
+  — `min_similarity: 0.80`, `merge_decision_rule: mutual-best`, `merge_min_margin: 0.0` — and
+  `tdlp-full` defaults to `reid_model: prtreid`. This deliberately admits wrong merges (~15% of
+  merges on tuning) so downstream work can see and handle them, and therefore **fails the PRD's
+  zero-tolerance do-no-harm gate by design**. It is also an extrapolation: the curve was measured
+  on GT fragments, which are pure by construction, and no equivalent measurement exists on real
+  TDLP-full tracklets. Set `merge_min_margin: 0.04` for the conservative end, or
+  `min_similarity: 1.01` to restore the old anchor-only behaviour. The harness carries ~7×
+  the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
+  held-out verdict, over 198 person tracks fragmenting into 323 fragments.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —

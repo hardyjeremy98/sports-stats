@@ -1,0 +1,71 @@
+# Gate 2 recipe (SPO-70): oracle (GT-box) detection with real PnLCalib pitch
+# calibration, so game-state quality (coverage / jitter / teleports / in-bounds,
+# computed by projecting GT tracks through the run's smoothed homographies) is
+# measured with detection quality held perfect — the gate isolates
+# calibration + offline smoothing from tracker errors.
+#
+# Human-initiated: requires the external-calibrators/ sibling env
+# (docs/reference/external-calibrators-setup.md). Point at GT-backed videos
+# (configs/datasets/soccernet.json tuning + held_out sequences).
+name: oracle-pnlcalib-eval
+description: >
+  Oracle GT-box detector + IoU tracker + kit-color teams with PnLCalib pitch
+  registration (external sibling venv) and offline trajectory smoothing, for
+  Gate 2 game-state quality measurement on GT-tracked sequences.
+sport: soccer
+# PnLCalib calibrates to real pitch geometry: use the physically-correct FIFA
+# coordinate system for calibration, minimap, and game-state eval consistency.
+pitch: fifa
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: pnlcalib
+    params:
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

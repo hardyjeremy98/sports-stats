@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pytest
 from matchlab_core.reid.anchors import Anchor, Roster
-from matchlab_core.reid.naming import decode_names, name_threads, sinkhorn
+from matchlab_core.reid.naming import decode_names, name_threads
 from matchlab_core.schemas.naming import NamingDecision
 
 LR9 = math.log(9.0)  # a "90% reliable" anchor
@@ -20,29 +19,6 @@ def _anchor(tid: int, cand: str, log_lr: float = LR9) -> Anchor:
 
 
 ROSTER_AB = Roster(candidates=["A", "B"])
-
-
-# --- sinkhorn -------------------------------------------------------------
-
-
-def test_sinkhorn_one_iteration_matches_hand_computation():
-    # Rows: T1 = [0.9, 0.1] (anchored), T2 = [0.5, 0.5] (uniform). Column cap
-    # max(1, T/R) = 1. One iteration = scale down over-subscribed columns,
-    # then row-normalize. Column A mass 1.4 > 1 -> [0.642857, 0.357143];
-    # column B mass 0.6 stays (never scaled up: abstention beats inflation).
-    #   rows: T1/0.742857 -> [0.865385, 0.134615]; T2/0.857143 -> [0.416667, 0.583333]
-    out = sinkhorn(np.array([[0.9, 0.1], [0.5, 0.5]]), iterations=1)
-    np.testing.assert_allclose(
-        out, [[0.8653846, 0.1346154], [0.4166667, 0.5833333]], rtol=1e-5
-    )
-
-
-def test_sinkhorn_preserves_row_stochasticity_and_is_deterministic():
-    m = np.array([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1], [0.4, 0.4, 0.2], [0.3, 0.3, 0.4]])
-    out1 = sinkhorn(m, iterations=25)
-    out2 = sinkhorn(m, iterations=25)
-    np.testing.assert_array_equal(out1, out2)
-    np.testing.assert_allclose(out1.sum(axis=1), np.ones(4), rtol=1e-9)
 
 
 # --- decode ---------------------------------------------------------------
@@ -64,17 +40,20 @@ def test_strongly_anchored_thread_is_named():
     assert d.margin is not None and d.margin > 0.6
 
 
-def test_confident_anchor_suppresses_that_name_on_other_threads():
-    # T2 has no evidence of its own; Sinkhorn column competition must push
-    # its belief in A below the uniform prior (A is "taken" by T1).
+def test_evidence_free_thread_keeps_a_uniform_posterior(): 
+    # ADR 006 (was: Sinkhorn suppressed this below uniform). T2 has no evidence
+    # of its own, so its row stays exactly uniform — a posterior means "what
+    # this thread's own evidence says", nothing more. The DECISION is unchanged
+    # either way: no direct evidence, so it abstains.
     threads = {
         1: {"tracklet_ids": [10], "spans": [(0, 50)]},
         2: {"tracklet_ids": [20], "spans": [(60, 100)]},
     }
     out = _decode(threads, [_anchor(10, "A")])
     assert out[1].label == "A"
-    assert out[2].posterior["A"] < 0.5
-    assert out[2].decision == NamingDecision.ABSTAIN  # thin evidence -> unknown
+    assert out[2].posterior["A"] == pytest.approx(0.5)
+    assert out[2].posterior["B"] == pytest.approx(0.5)
+    assert out[2].decision == NamingDecision.ABSTAIN
 
 
 def test_co_occurring_threads_never_share_a_name():
@@ -126,56 +105,30 @@ def test_empty_roster_abstains_everything():
     assert out[1].posterior == {}
 
 
-# --- ADR 005 neutrality invariant (iteration-count independent) -----------
+# --- neutrality invariant (ADR 003; unconditional after ADR 006) ---------
 
 
-@pytest.mark.parametrize("iterations", [0, 1, 2, 5, 25])
-def test_evidence_elsewhere_never_moves_evidence_free_posteriors(iterations):
-    """ADR 005 / ADR 003: with capped-marginal balancing, adding an anchor to
-    thread i must not change an evidence-free thread j's posterior over names
-    whose columns stay uncapped. Columns only ever scale DOWN, and a scalar
-    column scale preserves within-row ratios among uncapped names — textbook
-    Sinkhorn violates this by inflating under-subscribed columns by
-    column-dependent factors. Constructed so no column crosses the cap in
-    either scenario (T=3, R=6), and parameterized over iteration counts so
-    the invariant — not the default iteration setting — is what's pinned."""
-    roster = Roster(candidates=["A", "B", "C", "D", "E", "F"])
+def test_evidence_elsewhere_never_moves_evidence_free_posteriors():
+    """ADR 003: adding an anchor to thread i must not change an evidence-free
+    thread j's posterior at all. Under ADR 005's capped balance this held only
+    for names whose columns stayed uncapped; with the balance removed (ADR 006)
+    it holds unconditionally, which is strictly stronger — so this version
+    deliberately uses a roster small enough that the old cap WOULD have bitten
+    (T=3, R=2), where the parameterized ADR 005 test could not go."""
+    roster = Roster(candidates=["A", "B"])
     threads = {
-        1: {"tracklet_ids": [10], "spans": [(0, 30)]},  # thread i
-        2: {"tracklet_ids": [20], "spans": [(40, 70)]},  # thread j: no evidence
-        3: {"tracklet_ids": [30], "spans": [(80, 100)]},  # anchored to B throughout
+        1: {"tracklet_ids": [10], "spans": [(0, 30)]},
+        2: {"tracklet_ids": [20], "spans": [(40, 70)]},  # no evidence
+        3: {"tracklet_ids": [30], "spans": [(80, 100)]},
     }
     base = [_anchor(30, "B")]
-    without = decode_names(
-        threads, base, roster, sinkhorn_iterations=iterations
-    )
-    with_anchor = decode_names(
-        threads, base + [_anchor(10, "A")], roster, sinkhorn_iterations=iterations
-    )
+    without = decode_names(threads, base, roster)
+    with_anchor = decode_names(threads, base + [_anchor(10, "A")], roster)
     post_without = {d.thread_id: d.posterior for d in without}
     post_with = {d.thread_id: d.posterior for d in with_anchor}
     for cand in roster.candidates:
         assert post_with[2][cand] == pytest.approx(post_without[2][cand], abs=1e-12)
-    # And decision-level neutrality holds regardless of balancing:
     assert {d.thread_id: d.decision for d in with_anchor}[2] == NamingDecision.ABSTAIN
-
-
-def test_heavy_column_overload_logs_a_warning(caplog):
-    """A column whose pre-balance mass exceeds its budget by a large factor
-    (e.g. one player fragmented into many correctly-anchored threads) is
-    uniformly damped — erosion through the budget. That situation is legal
-    but must be visible, not silent."""
-    import logging
-
-    roster = Roster(candidates=["A", "B", "C", "D", "E", "F"])
-    threads = {
-        n: {"tracklet_ids": [n * 10], "spans": [(n * 100, n * 100 + 50)]}
-        for n in range(1, 9)
-    }
-    anchors = [_anchor(n * 10, "A") for n in range(1, 9)]  # 8 threads, all -> A
-    with caplog.at_level(logging.WARNING, logger="matchlab_core.reid.naming"):
-        decode_names(threads, anchors, roster)
-    assert any("overload" in r.message for r in caplog.records)
 
 
 # --- name_threads composition --------------------------------------------

@@ -265,10 +265,27 @@ export const VideoOverlay = forwardRef<
       if (layers.keypoints && artifacts.calibration) {
         const row = floorRow(artifacts.calibration, frameIdx, (r) => r.frame_idx);
         if (row) {
+          // Colour by the offline smoother's provenance status (fresh=green,
+          // smoothed=amber, interpolated=blue; absent rows carry no keypoints so
+          // nothing draws). Legacy rows without `status` fall back to the
+          // fresh-vs-carried `smoothed` bool.
+          const green = "rgba(155,229,50,0.9)";
+          const amber = "rgba(245,197,24,0.9)";
+          const blue = "rgba(90,170,245,0.9)";
+          const statusColors: Record<string, string> = {
+            fresh: green,
+            smoothed: amber,
+            interpolated: blue,
+          };
+          const kpColor = row.status
+            ? (statusColors[row.status] ?? green)
+            : row.smoothed
+              ? amber
+              : green;
           row.keypoints_image.forEach((kp, i) => {
             ctx.beginPath();
             ctx.arc(kp.x, kp.y, 4 * px, 0, Math.PI * 2);
-            ctx.fillStyle = row.smoothed ? "rgba(245,197,24,0.9)" : "rgba(155,229,50,0.9)";
+            ctx.fillStyle = kpColor;
             ctx.fill();
             const conf = row.keypoint_confidences[i];
             if (conf != null) {
@@ -276,9 +293,14 @@ export const VideoOverlay = forwardRef<
               ctx.fillText(conf.toFixed(2), kp.x + 6 * px, kp.y - 4 * px);
             }
           });
+          const provenance = row.status
+            ? ` (${row.status})`
+            : row.smoothed
+              ? " (carried)"
+              : "";
           ctx.fillStyle = "rgba(232,237,233,0.6)";
           ctx.fillText(
-            `H conf ${row.confidence.toFixed(2)}${row.smoothed ? " (carried)" : ""} · ${row.n_keypoints} kp`,
+            `H conf ${row.confidence.toFixed(2)}${provenance} · ${row.n_keypoints} kp`,
             10 * px,
             canvas.height - 10 * px,
           );
