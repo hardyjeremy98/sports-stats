@@ -103,12 +103,22 @@ trajectory touches, 545 matched.
 | | ±6 frames | ±25 frames (±1 s) |
 |---|---:|---:|
 | Agreement, all events | 37.1% | 58.9% |
-| Agreement, **PASS only** | 44.8% | **71.4%** |
+| Agreement, **PASS only** | 36.4% | **55.7%** |
 | Touch recall (matched / touches) | 38.4% | 60.9% |
 
-±1 s is the tolerance SoccerNet Ball Action Spotting scores at, so 71.4% PASS
-agreement is the figure comparable in *tolerance* (not in meaning) to a benchmark
-number.
+> **CORRECTED 2026-07-27.** The PASS-only row originally read 44.8% / **71.4%**.
+> Those figures do not reproduce. Recomputed from this report's own artifact
+> definition (`matched_by_type` / `events_by_type`) on the same 49 sequences at
+> the same revision, PASS-only agreement is 36.4% / 55.7%. Every other number in
+> this report reproduces exactly and `event_crossval.py` is unchanged since
+> `c3cd058`, so this was an error in the row, not a behavioural change. Note the
+> corrected PASS agreement is *below* the all-events rate, reversing the original
+> claim's direction. See
+> [`2026-07-27-b3-possession-denoise-ablation.md`](2026-07-27-b3-possession-denoise-ablation.md).
+
+±1 s is the tolerance SoccerNet Ball Action Spotting scores at, so the PASS
+agreement at that tolerance is the figure comparable in *tolerance* (not in
+meaning) to a benchmark number.
 
 **Read this as disagreement, not error.** ~29% of passes have no ball-motion
 corroboration at ±1 s, and ~39% of touches have no derived possession change.

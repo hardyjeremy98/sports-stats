@@ -159,7 +159,10 @@ Three numbers, run as an ablation of `possession-heuristic-image` vs
 `possession-viterbi` on the 25-sequence SNMOT tier:
 
 1. **Cross-validation agreement with ball-trajectory touches must rise.**
-   Baseline 71.4% @ ±1 s. This is the metric denoising *should* improve, and it
+   Baseline: **58.9% overall / 55.7% PASS-only @ ±1 s.** (This spec originally
+   cited 71.4%, taken from the ball-trajectory crossval report's PASS row; that
+   figure does not reproduce and was corrected on 2026-07-27 — see the ablation
+   report.) This is the metric denoising *should* improve, and it
    is corroboration, not accuracy — two heuristics agreeing bounds nothing about
    absolute correctness.
 2. **SNMOT localisation must not degrade.** Baseline: possession signal 3.0

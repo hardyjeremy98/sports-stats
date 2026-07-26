@@ -47,6 +47,17 @@ uv run matchlab-train derive-possessor-labels --run-dir data/runs/<id> --out dat
 # Label-risk profile of those weak labels on GT/oracle inputs (SPO-83 gate criterion 2):
 uv run matchlab-train audit-possessor-labels --root data/soccernet/tracking/test --out audit.json
 
+# Possession denoising (B3) — same slot, same evidence, different temporal model (Viterbi over
+# the heuristic signal). Swapping the two impls IS the ablation; nothing downstream changes:
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.possession-viterbi-smoke.yaml --run-id my-viterbi-smoke
+uv run matchlab-train crossval-events --root data/soccernet/tracking/test \
+  --estimator possession-viterbi --tolerance-frames 25 --out crossval-viterbi.json
+uv run matchlab-train spot-localization --signal possession-viterbi --out loc-viterbi.json
+# Read the localisation arm as a GUARD, not a score: it matches the NEAREST prediction, so
+# removing events can only raise the error — a denoiser cannot look good on it, only avoid
+# looking bad. Results: docs/reports/2026-07-27-b3-possession-denoise-ablation.md
+
 # Ball-trajectory action spotting (B3) — the rule-based baseline, independent of the possession
 # signal (it reads ball motion, not player proximity). No model, no weights, no GPU:
 uv run matchlab-run --video data/clips/x.mp4 \
