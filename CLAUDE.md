@@ -44,6 +44,15 @@ uv run matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.possession-heuristic-smoke.yaml --run-id my-possession-smoke
 # Weak possessor labels for the (gated) learned Peral estimator, from an existing run's artifacts:
 uv run matchlab-train derive-possessor-labels --run-dir data/runs/<id> --out data/labels/<id>-possessor.json
+# Label-risk profile of those weak labels on GT/oracle inputs (SPO-83 gate criterion 2):
+uv run matchlab-train audit-possessor-labels --root data/soccernet/tracking/test --out audit.json
+
+# Ball-trajectory action spotting (B3) — the rule-based baseline, independent of the possession
+# signal (it reads ball motion, not player proximity). No model, no weights, no GPU:
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.ball-trajectory-smoke.yaml --run-id my-trajectory-smoke
+# Cross-validate the two signals (agreement is CORROBORATION, never accuracy — neither is GT):
+uv run matchlab-train crossval-events --root data/soccernet/tracking/test --out crossval.json
 
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
