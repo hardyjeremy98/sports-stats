@@ -63,6 +63,40 @@ remain well conditioned.
 
 ---
 
+## A free control the plan assumed was unavailable
+
+Task 10 asks for a "control run" of the reference unmodified, to bound the ambiguity
+between our reimplementation, our ingest and the setup. **That is not possible as
+specified**: the reference ships no checkpoints, no logits and no video, so running it
+would cost a full retrain — the same expense it was meant to check.
+
+It does ship `data/TAAD_sample_list.json`, its exact training anchor list, and that is
+a free control on the anchor set. Our `build_anchors` reproduces it **exactly on all 8
+classes, on both splits**:
+
+| class | TRAIN (ref = ours) | VAL (ref = ours) |
+|---|---:|---:|
+| pass | 37,144 | 2,539 |
+| drive | 30,477 | 2,111 |
+| header | 2,426 | 109 |
+| cross | 1,519 | 75 |
+| block | 994 | 61 |
+| shot | 889 | 54 |
+| throw-in | 754 | 43 |
+| **tackle** | **174** | **16** |
+| total | **74,377** | **5,008** |
+
+Reaching that agreement required a fix: the reference anchors only on events whose
+player **has a bounding box**, and we did not. Such an anchor is fully masked, so it
+contributes exactly zero loss *and* consumes one of that class's places in the epoch's
+balanced quota. On the rare classes that is ruinous — 38% of VAL's tackle anchors were
+teaching nothing.
+
+It also sharpens the tackle problem twice over. The Phase 0 report corrected the plan's
+~390 TRAIN tackles to **285**; the trainable pool is smaller still at **174** — barely
+a third of one epoch's 500 quota. That is why tackle F1 is 0.061 even in the
+reference's strong arm, and no sampler can fix it.
+
 ## Bugs the tests caught during implementation
 
 Recorded because each would have produced a plausible model rather than a crash.

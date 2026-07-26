@@ -5,14 +5,21 @@ One sample is a `clip_length`-frame window around one labelled action, plus up t
 an action to the right player rather than to the moment. M is therefore
 `nb_tracklets + 1` (5 with the reference defaults), NOT `nb_tracklets`.
 
-Class balance is the whole reason this class exists. Pass and drive are 89% of the
-events; sampling uniformly would train a two-class model. Following the reference,
-each epoch draws at most `max_samples_per_class` anchors per class and **resamples
-every epoch**, so the rare classes are seen repeatedly with different negatives while
-the common ones rotate through fresh examples. Measured on TRAIN: only pass (45,621),
-drive (35,527), header (3,642), cross (2,156) and throw-in (1,730) can fill a 500
-quota; block (1,269) and shot (1,097) can, but tackle has just 285 examples total and
-can never fill one.
+Class balance is the whole reason this class exists. Pass and drive are 91% of the
+trainable anchors; sampling uniformly would train a two-class model. Following the
+reference, each epoch draws at most `max_samples_per_class` anchors per class and
+**resamples every epoch**, so the rare classes are seen repeatedly with different
+negatives while the common ones rotate through fresh examples.
+
+Measured TRAIN anchor pool (events WITH a bounding box -- see `build_anchors`), which
+matches the reference's own shipped sample list exactly:
+
+    pass 37,144 · drive 30,477 · header 2,426 · cross 1,519
+    block 994 · shot 889 · throw-in 754 · tackle 174
+
+Only the first four can fill a 500-per-epoch quota. **Tackle has 174 trainable
+anchors in all of TRAIN** -- barely a third of one epoch's quota, and the reason its
+F1 is 0.061 even in the reference's strong arm. No sampler can fix that.
 
 Deviations from the reference, both recorded rather than hidden:
 
