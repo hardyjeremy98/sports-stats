@@ -893,6 +893,41 @@ Measured local findings recorded by the repository guidance:
   `min_similarity: 1.01` to restore the old anchor-only behaviour. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
   held-out verdict, over 198 person tracks fragmenting into 323 fragments.
+- **Position/occupancy is real re-ID evidence but not a merge decider (2026-07-27; FOOTPASS
+  tactical, 48 train / 3 val complete matches; report
+  [`2026-07-27-position-evidence-reid.md`](reports/2026-07-27-position-evidence-reid.md)):**
+  a tracklet's occupancy footprint, taken over **observable frames only** and expressed
+  **relative to the team's observable centroid**, separates same-player from different-player
+  fragment pairs at pooled **AUC 0.771** on held-out matches (pre-registered bar ≥0.70,
+  **PASS**), rising with fragment duration (0.743 under 4 s → **0.868** over 30 s).
+  **Absolute occupancy scores only 0.655**: a player is observable only when play is near them,
+  so raw occupancy partly measures where the *ball* was — a selection effect, removed by the
+  centroid subtraction, worth +0.116 AUC. **But at the zero-wrong frontier position alone
+  repairs 14 of 13,016 needed merges (0.1%)**, and gating to ≥10 s fragments does not rescue it
+  (11 of 5,385); at the loose point it is 1,376 correct / 1,301 wrong. **Position therefore has
+  the same shape as appearance — good ranking body, overlapping tail** — the third distinct
+  signal (KPR, PRTreID, occupancy) to show it. Pair-dependence is present but weak: distant-role
+  impostors carry 29% more evidence than same-role ones (bar was 50%), so the **role-conditional
+  global assignment layer was dropped** by its own pre-registered rule. **Scope the negative
+  precisely:** this says *formation-relative occupancy under mutual-best + margin cannot clear a
+  zero-wrong bar alone*. It says nothing about **fusion**, which is the design's actual claim
+  and is **untested** — FOOTPASS has no video, so there are no appearance embeddings on this
+  substrate. New pure modules: `reid/occupancy.py`, `reid/evidence.py` (calibrated LLR +
+  impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
+  `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
+  No shipped default was changed.
+- **Calibration had never run in any benchmarked re-ID experiment (2026-07-27).** The re-ID
+  configs carried `calibrate: enabled: false` (`manifest.json` for the 2026-07-26 smoke runs
+  records `status: skipped`), and the merge engine's pitch-metric motion branch
+  (`reid/gates.py:84`) only applies where calibration covers both endpoint frames — so SPO-59,
+  SPO-73, SPO-85 and the full-system smoke all scored on the GMC **pixel** bound alone. Position
+  contributed nothing to those results, not even as a veto. PnLCalib is now enabled in
+  `configs/pipeline.tdlp-full-reid-oracle.yaml` (with the required `pitch: fifa`).
+- **Smoke-run merge triage: wrong merges are same-team, at long gaps (2026-07-27).** Judged
+  against GT track identity and GT team, the 2026-07-26 smoke runs made 3 wrong merges: **2 are
+  same-team** (same-kit teammates, gaps of 227 and 263 frames ≈ 9–10.5 s) and **1 is a
+  goalkeeper merged across teams** — keepers wear a different kit from their own side, so that
+  one is a **team-gate defect** (SPO-75), not an appearance failure.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —
