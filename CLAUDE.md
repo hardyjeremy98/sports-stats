@@ -53,6 +53,10 @@ uv run matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.ball-trajectory-smoke.yaml --run-id my-trajectory-smoke
 # Cross-validate the two signals (agreement is CORROBORATION, never accuracy — neither is GT):
 uv run matchlab-train crossval-events --root data/soccernet/tracking/test --out crossval.json
+# Score a spotting signal against SNMOT's one-action-per-clip labels — the only event GT we can
+# reach (SoccerNet-ball and FOOTPASS are NDA-gated: docs/reference/footpass-pcbas-acquisition.md).
+# LOCALISATION/RECALL ONLY — one label per 30s clip, so precision/F1/mAP are unsupported:
+uv run matchlab-train spot-localization --signal ball-trajectory --out loc.json
 
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
