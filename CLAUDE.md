@@ -201,6 +201,10 @@ Non-negotiable invariants:
 - Identity evidence is aggregated at tracklet/entity level, never decided independently per
   frame (ADR 002). The final system uses the complete uploaded match so strong later
   observations can backfill earlier ambiguous tracklets.
+- **Tactical role slots are not roster slots** (ADR 008). A role slot is a tactical
+  position index consumed inside a model; a roster slot is an identity anchor consumed
+  outside it. The slot→identity relation is **per-half and time-varying** (attacking
+  direction inverts at half time; substitutes reuse slots), never a per-match bijection.
 - Face, body appearance, structured attributes, gait, motion, and position are
   **quality-gated evidence modalities**, not universally available inputs (ADR 003).
   Missing or low-quality evidence is neutral — abstention is a valid outcome.
@@ -218,6 +222,10 @@ switches are substantially a tracker-level problem that simple post-association 
 
 Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md). Summary:
 
+0. **`docs/superpowers/specs/` and `docs/superpowers/plans/` are NOT in this precedence
+   order.** A spec or plan may *record* a supersession enacted elsewhere; it can never
+   itself supersede an ADR or a PRD. Amend an ADR with a new ADR, and a PRD with a
+   banner edited into the PRD.
 1. `docs/decisions/` — accepted ADRs, highest precedence. Supersede with a new ADR, never
    edit one to reverse its meaning.
 2. `../docs/player-identity-vision.md` — canonical product/identity direction. Update only
