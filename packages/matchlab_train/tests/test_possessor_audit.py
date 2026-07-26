@@ -9,6 +9,8 @@ from matchlab_core.schemas import Box, DetectionClass, Team
 from matchlab_train.datasets.possessor_audit import (
     audit_sequence,
     audit_sequences,
+    crossval_sequence,
+    crossval_sequences,
     gt_to_possession_inputs,
 )
 
@@ -192,3 +194,48 @@ def test_exclusion_threshold_is_configurable_and_recorded():
 def test_report_carries_a_no_accuracy_caveat():
     report = audit_sequences([_scene(10, 10)])
     assert "accuracy" in report.caveat.lower()
+
+
+def _rally(seq_length=60):
+    """Two players; the ball shuttles between them with sharp direction changes
+    -- both signals should fire, so the pair is cross-validatable."""
+    p1 = _track(1, "player", "left", {f: (0, 100, 40, 180) for f in range(seq_length)})
+    p2 = _track(2, "player", "right", {f: (400, 100, 440, 180) for f in range(seq_length)})
+    xy = {}
+    for f in range(seq_length):
+        leg, step = divmod(f, 20)
+        x = 20 + 19 * step if leg % 2 == 0 else 400 - 19 * step
+        xy[f] = (x, 140)
+    ball = _track(99, "ball", None, {f: (v[0] - 2, v[1] - 2, v[0] + 2, v[1] + 2)
+                                     for f, v in xy.items()})
+    gt = _gt([p1, p2, ball], seq_length=seq_length)
+    return gt
+
+
+def test_crossval_sequence_reports_both_signals():
+    cv = crossval_sequence(_rally(), smooth_radius=0)
+    assert cv.sequence == "TEST-1"
+    assert cv.report.n_events > 0
+    assert cv.report.n_touches > 0
+    assert cv.report.matched + cv.report.possession_only == cv.report.n_events
+    assert cv.report.matched + cv.report.trajectory_only == cv.report.n_touches
+
+
+def test_crossval_carries_a_no_ground_truth_caveat():
+    report = crossval_sequences([_rally()])
+    assert "corroboration" in report.caveat.lower()
+    assert "ground truth" in report.caveat.lower()
+
+
+def test_crossval_aggregate_sums_the_per_sequence_counts():
+    report = crossval_sequences([_rally(), _rally()], smooth_radius=0)
+    assert len(report.sequences) == 2
+    assert report.aggregate.n_events == sum(s.report.n_events for s in report.sequences)
+    assert report.aggregate.matched == sum(s.report.matched for s in report.sequences)
+
+
+def test_crossval_with_no_ball_yields_no_touches_and_zero_agreement():
+    gt = _gt([_track(1, "player", "left", {f: (0, 0, 20, 40) for f in range(20)})], seq_length=20)
+    cv = crossval_sequence(gt)
+    assert cv.report.n_touches == 0
+    assert cv.report.agreement_rate == 0.0

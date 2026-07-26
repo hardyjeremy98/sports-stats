@@ -117,3 +117,50 @@ def test_events_with_no_touches_are_all_possession_only():
     r = crossvalidate_events([_event(1, 10), _event(2, 20)], [], tolerance_frames=6)
     assert r.possession_only == 2
     assert r.agreement_rate == 0.0
+
+
+def test_refine_snaps_an_event_to_its_corroborating_touch():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    refined = refine_event_timing([_event(1, 100)], [_touch(97)], tolerance_frames=6)
+    assert refined[0].frame_idx == 97
+    assert refined[0].t == pytest.approx(97 / FPS)
+
+
+def test_refine_leaves_uncorroborated_events_untouched():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    refined = refine_event_timing([_event(1, 100)], [_touch(200)], tolerance_frames=6)
+    assert refined[0].frame_idx == 100
+
+
+def test_refine_does_not_mutate_the_input_events():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    events = [_event(1, 100)]
+    refine_event_timing(events, [_touch(97)], tolerance_frames=6)
+    assert events[0].frame_idx == 100
+
+
+def test_refine_records_the_shift_in_attrs():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    refined = refine_event_timing([_event(1, 100)], [_touch(97)], tolerance_frames=6)
+    assert refined[0].attrs["timing_refined_from"] == 100
+    assert refined[0].attrs["timing_shift_frames"] == -3
+
+
+def test_refine_keeps_events_frame_ordered():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    refined = refine_event_timing(
+        [_event(1, 100), _event(2, 130)], [_touch(97), _touch(133)], tolerance_frames=6
+    )
+    assert [e.frame_idx for e in refined] == sorted(e.frame_idx for e in refined)
+
+
+def test_refine_with_no_touches_is_a_no_op():
+    from matchlab_core.event_crossval import refine_event_timing
+
+    refined = refine_event_timing([_event(1, 100)], [], tolerance_frames=6)
+    assert [e.frame_idx for e in refined] == [100]

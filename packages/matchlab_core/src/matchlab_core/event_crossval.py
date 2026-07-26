@@ -143,3 +143,57 @@ def crossvalidate_events(
         events_by_type=dict(events_by_type),
         corroborations=corroborations,
     )
+
+
+def refine_event_timing(
+    events: list[Event],
+    touches: list[BallTouch],
+    *,
+    tolerance_frames: int = DEFAULT_TOLERANCE_FRAMES,
+) -> list[Event]:
+    """Snap each corroborated event's timestamp to its ball-touch frame.
+
+    The possession layer timestamps a PASS at the last frame the passer was
+    nearest the ball and a RECEPTION at the first frame the receiver was --
+    neither is the moment of ball contact. Measured on 49 SNMOT sequences with
+    oracle inputs, passes therefore LAG the ball-motion change by a median 3
+    frames and receptions LEAD it by 2, and both signs are what the physics
+    predicts: the ball is struck before it travels far enough to change who is
+    nearest, and reaches the receiver's feet after they become nearest.
+
+    So the trajectory signal carries the better timestamp *when it corroborates
+    an event*, and this snaps to it. Events with no corroborating touch are
+    returned unchanged rather than shifted by a constant: a blanket offset would
+    be fitting to a signal that is not ground truth, while snapping only where
+    both signals agree degrades gracefully to a no-op.
+
+    Inputs are not mutated. The original frame and the applied shift are recorded
+    in `attrs` so the change is auditable in `events.json`.
+    """
+    matching = crossvalidate_events(events, touches, tolerance_frames=tolerance_frames)
+    snap_to = {
+        c.event_id: c.matched_touch_frame
+        for c in matching.corroborations
+        if c.matched_touch_frame is not None
+    }
+    by_frame = {t.frame_idx: t for t in touches}
+
+    refined: list[Event] = []
+    for ev in events:
+        target = snap_to.get(ev.event_id)
+        if target is None or target == ev.frame_idx:
+            refined.append(ev.model_copy(deep=True))
+            continue
+        out = ev.model_copy(deep=True)
+        out.attrs = {
+            **(out.attrs or {}),
+            "timing_refined_from": ev.frame_idx,
+            "timing_shift_frames": target - ev.frame_idx,
+        }
+        out.frame_idx = target
+        touch = by_frame.get(target)
+        out.t = round(touch.t if touch is not None else ev.t, 3)
+        refined.append(out)
+
+    refined.sort(key=lambda e: (e.frame_idx, e.type))
+    return refined

@@ -128,6 +128,23 @@ def main() -> int:
         help="Exclude sequences with GT ball coverage below this from the aggregate",
     )
 
+    xv_p = sub.add_parser(
+        "crossval-events",
+        help="Cross-validate possession-derived events against ball-trajectory "
+        "touches on GT/oracle inputs (B3; corroboration, not accuracy)",
+    )
+    xv_p.add_argument(
+        "--root",
+        default="data/soccernet/tracking/test",
+        help="Dir of SNMOT sequence dirs (each with gameinfo.ini)",
+    )
+    xv_p.add_argument("--limit", type=int, default=None, help="Use at most N sequences")
+    xv_p.add_argument("--out", required=True, help="Output report JSON path")
+    xv_p.add_argument(
+        "--tolerance-frames", type=int, default=6,
+        help="Max frame distance for an event and a touch to count as agreeing",
+    )
+
     args = parser.parse_args()
 
     if args.command == "tasks":
@@ -259,6 +276,29 @@ def main() -> int:
         print(f"excluded (ball coverage < {report.min_ball_coverage}): {excluded or 'none'}")
         print(f"aggregate label coverage: {agg.coverage:.3f} over {agg.total_frames} frames")
         print(f"NOT AN ACCURACY MEASURE -- {report.caveat}")
+        return 0
+
+    if args.command == "crossval-events":
+        from pathlib import Path
+
+        from matchlab_train.datasets.possessor_audit import crossval_soccernet_tracking
+
+        report = crossval_soccernet_tracking(
+            args.root, limit=args.limit, tolerance_frames=args.tolerance_frames
+        )
+        Path(args.out).write_text(report.model_dump_json(indent=2))
+        a = report.aggregate
+        print(f"wrote cross-validation of {len(report.sequences)} sequences to {args.out}")
+        print(
+            f"events={a.n_events} touches={a.n_touches} matched={a.matched} "
+            f"possession_only={a.possession_only} trajectory_only={a.trajectory_only}"
+        )
+        print(
+            f"agreement_rate={a.agreement_rate:.3f} (matched/events)  "
+            f"touch_recall={a.touch_recall:.3f} (matched/touches)  "
+            f"tolerance=+/-{a.tolerance_frames} frames"
+        )
+        print(f"NOT ACCURACY -- {report.caveat}")
         return 0
 
     config = ExperimentConfig.from_yaml(args.config)
