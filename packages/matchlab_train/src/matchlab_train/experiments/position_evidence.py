@@ -40,6 +40,7 @@ from pathlib import Path
 
 import numpy as np
 from matchlab_core.reid.evidence import LLRCalibrator
+from matchlab_core.reid.frontier import sweep
 from matchlab_core.reid.occupancy import DEFAULT_GRID, Footprint, build_footprint
 
 from matchlab_train.datasets.footpass import (
@@ -329,6 +330,7 @@ def phase_a(
     min_frames: int = 50,
     max_diff: int = 200_000,
     relative: bool = False,
+    max_bins: int = 200,
 ) -> dict:
     rng = np.random.default_rng(0)
     train_keys = half_keys(train_path)[:n_train_halves]
@@ -341,7 +343,9 @@ def phase_a(
         )
         fit_same.append(ds)
         fit_diff.append(dd)
-    cal = LLRCalibrator.fit(np.concatenate(fit_same), np.concatenate(fit_diff))
+    cal = LLRCalibrator.fit(
+        np.concatenate(fit_same), np.concatenate(fit_diff), max_bins=max_bins
+    )
 
     val_same_d, val_diff_d = [], []
     dur_same, dur_diff = [], []
@@ -449,6 +453,90 @@ def phase_a(
     }
 
 
+def merge_frontier(
+    *,
+    val_path: Path = VAL_H5,
+    train_path: Path = TRAIN_H5,
+    n_train_halves: int = 4,
+    min_frames: int = 50,
+    max_diff: int = 200_000,
+    relative: bool = True,
+    max_bins: int = 200,
+) -> dict:
+    """How many merges can the position channel repair with ZERO wrong merges?
+
+    The number that matters, and the one directly comparable to appearance's
+    13-14 of 125 on the SoccerNet GT-fragment harness (SPO-85). Scored per half,
+    since do-no-harm is a per-sequence standard.
+    """
+    rng = np.random.default_rng(0)
+    fit_same, fit_diff = [], []
+    for key in half_keys(train_path)[:n_train_halves]:
+        _, _, ds, _, dd = _half_scores(
+            train_path, key, rng, min_frames=min_frames, max_diff=max_diff, relative=relative
+        )
+        fit_same.append(ds)
+        fit_diff.append(dd)
+    cal = LLRCalibrator.fit(
+        np.concatenate(fit_same), np.concatenate(fit_diff), max_bins=max_bins
+    )
+
+    per_half = {}
+    for key in half_keys(val_path):
+        frags, same, ds, diff, dd = _half_scores(
+            val_path, key, rng, min_frames=min_frames, max_diff=max_diff, relative=relative
+        )
+        labels = {i: f.player_id for i, f in enumerate(frags)}
+        scores: dict[tuple[int, int], float] = {}
+        for (i, j), d in zip(same, ds, strict=True):
+            scores[(int(i), int(j))] = cal.llr(float(d))
+        for (i, j), d in zip(diff, dd, strict=True):
+            scores[(int(i), int(j))] = cal.llr(float(d))
+        # merges needed = one per extra fragment of each fragmented player
+        counts: dict[int, int] = {}
+        for f in frags:
+            counts[f.player_id] = counts.get(f.player_id, 0) + 1
+        needed = sum(c - 1 for c in counts.values() if c > 1)
+        sw = sweep(scores, labels)
+        curve = sw.curve()
+        # Best correct-count at each wrong-merge budget: one pass down the
+        # ranked admission list, so the whole curve costs what one point did.
+        best_at: dict[int, tuple[int, int]] = {}
+        for budget in (0, 1, 5, 10, 25, 50):
+            best_c, best_w = 0, 0
+            for _s, c, w in curve:
+                if w <= budget and c > best_c:
+                    best_c, best_w = c, w
+            best_at[budget] = (best_c, best_w)
+        loose_c, loose_w = (curve[-1][1], curve[-1][2]) if curve else (0, 0)
+        per_half[key] = {
+            "fragments": len(frags),
+            "merges_needed": needed,
+            "admitted_pairs": len(curve),
+            "frontier_correct": best_at[0][0],
+            "frontier_wrong": best_at[0][1],
+            "loose_correct": loose_c,
+            "loose_wrong": loose_w,
+            "budget_curve": {
+                str(b): {"correct": c, "wrong": w} for b, (c, w) in best_at.items()
+            },
+        }
+    tot = {
+        k: sum(v[k] for v in per_half.values())
+        for k in ("merges_needed", "frontier_correct", "frontier_wrong",
+                  "loose_correct", "loose_wrong")
+    }
+    tot["budget_curve"] = {
+        str(b): {
+            "correct": sum(v["budget_curve"][str(b)]["correct"] for v in per_half.values()),
+            "wrong": sum(v["budget_curve"][str(b)]["wrong"] for v in per_half.values()),
+        }
+        for b in (0, 1, 5, 10, 25, 50)
+    }
+    return {"variant": "B-formation-relative" if relative else "A-absolute",
+            "min_frames": min_frames, "per_half": per_half, "total": tot}
+
+
 def _verdict(pass_: bool, fail: bool) -> str:
     return "PASS" if pass_ else ("FAIL" if fail else "INCONCLUSIVE")
 
@@ -459,8 +547,28 @@ def main() -> None:
     ap.add_argument("--train-halves", type=int, default=4)
     ap.add_argument("--max-diff", type=int, default=200_000)
     ap.add_argument("--relative", action="store_true", help="variant B: formation-relative")
+    ap.add_argument("--frontier", action="store_true", help="merge-frontier accounting")
     ap.add_argument("--out", type=Path, default=Path("docs/reports/2026-07-27-phase-a-raw.json"))
     args = ap.parse_args()
+
+    if args.frontier:
+        fr = merge_frontier(min_frames=args.min_frames, relative=args.relative,
+                            n_train_halves=args.train_halves, max_diff=args.max_diff)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(fr, indent=2))
+        print(f"variant={fr['variant']} min_frames={fr['min_frames']}")
+        for k, v in fr['per_half'].items():
+            print(f"  {k}: needed={v['merges_needed']} admitted={v['admitted_pairs']}"
+                  f" frontier={v['frontier_correct']}"
+                  f" | loose {v['loose_correct']}c/{v['loose_wrong']}w")
+        print(f"TOTAL needed={fr['total']['merges_needed']} "
+              f"frontier={fr['total']['frontier_correct']} "
+              f"loose={fr['total']['loose_correct']}c/{fr['total']['loose_wrong']}w")
+        print("  budget curve (per-half wrong-merge budget -> pooled correct):")
+        for b, v in fr['total']['budget_curve'].items():
+            print(f"    <={b:>2} wrong/half: {v['correct']:>4} correct, {v['wrong']:>4} wrong")
+        print(f"written: {args.out}")
+        return
 
     r = phase_a(
         n_train_halves=args.train_halves,

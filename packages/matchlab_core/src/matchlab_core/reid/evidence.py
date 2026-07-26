@@ -84,15 +84,20 @@ class LLRCalibrator:
             log_ratio=np.clip(_smooth(np.log(ps / pd)), -LOG_CLAMP, LOG_CLAMP),
         )
 
+    @property
+    def centers(self) -> np.ndarray:
+        return 0.5 * (self.edges[:-1] + self.edges[1:])
+
     def llr(self, score: float) -> float:
-        i = int(
-            np.clip(
-                np.searchsorted(self.edges, score, side="right") - 1,
-                0,
-                len(self.log_ratio) - 1,
-            )
-        )
-        return float(self.log_ratio[i])
+        """Linearly interpolated between bin centres.
+
+        Interpolation is not cosmetic. A piecewise-constant LLR takes only
+        `bins` distinct values, so hundreds of candidate pairs tie at the
+        extreme -- and the extreme is precisely where merge safety is decided.
+        Thresholding a quantised score yields a degenerate operating curve that
+        jumps from "merge nothing" to "merge everything".
+        """
+        return float(np.interp(score, self.centers, self.log_ratio))
 
     def to_dict(self) -> dict:
         return {"edges": self.edges.tolist(), "log_ratio": self.log_ratio.tolist()}

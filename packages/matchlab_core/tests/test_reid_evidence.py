@@ -44,6 +44,40 @@ def test_llr_is_clamped_so_one_empty_bin_cannot_dominate_a_sum():
     assert abs(cal.llr(0.9)) <= 6.0
 
 
+def test_llr_is_continuous_so_the_tail_keeps_its_ranking():
+    """A piecewise-constant LLR ties hundreds of pairs at the same value, which
+    destroys resolution exactly where do-no-harm is decided (the extreme tail).
+    Distinct scores must map to distinct evidence."""
+    rng = np.random.default_rng(2)
+    cal = LLRCalibrator.fit(rng.normal(0.2, 0.05, 2000), rng.normal(0.8, 0.05, 2000))
+    xs = np.linspace(0.05, 0.95, 200)
+    vals = np.array([cal.llr(x) for x in xs])
+    assert len(np.unique(vals)) > 100, "LLR is too heavily quantised to rank a tail"
+
+
+def test_llr_is_monotone_non_increasing_for_a_clean_separation():
+    # Larger distance must never be MORE same-player-like when the classes are
+    # cleanly separated.
+    rng = np.random.default_rng(3)
+    cal = LLRCalibrator.fit(rng.normal(0.2, 0.05, 4000), rng.normal(0.8, 0.05, 4000))
+    vals = [cal.llr(x) for x in np.linspace(0.1, 0.9, 50)]
+    assert all(b <= a + 1e-9 for a, b in zip(vals, vals[1:], strict=False))
+
+
+def test_resolution_scales_with_available_data():
+    """With a large labelled set the calibrator must spend the extra samples on
+    tail resolution. Capping bins low leaves the most confident pairs tied at a
+    ceiling, which collapses the merge operating curve."""
+    rng = np.random.default_rng(4)
+    big = LLRCalibrator.fit(
+        rng.normal(0.2, 0.05, 100_000), rng.normal(0.8, 0.05, 100_000), max_bins=200
+    )
+    small = LLRCalibrator.fit(rng.normal(0.2, 0.05, 500), rng.normal(0.8, 0.05, 500))
+    assert len(big.log_ratio) > 5 * len(small.log_ratio)
+    # And the extra resolution must reach further into the tail.
+    assert big.log_ratio.max() > small.log_ratio.max()
+
+
 def test_calibrator_round_trips_through_dict():
     cal = LLRCalibrator.fit([0.1, 0.2, 0.3], [0.7, 0.8, 0.9])
     restored = LLRCalibrator.from_dict(cal.to_dict())
