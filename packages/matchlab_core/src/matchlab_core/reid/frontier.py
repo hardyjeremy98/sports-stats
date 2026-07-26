@@ -121,6 +121,31 @@ def sweep(
     return Sweep(admitted=admitted)
 
 
+def error_overlap(a: Sweep, b: Sweep) -> dict:
+    """Do two channels fail on the SAME pairs?
+
+    This is the mechanism the fusion hypothesis rests on. Fusing appearance and
+    position helps only if the impostor that beats you on one is usually a
+    different player from the one that beats you on the other -- i.e. low
+    overlap. If both channels are wrong about the same pairs, summing their
+    evidence just makes the same mistake more confidently, and no weighting can
+    fix that.
+
+    Measure it directly rather than assuming independence.
+    """
+    wa = {p for p, _, ok in a.admitted if not ok}
+    wb = {p for p, _, ok in b.admitted if not ok}
+    union = wa | wb
+    return {
+        "n_a": len(wa),
+        "n_b": len(wb),
+        "n_shared": len(wa & wb),
+        "jaccard": (len(wa & wb) / len(union)) if union else 0.0,
+        "only_a": len(wa - wb),
+        "only_b": len(wb - wa),
+    }
+
+
 def budget_curve(
     scores: Mapping[tuple[int, int], float],
     labels: Mapping[int, object],

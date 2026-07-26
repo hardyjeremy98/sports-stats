@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from matchlab_core.reid.frontier import (
     budget_curve,
+    error_overlap,
     merge_counts,
     sweep,
     zero_wrong_frontier,
@@ -93,6 +94,32 @@ def test_budget_curve_is_monotone_in_the_budget():
     curve = budget_curve(scores, labels, thresholds=[0.0, 2.0, 4.0], budgets=[0, 1, 2])
     got = [curve[b]["correct"] for b in (0, 1, 2)]
     assert got == sorted(got)
+
+
+def test_error_overlap_is_one_when_two_channels_fail_identically():
+    labels = {0: "a", 1: "b", 2: "c", 3: "d"}
+    a = sweep({(0, 1): 5.0, (2, 3): 4.0}, labels)
+    b = sweep({(0, 1): 3.0, (2, 3): 2.0}, labels)
+    o = error_overlap(a, b)
+    assert o["jaccard"] == 1.0
+    assert o["n_a"] == o["n_b"] == o["n_shared"] == 2
+
+
+def test_error_overlap_is_zero_when_channels_fail_on_disjoint_pairs():
+    labels = {0: "a", 1: "b", 2: "c", 3: "d"}
+    a = sweep({(0, 1): 5.0}, labels)
+    b = sweep({(2, 3): 5.0}, labels)
+    o = error_overlap(a, b)
+    assert o["jaccard"] == 0.0
+    assert o["n_shared"] == 0
+
+
+def test_error_overlap_ignores_correct_merges():
+    labels = {0: "a", 1: "a", 2: "c", 3: "d"}
+    a = sweep({(0, 1): 5.0, (2, 3): 4.0}, labels)  # one correct, one wrong
+    b = sweep({(2, 3): 4.0}, labels)
+    o = error_overlap(a, b)
+    assert o["n_a"] == 1 and o["jaccard"] == 1.0
 
 
 def test_zero_wrong_frontier_reports_zero_when_nothing_is_safe():
