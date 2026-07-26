@@ -18,6 +18,55 @@ isolated environment.
 
 **Spec:** `docs/superpowers/specs/2026-07-27-player-centric-action-spotting-design.md`
 
+---
+
+## Execution status — updated 2026-07-27
+
+| task | state | note |
+|---|---|---|
+| 1 · Schema and slot helpers | **done** | `a9b5fe8` |
+| 2 · Ingest adapter | **done** | `919875a` — see deviations below |
+| 3 · The metric | **done** | `6cf663c` |
+| 3b · Reference reproduction gate | **done, PASSES** | exact per-class table, both arms |
+| 4 · Phase 0 ingest gate | **done, PASSES** | VAL 6,070 / TRAIN 91,327 exactly |
+| 5 · Video reader + alignment | **done** | TRAIN-split montage still pending extraction |
+| 6 · Action head | **done** | `91f85cc` |
+| 7 · Clip sampler + training | **done** | `dccbef6`, `9c32668` |
+| 8 · Inference to `(9,26,T)` | **done** | `9c32668` |
+| 9 · Denoiser + window dataset | **done** | `3c5a0ed`, `3a1d406` |
+| 10 · Phase 1 reproduction gate | **NOT DONE** | needs a trained model |
+
+Reports: [Phase 0](../../reports/2026-07-27-pcbas-phase0-ingest.md) ·
+[Phase 1 build](../../reports/2026-07-27-pcbas-phase1-build.md)
+
+### Deviations from this plan, all deliberate
+
+1. **`PCBASEvent` lives in `matchlab_core.pcbas.events`, not the train package.** The
+   plan had `matchlab_core.pcbas.eval` importing it from `matchlab_train`, which
+   inverts the dependency direction.
+2. **The ingest module is `footpass_pcbas.py`, not `footpass.py`.** An unmerged branch
+   already owns `datasets/footpass.py`.
+3. **`half_to_events` returns `PCBASEvents`, not `EventGroundTruth`.**
+   `GroundTruthEvent` has no player field, so it cannot carry the slot.
+4. **The metric matches on a configurable identity**, `slot` or `(side, shirt)`. Task 3b
+   cannot reproduce the reference without the latter — the reference's exchange format
+   is shirt-native and carries no role at all.
+5. **`score_halves` matches per half key.** Task 3's flat `score_events` would let one
+   match's prediction satisfy another's ground truth, because frame indices overlap
+   between matches.
+6. **Micro-batch 1 × accum 48**, not 6 × 8. Memory; effective batch unchanged.
+7. **Task 3b asserts integer count tables**, not just F1 to 2 d.p. Two different
+   matching rules can round to the same F1 but not the same 8×3 table.
+
+### Corrections to this plan's stated facts
+
+- TRAIN has **285** tackles and **1,097** shots, not ~390 and ~1,000. The 390 was a
+  transcription of DST's `TP_noBB`.
+- **All 26 slots appear in TRAIN.** The "11 of 13 roles per side" measurement is
+  VAL-specific; a 22-slot shortcut would train fine and fail on unseen formations.
+- Task 9's "encoder input is 364" and the spec's "1116" are both right: 364 is the
+  feature width, and the embedding `Linear` takes `364 + framespan + 2 = 1116`.
+
 ## Global Constraints
 
 - Line length 100 (`uv run ruff check packages` must pass).
