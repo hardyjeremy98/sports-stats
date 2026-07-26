@@ -7,6 +7,8 @@ import pytest
 from matchlab_core.gt import GroundTruth, GroundTruthFrame, GroundTruthTrack
 from matchlab_core.schemas import Box, DetectionClass, Team
 from matchlab_train.datasets.possessor_audit import (
+    ESTIMATORS,
+    _possession_timeline,
     audit_sequence,
     audit_sequences,
     crossval_sequence,
@@ -239,3 +241,37 @@ def test_crossval_with_no_ball_yields_no_touches_and_zero_agreement():
     cv = crossval_sequence(gt)
     assert cv.report.n_touches == 0
     assert cv.report.agreement_rate == 0.0
+
+
+# --------------------------------------------------------------------------
+# Estimator dispatch -- the seam the denoiser ablation runs through
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_possession_timeline_dispatches_to_every_declared_estimator(estimator):
+    tracklets, teams, ball = gt_to_possession_inputs(_rally())
+    timeline = _possession_timeline(estimator, tracklets, teams, ball)
+    assert [f.frame_idx for f in timeline] == [b.frame_idx for b in ball]
+
+
+def test_possession_timeline_rejects_unknown_estimator():
+    tracklets, teams, ball = gt_to_possession_inputs(_rally())
+    with pytest.raises(ValueError, match="unknown estimator"):
+        _possession_timeline("nope", tracklets, teams, ball)
+
+
+def test_possession_alias_resolves_to_the_heuristic():
+    """The localisation CLI's historical `--signal possession` must keep meaning
+    the SPO-79 heuristic, or every previously published number silently changes."""
+    tracklets, teams, ball = gt_to_possession_inputs(_rally())
+    alias = _possession_timeline("possession", tracklets, teams, ball)
+    named = _possession_timeline("possession-heuristic-image", tracklets, teams, ball)
+    assert [f.possessor_tracklet_id for f in alias] == [
+        f.possessor_tracklet_id for f in named
+    ]
+
+
+def test_crossval_records_which_estimator_produced_the_events():
+    report = crossval_sequences([_rally()], estimator="possession-viterbi")
+    assert report.estimator == "possession-viterbi"

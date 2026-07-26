@@ -144,6 +144,12 @@ def main() -> int:
         "--tolerance-frames", type=int, default=6,
         help="Max frame distance for an event and a touch to count as agreeing",
     )
+    xv_p.add_argument(
+        "--estimator",
+        default="possession-heuristic-image",
+        choices=["possession-heuristic-image", "possession-viterbi"],
+        help="Which possession estimator derives the events (the denoiser ablation)",
+    )
 
     loc_p = sub.add_parser(
         "spot-localization",
@@ -154,7 +160,12 @@ def main() -> int:
     loc_p.add_argument("--limit", type=int, default=None)
     loc_p.add_argument("--out", required=True, help="Output report JSON path")
     loc_p.add_argument(
-        "--signal", default="ball-trajectory", choices=["ball-trajectory", "possession"]
+        "--signal",
+        default="ball-trajectory",
+        choices=["ball-trajectory", "possession", "possession-viterbi"],
+        help="'possession' is the SPO-79 heuristic; 'possession-viterbi' the denoised "
+        "timeline. Comparing the two is a GUARD (nearest-prediction matching means "
+        "removing events can only raise the error), never a score",
     )
     g1_p = sub.add_parser(
         "gate1-calibration-eval",
@@ -360,11 +371,15 @@ def main() -> int:
         from matchlab_train.datasets.possessor_audit import crossval_soccernet_tracking
 
         report = crossval_soccernet_tracking(
-            args.root, limit=args.limit, tolerance_frames=args.tolerance_frames
+            args.root,
+            limit=args.limit,
+            tolerance_frames=args.tolerance_frames,
+            estimator=args.estimator,
         )
         Path(args.out).write_text(report.model_dump_json(indent=2))
         a = report.aggregate
         print(f"wrote cross-validation of {len(report.sequences)} sequences to {args.out}")
+        print(f"estimator={report.estimator}")
         print(
             f"events={a.n_events} touches={a.n_touches} matched={a.matched} "
             f"possession_only={a.possession_only} trajectory_only={a.trajectory_only}"

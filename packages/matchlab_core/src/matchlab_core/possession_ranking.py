@@ -1,9 +1,16 @@
 """Shared ball->player candidate geometry (SPO-83).
 
-Extracted from `heuristic_image.py` so the possessor estimator and the
-label-risk profiler (`matchlab_core.possession_profile`) rank candidates with
-one implementation. Two copies of this geometry would let the profiler report
-on a ranking the estimator never used.
+Extracted from `heuristic_image.py` so the possessor estimator, the label-risk
+profiler (`matchlab_core.possession_profile`) and the denoiser
+(`matchlab_core.possession_denoise`) rank candidates with one implementation.
+Two copies of this geometry would let the profiler report on a ranking the
+estimator never used.
+
+Lives at package top level, NOT under `stages/`, on purpose: it is pure geometry
+with no registry or StageContext dependency, and importing anything inside
+`stages/` executes `stages/__init__.py`, which registers every implementation.
+That made a cycle the moment a stage (`possession/viterbi.py`) depended on a
+top-level module that needed this geometry.
 """
 
 from __future__ import annotations

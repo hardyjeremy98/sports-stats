@@ -25,6 +25,7 @@ from matchlab_core.event_crossval import (
     crossvalidate_events,
 )
 from matchlab_core.gt import GroundTruth, load_soccernet_sequence
+from matchlab_core.possession_denoise import DenoiseParams, denoise_possession
 from matchlab_core.possession_profile import (
     PossessorLabelProfile,
     aggregate_profiles,
@@ -35,6 +36,7 @@ from matchlab_core.schemas import (
     Detection,
     DetectionClass,
     FrameDetections,
+    PossessorFrame,
     Team,
     TeamAssignment,
     Tracklet,
@@ -232,10 +234,38 @@ class SequenceCrossval(BaseModel):
 class CrossvalReport(BaseModel):
     tier: str
     caveat: str
+    # Which possession estimator produced the events, and with what params. An
+    # ablation row is meaningless without both recorded next to its numbers.
+    estimator: str = "possession-heuristic-image"
+    possession_params: dict = {}
     tolerance_frames: int
     kinematics_params: dict
     sequences: list[SequenceCrossval]
     aggregate: CrossValidationReport
+
+
+DEFAULT_ESTIMATOR = "possession-heuristic-image"
+ESTIMATORS = (DEFAULT_ESTIMATOR, "possession-viterbi")
+
+
+def _possession_timeline(
+    estimator: str,
+    tracklets: list[Tracklet],
+    teams: list[TeamAssignment],
+    ball: list[BallObservation],
+    **params,
+) -> list[PossessorFrame]:
+    """Run one possession estimator on oracle inputs.
+
+    Both impls satisfy the same slot interface, so an ablation swaps only this
+    string -- which is the point: any difference downstream is attributable to
+    the temporal model and nothing else.
+    """
+    if estimator in (DEFAULT_ESTIMATOR, "possession"):
+        return HeuristicImagePossession(**params).estimate(None, tracklets, teams, ball)
+    if estimator == "possession-viterbi":
+        return denoise_possession(tracklets, teams, ball, params=DenoiseParams(**params))
+    raise ValueError(f"unknown estimator: {estimator!r}. Available: {', '.join(ESTIMATORS)}")
 
 
 def crossval_sequence(
@@ -243,11 +273,12 @@ def crossval_sequence(
     *,
     tolerance_frames: int = DEFAULT_TOLERANCE_FRAMES,
     kinematics: KinematicsParams | None = None,
+    estimator: str = DEFAULT_ESTIMATOR,
     **params,
 ) -> SequenceCrossval:
     """Run both signals on one sequence's oracle inputs and cross-validate them."""
     tracklets, teams, ball = gt_to_possession_inputs(gt)
-    timeline = HeuristicImagePossession(**params).estimate(None, tracklets, teams, ball)
+    timeline = _possession_timeline(estimator, tracklets, teams, ball, **params)
     events = transition_to_events(timeline)
     touches = detect_touches(ball, tracklets, kinematics or KinematicsParams())
     return SequenceCrossval(
@@ -291,18 +322,27 @@ def crossval_sequences(
     tier: str = "soccernet-tracking",
     tolerance_frames: int = DEFAULT_TOLERANCE_FRAMES,
     kinematics: KinematicsParams | None = None,
+    estimator: str = DEFAULT_ESTIMATOR,
     **params,
 ) -> CrossvalReport:
     kin = kinematics or KinematicsParams()
     per_seq = [
-        crossval_sequence(gt, tolerance_frames=tolerance_frames, kinematics=kin, **params)
+        crossval_sequence(
+            gt,
+            tolerance_frames=tolerance_frames,
+            kinematics=kin,
+            estimator=estimator,
+            **params,
+        )
         for gt in sequences
     ]
     return CrossvalReport(
         tier=tier,
         caveat=CROSSVAL_CAVEAT,
+        estimator=estimator,
         tolerance_frames=tolerance_frames,
         kinematics_params=kin.model_dump(mode="json"),
+        possession_params=params,
         sequences=per_seq,
         aggregate=_sum_crossval([s.report for s in per_seq], tolerance_frames),
     )
@@ -377,7 +417,16 @@ def localize_soccernet_tracking(
     """Score a spotting signal's localisation against SNMOT's action labels.
 
     `signal` selects which predictions to score: "ball-trajectory" (ball
-    kinematics) or "possession" (events derived from possessor transitions).
+    kinematics), "possession" (events derived from the SPO-79 heuristic's
+    possessor transitions) or "possession-viterbi" (the same rules over the
+    denoised timeline).
+
+    Read the possession/possession-viterbi comparison as a GUARD, not a score.
+    `snmot_localization_error` matches the NEAREST prediction to the single
+    labelled action, so removing predictions can only raise or hold the error --
+    a denoiser is structurally incapable of looking good here. What the number
+    can show is the denoiser deleting real events, which is exactly why it is
+    run alongside the agreement metric rather than instead of it.
     """
     kin = kinematics or KinematicsParams()
     seq_dirs = sorted(
@@ -393,8 +442,9 @@ def localize_soccernet_tracking(
             continue
         gt = load_soccernet_sequence(seq)
         tracklets, teams, ball = gt_to_possession_inputs(gt)
-        if signal == "possession":
-            timeline = HeuristicImagePossession(**params).estimate(None, tracklets, teams, ball)
+        if signal in ("possession", "possession-viterbi"):
+            estimator = DEFAULT_ESTIMATOR if signal == "possession" else "possession-viterbi"
+            timeline = _possession_timeline(estimator, tracklets, teams, ball, **params)
             frames = [e.frame_idx for e in transition_to_events(timeline)]
         else:
             frames = [t.frame_idx for t in detect_touches(ball, tracklets, kin)]

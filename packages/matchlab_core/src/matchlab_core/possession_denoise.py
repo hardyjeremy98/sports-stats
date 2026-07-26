@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from matchlab_core.ball_kinematics import Params as KinematicsParams
 from matchlab_core.ball_kinematics import detect_touches
+from matchlab_core.possession_ranking import index_possessor_boxes, rank_candidates
 from matchlab_core.schemas import (
     BallObservation,
     PossessorFrame,
@@ -40,7 +41,6 @@ from matchlab_core.schemas import (
     TeamAssignment,
     Tracklet,
 )
-from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
 _EPS = 1e-9
 

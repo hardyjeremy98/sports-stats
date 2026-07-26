@@ -32,10 +32,10 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from matchlab_core.artifacts import ArtifactStore
+from matchlab_core.possession_ranking import index_possessor_boxes, rank_candidates
 from matchlab_core.schemas import BallObservation, PossessorFrame, Team, Tracklet
 from matchlab_core.schemas.run import ArtifactName
 from matchlab_core.stages.possession.heuristic_image import Params
-from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
 DEFAULT_TAU_GRID_PX = (0.0, 2.0, 5.0, 10.0, 20.0, 40.0)
 DEFAULT_DEPTH_RATIO_GRID = (1.2, 1.5, 2.0)

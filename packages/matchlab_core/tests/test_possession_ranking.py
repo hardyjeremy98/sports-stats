@@ -3,6 +3,12 @@ estimator so the profiler cannot drift from it."""
 
 from __future__ import annotations
 
+from matchlab_core.possession_ranking import (
+    POSSESSOR_CLASSES,
+    dist_point_box,
+    index_possessor_boxes,
+    rank_candidates,
+)
 from matchlab_core.schemas import (
     BallObservation,
     Box,
@@ -10,12 +16,6 @@ from matchlab_core.schemas import (
     Point,
     Tracklet,
     TrackletFrame,
-)
-from matchlab_core.stages.possession.ranking import (
-    POSSESSOR_CLASSES,
-    dist_point_box,
-    index_possessor_boxes,
-    rank_candidates,
 )
 
 

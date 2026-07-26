@@ -20,6 +20,7 @@ from collections import Counter
 from pydantic import BaseModel
 
 from matchlab_core.interfaces import PossessionEstimator, StageContext
+from matchlab_core.possession_ranking import index_possessor_boxes, rank_candidates
 from matchlab_core.registry import register
 from matchlab_core.schemas import (
     BallObservation,
@@ -29,7 +30,6 @@ from matchlab_core.schemas import (
     Tracklet,
 )
 from matchlab_core.schemas.run import StageKind
-from matchlab_core.stages.possession.ranking import index_possessor_boxes, rank_candidates
 
 
 class Params(BaseModel):
