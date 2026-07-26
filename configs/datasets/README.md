@@ -30,6 +30,25 @@ them under `data/soccernet/ball/<split>/<match>/` before running `ingest-soccern
 is understood to ship two half-videos per match sharing one `Labels-ball.json` — verify against
 an actual download before relying on this tier at scale (see the adapter's module docstring).
 
+## `footpass` — full-match tactical tier (double-gated acquisition, no adapter yet)
+
+`footpass.json` covers **FOOTPASS** (SoccerNet 2026 Player-Centric Ball-Action Spotting): 54
+complete matches with full-length broadcast video plus per-player tactical data carrying
+track-level identity, jersey, 13 tactical roles, pitch position and velocity.
+
+Filed as a **B4** action-attribution asset, but it is also the only substrate in this directory
+on which **B2 role/zone occupancy** evidence can be measured — every other tracking tier here is
+30-second clips, and a positional footprint needs minutes. Acquisition is **double-gated**: the
+Hugging Face repo is access-restricted *and* the zips are encrypted with the SoccerNet NDA
+password (never committed). Full inventory, disk math (2.77 GB tactical / 25.7 GB low-res video
+/ 206 GB full-HD), the 14-column tactical schema, and the bounds on what this tier may be used
+for are in [`docs/reference/footpass-setup.md`](../../docs/reference/footpass-setup.md) — read
+that first. Like `soccernet-ball.json`, this manifest ships with an empty `sequences: []`
+because nothing has been downloaded and no ingest adapter exists yet.
+
+The one rule worth repeating here: FOOTPASS **supplies** tracking, jersey and role as inputs,
+so it is a development and isolation substrate, never a do-no-harm gate for identity.
+
 ## Format
 
 ```json

@@ -13,6 +13,10 @@ description: >
   association with oracle jersey anchors: the re-ID engine benchmark's
   primary condition.
 sport: soccer
+# Required by the PnLCalib calibrate stage below: its adapter emits homographies
+# in real 105x68 m FIFA geometry, so the runner, minimap and every metric
+# consumer must share that spec.
+pitch: fifa
 video:
   sample_stride: 1
   max_frames: null
@@ -34,9 +38,27 @@ stages:
     impl: kit-color
     params:
       crops_per_tracklet: 8
+  # Calibration was `enabled: false` here until 2026-07-27, which meant the
+  # merge engine's pitch-metric motion branch (reid/gates.py) NEVER fired in any
+  # benchmarked re-ID run -- SPO-59, SPO-73, SPO-85 and the 2026-07-26 smoke all
+  # scored on the GMC pixel bound alone. Position evidence needs pitch
+  # coordinates, so PnLCalib is on. `pitch: fifa` above is required: the adapter
+  # emits homographies in real 105x68 m geometry.
   calibrate:
-    impl: static-demo
-    enabled: false
+    impl: pnlcalib
+    params:
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
   associate:
     impl: reid-engine
     params:

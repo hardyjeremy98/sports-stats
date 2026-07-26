@@ -418,6 +418,28 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the gate was not
   clicked through. The formerly-open "commercial-use sign-off" question (SPO-16) is **moot**
   under the research posture — there is no commercial or shippable target.
+- **FOOTPASS tactical tier acquired and schema-verified; no ingest adapter yet (2026-07-27)** —
+  `configs/datasets/footpass.json` (still an empty `sequences: []` starter manifest) +
+  [`docs/reference/footpass-setup.md`](reference/footpass-setup.md). 54 complete matches from the
+  SoccerNet 2026 Player-Centric Ball-Action Spotting challenge, carrying full-match track-level
+  identity, jersey, 13 ground-truth tactical roles, pitch positions and velocities.
+  **On disk:** `data/footpass/tactical/{train,val,challenge}_tactical_data.h5`, 9.3 GB extracted
+  — 96/6/6 keys (`game_<id>_H<half>`) = 48/3/3 matches, 157.2M rows in train alone, halves of
+  ~72k frames (~48 min @ 25 fps) over 22–23 players. **14 columns for train/val, 13 for
+  challenge** (the action `class` is withheld for the evaluation server). **No video
+  downloaded** (25.7 GB low-res / 206 GB full-HD, deferred — full-HD is the only video tier
+  useful for B2 crops). Acquisition needs a Hugging Face read token **plus** a per-account
+  access grant (401 = token/scope, 403 = not authorized); the `tactical_data_*.zip` archives
+  are **not** encrypted, so the NDA password is not needed for this tier — and note `unzip -P`
+  succeeds silently on an unencrypted archive, so extraction success never confirms a password.
+  Filed as a B4 asset, but it is the only substrate available on which **B2 role/zone occupancy
+  evidence is measurable at all**: the SoccerNet tracking tier is 30-second / 750-frame clips
+  and a positional footprint needs minutes. **Measured and directly relevant to B2:** per-frame
+  bbox visibility is only 36–45%, per-player 9–48% (median 37%) — players are off-camera the
+  majority of a broadcast match, which is exactly the fragmentation/re-entry regime the merge
+  layer targets, with GT identity spanning every gap. **Bounds on use:** FOOTPASS *supplies*
+  tracking, jersey and role as inputs, so it is a development and isolation substrate, never a
+  do-no-harm gate for identity — the same standing caution as the GT-fragment harness.
 - Action-spotting scoring (SPO-47/49): a timestamped-event ground-truth representation
   (`EventGroundTruth`, `matchlab_core/event_gt.py`) distinct from the box/track
   `GroundTruth` used everywhere else, an `ingest-soccernet-ball` CLI that registers SoccerNet
