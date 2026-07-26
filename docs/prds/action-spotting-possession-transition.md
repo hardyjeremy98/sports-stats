@@ -1,5 +1,22 @@
 # PRD — Action Spotting via Possession Transitions (B3)
 
+> ## ⚠️ PHASE 2 SUPERSEDED — 2026-07-27
+>
+> **This PRD's Phase 2 (`possession-peral`, the learned Peral estimator) is superseded.**
+> Peral's block 2 is a smoother over a possession likelihood; the FOOTPASS/PCBAS
+> reference (`TAAD → DST`) is a tactical sequence-to-sequence translator. Same slot,
+> materially different capability — and unlike Peral, DST has released code and an
+> external benchmark. Successor design:
+> [`../superpowers/specs/2026-07-27-player-centric-action-spotting-design.md`](../superpowers/specs/2026-07-27-player-centric-action-spotting-design.md);
+> identity contract governed by [ADR 008](../decisions/008-role-slots-are-not-roster-slots.md).
+>
+> **Phase 1 is NOT superseded and remains live.** `possession-heuristic-image`,
+> `possession-viterbi` (added 2026-07-27) and `transition_to_events` are the
+> calibration-free, role-free path — the only path that runs on tiers with no pitch
+> keypoints, which today is every tier except FOOTPASS.
+>
+> SPO-83's go/no-go gate is unaffected and remains the owner's.
+
 > **Subsystem:** B3 — Action Spotting ("what happened, when"). Canonical direction:
 > Notion "B3 — Action Spotting" (revised 2026-07-23) and its child "Ball-Action Spotting —
 > Quick-Win Implementation Plan". This PRD implements the doc's **recommended lead track**:
