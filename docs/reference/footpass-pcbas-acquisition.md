@@ -71,7 +71,7 @@ requiring the account holder, and the HF download needs credentials.
    tracking, jersey and role as inputs. MatchDay produces all three, so any
    number we get measures a strictly longer pipeline than the baselines do.
 2. **The metric requires jersey-number match**, which collides with ADR 001
-   (identity without OCR). **Settled by [ADR 006](../decisions/006-roster-slot-identity-for-attribution-benchmarks.md):**
+   (identity without OCR). **Settled by [ADR 007](../decisions/007-roster-slot-identity-for-attribution-benchmarks.md):**
    roster-slot identity substitutes for the DST mechanism (it needs a stable
    anchor token, not a number's semantics), and the benchmark is scored under a
    per-match optimal assignment following ADR 004's precedent. Any resulting

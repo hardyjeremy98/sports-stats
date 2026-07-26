@@ -1,4 +1,4 @@
-# ADR 006: Roster-slot identity substitutes for jersey number in attribution benchmarks, scored under per-match optimal assignment
+# ADR 007: Roster-slot identity substitutes for jersey number in attribution benchmarks, scored under per-match optimal assignment
 
 **Status:** Accepted
 **Date:** 2026-07-27
