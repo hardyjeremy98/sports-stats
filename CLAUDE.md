@@ -159,6 +159,13 @@ phone-footage-specific concerns into current design or implementation decisions.
 
 Non-negotiable invariants:
 
+- **The product is fully automated end to end — no human-in-the-loop, ever.** Nothing in the
+  running pipeline pauses, queues, or depends on a person confirming, correcting, or reviewing a
+  decision before results are produced. When evidence is insufficient the system abstains
+  (reports unresolved/anonymous), it never asks a person to resolve the ambiguity. This does not
+  apply to ordinary engineering practice — code review before merging, an experiment's promotion
+  gate, or a developer inspecting runs in the Lab for debugging/calibration — none of which block
+  or gate a run's own output.
 - MatchLab produces player-by-player analytics from ordinary single-camera amateur footage.
 - **Player identity must work without jersey OCR**, numbered kits, special cameras, or
   wearable hardware (ADR 001). OCR is optional benchmark/reference evidence, never the
