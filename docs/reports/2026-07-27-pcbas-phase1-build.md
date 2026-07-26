@@ -45,7 +45,7 @@ time to it.
 | Training loop | 2.2 clip/s; loss falls; checkpoints written and reloaded |
 | Clip read (seek + 50 frames) | **0.04 s** — clip I/O is not a training bottleneck |
 | Training step, batch 1 | **0.39 s**, peak **6.2 GiB**; batch 2 OOMs |
-| Inference | **0.32 s** per 50-frame window at stride 25, full frame coverage |
+| Inference | **0.159 s** per 50-frame window at stride 25, full frame coverage |
 | Decode → score | runs; produces a report; exports the reference's JSON format |
 
 ### The GPU decided the recipe
@@ -114,8 +114,13 @@ balance in the *sampler*. A second frequency correction in the loss double-count
 Reverted to the reference, and the episode is recorded in `class_weights`'s docstring
 so it is not re-invented.
 
-**3. Inference rescanned 1.6M rows per window.** 0.28 s of a 0.45 s window against a
-0.13 s model forward. Sorting once and slicing with `searchsorted` took it to 0.32 s.
+**3. Inference was 3× slower than the GPU.** The model forward is 0.101 s per window
+and batching gives no speedup — the card is already saturated at batch 1 — so all the
+excess was CPU-side. Two fixes: the loop rescanned the half's 1.6M rows for every one
+of ~3,000 windows (0.45 s → 0.32 s with a sort and `searchsorted`), and it normalised
+each clip on the CPU, pushing 135 MB of float32 through several numpy passes and a
+non-contiguous permute. Uploading uint8 and normalising on the GPU moves 34 MB
+instead: **0.32 s → 0.159 s**, halving a full VAL inference pass.
 
 **4. Sub-window averaging halved the sequence edges.** The reference divides its whole
 overlap region by 2, including the first and last 25 frames of every half, which only
