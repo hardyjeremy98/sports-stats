@@ -1,7 +1,11 @@
 # FOOTPASS / PCBAS — acquisition and B3-B4 retarget
 
-**Status:** blocked on a human action (NDA + Hugging Face account). Everything
-downstream of acquisition is specified here so a build starts the moment it lands.
+**Status:** OPTIONAL, not blocking. B3-B4 progresses without it — the SNMOT
+action-label tier gives a working event benchmark with no agreement required
+(see the report linked at the bottom). What the NDA buys is specifically the
+ability to **score player attribution**, which no other benchmark measures, plus
+comparability with published baselines. Everything downstream of acquisition is
+specified here so a build starts the moment it lands.
 
 ## Why this dataset
 
@@ -67,9 +71,11 @@ requiring the account holder, and the HF download needs credentials.
    tracking, jersey and role as inputs. MatchDay produces all three, so any
    number we get measures a strictly longer pipeline than the baselines do.
 2. **The metric requires jersey-number match**, which collides with ADR 001
-   (identity without OCR). The claim that DST is anchor-agnostic and roster-slot
-   identity substitutes cleanly is a **hypothesis, not an established fact** —
-   it is stage 2 of the queued B4 experiment.
+   (identity without OCR). **Settled by [ADR 006](../decisions/006-roster-slot-identity-for-attribution-benchmarks.md):**
+   roster-slot identity substitutes for the DST mechanism (it needs a stable
+   anchor token, not a number's semantics), and the benchmark is scored under a
+   per-match optimal assignment following ADR 004's precedent. Any resulting
+   figure is an **upper bound**, never leaderboard-comparable.
 3. **Evaluation sits at one fixed high-recall operating point** (τ=0.15), the
    opposite end of the curve from MatchDay's abstention design. Per the B2 lesson
    — compare along the curve, not at a point — a single τ=0.15 number says little
@@ -104,9 +110,12 @@ different capability. The PRD's hyperparameters remain valid for stage 1 tubes.
 | tactical role (13) | nothing equivalent | **gap** |
 
 The position gap is the B0 geometry question again — the fourth independent time
-this track has hit it. `worktree-spo-pitch-calibration` (SPO-61..69) is built and
-unmerged; merging it is a prerequisite for a faithful DST stage, not an
-enhancement.
+this track has hit it. The calibration stages already exist in this branch
+(`stages/calibrate/{yolo_pitch_local,roboflow_keypoints,static}.py` +
+`matchlab_core/pitch.py`, feeding `fuse/minimap`); what is missing is
+`data/weights/football-pitch-detection.pt`, not code and not a merge. SNMOT
+carries no pitch keypoints either, so pitch coordinates for the DST stage need
+either those weights on footage that has them, or a calibrated tier.
 
 ## What was built instead, while blocked
 
