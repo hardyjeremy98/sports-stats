@@ -82,6 +82,30 @@ design predicted is present but modest, and same-role vs near-role is within noi
 (0.895 vs 0.889 on n=4,186 vs 53,420). **Per the pre-registered consequence, the
 role-conditional global layer (Phase D) is not justified and is dropped.**
 
+## Validity check: the AUC is not inflated by easy short-gap pairs
+
+A same-player pair whose two fragments are seconds apart is trivially easy, so if the positive
+set were dominated by those the headline would be meaningless. It is not — the median
+same-player pair gap is **834 s (~14 minutes)**:
+
+| gap between fragments | same pairs | AUC |
+|---|---|---|
+| <2 s | 350 | 0.8829 |
+| 2–10 s | 2,559 | 0.8594 |
+| 10–60 s | 8,619 | 0.7920 |
+| **>60 s** | **228,472** | **0.7700** |
+
+**Position is close to gap-independent** — 0.770 even beyond a minute, where 95% of the
+positives live. Appearance does the opposite: SPO-85 measured >5 s as its hard bucket (PRTreID
+0.825, KPR 0.772 rank-1) and the two smoke-run same-team wrong merges were both at ~9–10.5 s
+gaps.
+
+That divergence is the strongest **indirect** argument for fusion available without a shared
+substrate: the two channels appear to degrade along different axes, which is the precondition
+for their joint tail being cleaner than either. It is suggestive, not evidence — measuring
+error overlap directly on shared fragments is exactly what SPO-98 is for
+(`reid/frontier.py::error_overlap`).
+
 ## Merge accounting — the number that matters
 
 Mutual-best + margin over the calibrated position LLR, swept to its own frontier per half:
@@ -135,6 +159,26 @@ resolution, and the tail is the whole game.
 - Any statement about SoccerNet or the shipped pipeline. FOOTPASS supplies identity and GT
   positions, so this is a development/isolation substrate, never a gate.
 - Any change to shipped merge defaults. None were made.
+
+## Calibration coverage on SoccerNet (measured, SNMOT-116)
+
+PnLCalib now runs in the re-ID config. On the first tuning sequence (`calibcov-116`, calibrate
+stage 162.6 s):
+
+- **Homographies produced for 750/750 frames (100%)** — the whole-clip smoother bridges gaps.
+- **Confidence ≥ 0.5 on only 4.4% of frames**, mean 0.240.
+
+That matters directly: the merge engine's `calibration_min_confidence` is **0.5**, so the
+pitch-metric branch would still be skipped on ~96% of frames even with calibration enabled.
+Either the threshold is wrong for this footage or the calibration genuinely is weak here.
+
+**Which one is unresolved, and the obvious check is vacuous.** Projected player positions land
+inside the pitch 100% of the time at every confidence level — but `stages/fuse/minimap.py:258`
+**clips** coordinates to pitch bounds and drops implausible points beforehand, so that
+statistic measures the clamp, not the homography. SoccerNet tracking ships no GT pitch
+positions, so there is nothing to score the homography against on this tier. Resolving it needs
+either a sequence with GT pitch coordinates or a manual spot-check against pitch landmarks —
+not another aggregate.
 
 ## What fusion needs
 

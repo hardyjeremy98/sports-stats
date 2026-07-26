@@ -923,6 +923,13 @@ Measured local findings recorded by the repository guidance:
   SPO-73, SPO-85 and the full-system smoke all scored on the GMC **pixel** bound alone. Position
   contributed nothing to those results, not even as a veto. PnLCalib is now enabled in
   `configs/pipeline.tdlp-full-reid-oracle.yaml` (with the required `pitch: fifa`).
+  **Measured coverage on SNMOT-116** (run `calibcov-116`, calibrate 162.6 s): homographies for
+  **750/750 frames**, but **confidence ≥0.5 on only 4.4%** (mean 0.240) — and the engine's
+  `calibration_min_confidence` is 0.5, so the pitch-metric branch would *still* skip ~96% of
+  frames. Whether that reflects genuine calibration error or a conservative confidence metric
+  is **unresolved**: the obvious sanity check (projected players land on the pitch) is vacuous
+  because `stages/fuse/minimap.py:258` clips to pitch bounds, and SoccerNet tracking ships no
+  GT pitch positions to score against.
 - **Smoke-run merge triage: wrong merges are same-team, at long gaps (2026-07-27).** Judged
   against GT track identity and GT team, the 2026-07-26 smoke runs made 3 wrong merges: **2 are
   same-team** (same-kit teammates, gaps of 227 and 263 frames ≈ 9–10.5 s) and **1 is a
