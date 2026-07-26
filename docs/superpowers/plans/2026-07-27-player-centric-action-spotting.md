@@ -29,7 +29,7 @@ isolated environment.
 | 3 · The metric | **done** | `6cf663c` |
 | 3b · Reference reproduction gate | **done, PASSES** | exact per-class table, both arms |
 | 4 · Phase 0 ingest gate | **done, PASSES** | VAL 6,070 / TRAIN 91,327 exactly |
-| 5 · Video reader + alignment | **done** | TRAIN-split montage still pending extraction |
+| 5 · Video reader + alignment | **done, VERIFIED on both splits** | 48/48 TRAIN videos extracted; montage passes |
 | 6 · Action head | **done** | `91f85cc` |
 | 7 · Clip sampler + training | **done** | `dccbef6`, `9c32668` |
 | 8 · Inference to `(9,26,T)` | **done** | `9c32668` |

@@ -97,6 +97,24 @@ It also sharpens the tackle problem twice over. The Phase 0 report corrected the
 a third of one epoch's 500 quota. That is why tackle F1 is 0.061 even in the
 reference's strong arm, and no sampler can fix it.
 
+## ROI alignment verified on TRAIN as well as VAL
+
+The single most important verification in the phase, and it was outstanding until the
+TRAIN video finished downloading: if the tactical `frame` column did not index the
+video as assumed, every clip would train on the wrong pixels and nothing downstream
+would reveal it.
+
+Extraction produced **51 videos = exactly the 48 TRAIN matches plus the 3 VAL ones**,
+with none missing. `game_10.mp4` reports 640×352 @ 25 fps and **152,126 frames** —
+which is precisely the `end_frames` value the reference's own `TAAD_sample_list.json`
+records for `game_10_H1`, an independent confirmation that our video files are the
+ones it was built against.
+
+12 randomly sampled *action* rows from `game_10_H1` were decoded, scaled by `x/3.0`
+and `y/3.068181`, and cropped. Every crop contains a centred player.
+
+![TRAIN ROI alignment](assets-2026-07-27-pcbas-align-train.png)
+
 ## Bugs the tests caught during implementation
 
 Recorded because each would have produced a plausible model rather than a crash.
