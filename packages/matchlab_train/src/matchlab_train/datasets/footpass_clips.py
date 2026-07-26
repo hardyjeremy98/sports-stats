@@ -391,8 +391,14 @@ class FootpassClipDataset:
             else np.random.default_rng(self.seed + index)
         )
 
+        video = self._video(anchor.key)
         start = self._clip_start(anchor, rng)
-        clip = self._video(anchor.key).read_clip(start, self.clip_length)
+        # Defensive clamp against the VIDEO's length, not just the half's tactical
+        # frame range. Measured on VAL the two agree (game_47_H2 has 48 frames of
+        # headroom, the tightest), but a single inconsistent match in TRAIN would
+        # raise inside a DataLoader worker and take down a multi-hour run.
+        start = max(0, min(start, video.frame_count - self.clip_length))
+        clip = video.read_clip(start, self.clip_length)
 
         arr = self._half(anchor.key)
         window = arr[

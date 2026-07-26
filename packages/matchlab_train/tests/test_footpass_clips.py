@@ -350,3 +350,17 @@ def test_clip_always_contains_its_anchor_even_at_the_half_boundary(
         assert start <= event_frame < start + CLIP, (
             f"event {event_frame} outside clip [{start}, {start + CLIP})"
         )
+
+
+def test_clip_start_is_clamped_to_the_video_length(fixture_split):
+    """The half's tactical frame range and the video length agree on every VAL
+    match, but one inconsistent TRAIN match would raise inside a DataLoader worker
+    and take down a multi-hour run."""
+    h5_path, video_root = fixture_split
+    # Claim the half runs 500 frames past the end of the 200-frame video.
+    anchor = ClipAnchor("game_1_H1", 690, 10, 2, 0, 700)
+    ds = FootpassClipDataset(
+        h5_path, video_root, [anchor], clip_length=CLIP, nb_tracklets=1
+    )
+    video, _, _, _, _ = ds[0]  # must not raise
+    assert video.shape[1] == CLIP
