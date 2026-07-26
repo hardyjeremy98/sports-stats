@@ -84,8 +84,24 @@ class ClipAnchor:
     max_frame: int
 
 
-def build_anchors(h5_path: str | Path) -> list[ClipAnchor]:
-    """Every non-background row in the split becomes one anchor. ~3 min on TRAIN."""
+def build_anchors(h5_path: str | Path, *, require_bbox: bool = True) -> list[ClipAnchor]:
+    """Non-background rows become clip anchors. ~3 min on TRAIN.
+
+    `require_bbox` defaults True, matching the reference and for a substantive
+    reason: an anchor whose player has no bounding box is fully masked, so it
+    contributes exactly zero loss AND consumes one of that class's places in the
+    epoch's balanced quota. On the rare classes that is ruinous -- VAL has 26 tackles
+    but only 16 with a box, so 38% of tackle anchors would teach nothing.
+
+    Verified against the reference's own shipped `TAAD_sample_list.json`: with this
+    filter our per-class VAL anchor counts match it exactly on all 8 classes
+    (5,008 total). Without it we get 6,070, the full GT count. That agreement is a
+    free control on the training anchor set -- see
+    `test_anchors_match_the_reference_sample_list`.
+
+    The no-bbox events are NOT lost from the problem: they remain in the ground truth
+    and are exactly the events the sequence stage exists to recover.
+    """
     anchors: list[ClipAnchor] = []
     for key in list_halves(h5_path):
         arr = load_half(h5_path, key)
@@ -94,6 +110,8 @@ def build_anchors(h5_path: str | Path) -> list[ClipAnchor]:
         frames = arr[:, FRAME]
         lo, hi = int(np.nanmin(frames)), int(np.nanmax(frames))
         is_event = ~np.isnan(arr[:, CLS]) & (arr[:, CLS] != BACKGROUND)
+        if require_bbox:
+            is_event &= ~np.isnan(arr[:, ROI_X])
         for row in arr[is_event]:
             anchors.append(
                 ClipAnchor(

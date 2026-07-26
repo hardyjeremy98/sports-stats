@@ -281,3 +281,52 @@ def test_horizontal_flip_moves_boxes_with_the_pixels():
     assert out_clip[0, 0, -50, 0] > 100
     assert out_rois[0, 0, 1] == pytest.approx(EXPECTED_WIDTH - 90.0)
     assert out_rois[0, 0, 3] == pytest.approx(EXPECTED_WIDTH - 10.0)
+
+
+# --- control against the reference's own anchor list -------------------------------
+
+
+def test_anchors_without_a_box_are_excluded_by_default(fixture_split):
+    """An anchor whose player has no box is fully masked: zero loss, and it still
+    consumes a place in that class's balanced quota."""
+    h5_path, _ = fixture_split
+    with h5py.File(h5_path, "r+") as f:
+        arr = f["game_1_H1"][:]
+        arr[(arr[:, 0] == 100) & (arr[:, 1] == 12), ROI_X] = np.nan  # the shot
+        del f["game_1_H1"]
+        f["game_1_H1"] = arr
+    assert "shot" not in class_histogram(build_anchors(h5_path))
+    assert "shot" in class_histogram(build_anchors(h5_path, require_bbox=False))
+
+
+def test_anchors_match_the_reference_sample_list():
+    """A FREE control on the training anchor set, and the only one available: the
+    reference ships no checkpoints, no logits and no video, so a true control run
+    would cost a full retrain. It DOES ship its exact anchor list.
+
+    With the bbox filter our per-class VAL anchor counts match it on all 8 classes.
+    """
+    import json
+
+    from matchlab_train.datasets.paths import data_root, reference_root
+
+    root, ref = data_root(), reference_root("FOOTPASS")
+    if root is None or ref is None:
+        pytest.skip("FOOTPASS data or reference clone not present")
+    h5 = root / "footpass" / "tactical" / "val_tactical_data.h5"
+    sample_list = ref / "data" / "TAAD_sample_list.json"
+    if not h5.is_file() or not sample_list.is_file():
+        pytest.skip("FOOTPASS VAL tactical data or sample list not present")
+
+    from collections import Counter
+
+    from matchlab_core.pcbas.schema import CLASS_NAMES
+
+    # The reference stores events 0-indexed (class_id - 1).
+    reference = {
+        CLASS_NAMES[c + 1]: n
+        for c, n in Counter(json.loads(sample_list.read_text())["val"]["events"]).items()
+    }
+    assert class_histogram(build_anchors(h5)) == dict(
+        sorted(reference.items(), key=lambda kv: -kv[1])
+    )
