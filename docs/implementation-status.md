@@ -893,7 +893,11 @@ Measured local findings recorded by the repository guidance:
   `min_similarity: 1.01` to restore the old anchor-only behaviour. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
   held-out verdict, over 198 person tracks fragmenting into 323 fragments.
-- **Position/occupancy is real re-ID evidence but not a merge decider (2026-07-27; FOOTPASS
+- **⚠️ SUPERSEDED 2026-07-28 by the entry below.** Its headline (+1.35 rank-1 from position)
+  was 84% a tie-breaking artefact of a defective calibrator, and its statement that "FOOTPASS
+  has no video, so there are no appearance embeddings on this substrate" is now false —
+  PRTreID embeddings exist for all six val halves. Retained for provenance; do not cite.
+  **Position/occupancy is real re-ID evidence but not a merge decider (2026-07-27; FOOTPASS
   tactical, 48 train / 3 val complete matches; report
   [`2026-07-27-position-evidence-reid.md`](reports/2026-07-27-position-evidence-reid.md)):**
   a tracklet's occupancy footprint, taken over **observable frames only** and expressed
@@ -916,6 +920,45 @@ Measured local findings recorded by the repository guidance:
   impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
   `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
   No shipped default was changed.
+- **The calibrator was destroying more evidence than position added; accumulation and the
+  combiner are the real levers (2026-07-28; FOOTPASS val, 3 matches × 2 halves, 3-fold match
+  rotation; report
+  [`2026-07-28-position-evidence-reappraisal.md`](reports/2026-07-28-position-evidence-reappraisal.md)):**
+  four independent review agents audited the position work and the headline did not survive.
+  `LLRCalibrator` tied **19.7%** of body-ID decisions at the top (equal-count quantile bins
+  cannot resolve a tail; per-bin noise inverted 17% of adjacent pairs; `LOG_CLAMP` flattened
+  the rest). A **1e-9** perturbation — too small to reorder any genuinely distinct pair —
+  bought **+1.14** of position's claimed **+1.35** rank-1, and uniform random noise bought
+  +0.58; the raw uncalibrated cosine beat the calibrated body channel outright. Rebuilt as a
+  logistic backbone + count-weighted histogram correction + isotonic regression returned as
+  block-centroid knots + `tanh` saturation: ties **19.71% → 0.00%**, body rank-1 94.23% →
+  **95.37%** (exactly the raw cosine's, as an order-preserving transform must be), and
+  **position's honest contribution is +0.28, not +1.35**. **(a) Fitted fusion weights are worth
+  more than any channel:** a unit sum assumes conditional independence and a shared scale, and
+  neither holds (occupancy↔continuity correlate 0.31 on impostors; `gap`'s LLR spans a
+  twentieth of body's range). One weight per channel fitted on a held-out match gives
+  **96.26% vs 94.92% for the sum** — adding a channel to the *sum* made it worse by 0.45.
+  **(b) A spatio-temporal transition prior** (`reid/transition.py`, bounded diffusion
+  σ(Δt)=σ∞√(1−e^(−Δt/τ)), anisotropic) is the strongest single position channel (51.26% vs
+  occupancy's 41.02%) and subsumes continuity+gap, but earns a fitted weight of only ~0.1;
+  best arm is `body + occupancy + transition` at **96.27%**. **(c) Accumulation is the biggest
+  lever:** representing a candidate by its whole thread rather than one fragment is worth
+  **+12.8 rank-1 on body ID** and +7.4 on occupancy, and beats a longest-single-fragment
+  control, so the gain is accumulation and not more frames. **(d) End to end, without any
+  oracle** (`experiments/bootstrap_threads.py`), greedy sequential threading plus a
+  thread-to-thread agglomerative second pass makes **10,293 of 13,016 required merges at 359
+  wrong — 96.6% precision, 79.1% coverage**; the single-fragment control manages 93.6% / 57.4%.
+  **(e) Fragment impurity runs the OPPOSITE way to the stated risk:** splicing same-team ID
+  switches into 30% of fragments costs accumulation 6.1 points of precision against the
+  control's 16.9 — pooling dilutes a corrupted fragment, whereas a single-fragment candidate
+  *is* the corrupted fragment. **Closed by measurement, do not retry:** joint one-to-one
+  assignment (hard combinatorial ceiling +0.36 pp, measured +0.09), role discovery as an input
+  (0.418 agreement vs 0.900 for the trivial per-player mean), `impostor_field_llr` (proven
+  rank-neutral — an affine transform within an episode), and a pass-1 margin requirement
+  (dominated on both axes once pass 2 exists). New pure modules: `reid/transition.py`,
+  `reid/threads.py`, `evidence.py::fit_fusion_weights`. **All of it sits on GT observability
+  spans with a GT team gate** — no real detector, no learned team classifier, no phone
+  footage — so every number is an upper bound. No shipped default was changed.
 - **Calibration had never run in any benchmarked re-ID experiment (2026-07-27).** The re-ID
   configs carried `calibrate: enabled: false` (`manifest.json` for the 2026-07-26 smoke runs
   records `status: skipped`), and the merge engine's pitch-metric motion branch
