@@ -51,7 +51,7 @@ closer to parity than micro-F1: micro is dominated by `pass` and `drive`, which 
 
 ---
 
-## The gap is entirely recall, and its cause is precisely locatable
+## The gap is entirely recall — and it is a model-quality gap, not an operating point
 
 We are **more precise than the reference** and less than half as sensitive.
 
@@ -72,7 +72,10 @@ ground truth — trading precision for double the recall.
 **zero** were removed by the τ=0.15 confidence floor: every surviving peak already
 scored above it. So the model is not producing low-confidence actions that get
 filtered — it is not producing them at all, because background wins the argmax over
-all 9 classes. Decode-time class balance, not model capacity, is the lever.
+all 9 classes.
+
+That makes decode-time class balance the natural suspect. It was tested, and it is
+not the answer — see below.
 
 ### Measured: the decode threshold is NOT the lever
 
