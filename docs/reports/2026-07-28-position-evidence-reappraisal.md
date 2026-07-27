@@ -214,6 +214,35 @@ Identity is not 69% solved in any useful sense: at that operating point each pla
 split across 20–30 unlinked threads. What the system delivers reliably is "this is
 consistently one person", not "this is *the* person from earlier in the match".
 
+### A second, thread-to-thread pass
+
+Pass 1 always compares a thread against a **lone fragment**, so half the evidence in every
+comparison is a 6.6-second smudge. Pass 2 agglomerates thread-to-thread — greedy, re-scored
+each round because every merge strengthens the surviving thread — so both sides are
+accumulated. Pass-1 threshold fixed at 4.0, pass-2 threshold swept:
+
+| arm | correct | wrong | precision | coverage |
+|---|---|---|---|---|
+| single-fragment control | 7,477 | 508 | 93.64% | 57.4% |
+| pass 1 only | 8,986 | 216 | 97.65% | 69.0% |
+| + pass 2 @ 4 | 9,132 | 222 | 97.63% | 70.2% |
+| + pass 2 @ 2 | 9,635 | 264 | 97.33% | 74.0% |
+| **+ pass 2 @ 0** | **10,293** | 359 | **96.63%** | **79.1%** |
+| + pass 2 @ −2 | 10,885 | 533 | 95.33% | 83.6% |
+
+**The two-pass system dominates the one-pass frontier.** One pass at its aggressive setting
+gave 94.63% precision at 84.4% coverage; pass 2 @ −2 gives 95.33% at 83.6% — better
+precision at the same coverage. Lowering pass 1's threshold is a strictly worse way to buy
+coverage than adding pass 2.
+
+Pass 2 is also far more precise than pass 1 at the same threshold: at 4.0 it adds 146 correct
+merges for 6 wrong across all six halves. That is the accumulated-evidence effect appearing
+on *both* sides of the comparison rather than one, and it is why the pass-2 threshold can be
+set well below pass 1's.
+
+Thread purity falls sharply at −2 (92.6% → 80.9% on game_24), which is the honest signal that
+−2 is past the useful point; **pass 2 @ 0** is the operating point to prefer.
+
 ## 9. Fragment purity — the assumption that turned out to be backwards
 
 Every number above rests on fragments that never contain two players. The stated worry was

@@ -1,0 +1,34 @@
+{
+  "question": "Coverage is the bottleneck (69% -- each player still split across 20-30 threads). Pass 1 always compares a thread against a LONE FRAGMENT. Does a second, thread-to-thread pass close the gap?",
+  "experiment": "matchlab_train.experiments.bootstrap_threads",
+  "pass2": "greedy agglomeration over THREADS: repeatedly merge the best-scoring compatible pair (same team, non-overlapping spans), re-scoring after each round because every merge strengthens the surviving thread. Both sides carry accumulated evidence, which pass 1 never had.",
+  "protocol": "3-fold match rotation; calibrators, transition prior and fusion weights fitted on the other two matches. Pass-1 threshold fixed at 4.0; pass-2 threshold swept.",
+  "merges_needed": 13016,
+  "aggregate": {
+    "recent (single-fragment control)": {"correct": 7477, "wrong": 508, "precision": 0.9364, "coverage": 0.5744},
+    "accum (pass 1 only)":              {"correct": 8986, "wrong": 216, "precision": 0.9765, "coverage": 0.6904},
+    "accum + pass2@4":                  {"correct": 9132, "wrong": 222, "precision": 0.9763, "coverage": 0.7016},
+    "accum + pass2@2":                  {"correct": 9635, "wrong": 264, "precision": 0.9733, "coverage": 0.7402},
+    "accum + pass2@0":                  {"correct": 10293, "wrong": 359, "precision": 0.9663, "coverage": 0.7908},
+    "accum + pass2@-2":                 {"correct": 10885, "wrong": 533, "precision": 0.9533, "coverage": 0.8363}
+  },
+  "per_half_at_pass2_0": {
+    "game_18_H1": {"needed": 2530, "pass1": [1744, 31], "total": [2060, 67], "threads": 426, "true_players": 23},
+    "game_18_H2": {"needed": 2283, "pass1": [1484, 13], "total": [1805, 41], "threads": 464, "true_players": 27},
+    "game_24_H1": {"needed": 2219, "pass1": [1600, 67], "total": [1784, 88], "threads": 369, "true_players": 22},
+    "game_24_H2": {"needed": 2242, "pass1": [1653, 76], "total": [1802, 110], "threads": 360, "true_players": 30},
+    "game_47_H1": {"needed": 1802, "pass1": [1308, 3],  "total": [1432, 8],  "threads": 384, "true_players": 22},
+    "game_47_H2": {"needed": 1940, "pass1": [1197, 26], "total": [1410, 45], "threads": 515, "true_players": 30}
+  },
+  "findings": [
+    "The two-pass system DOMINATES the one-pass frontier. One pass at its aggressive setting gave 94.63% precision / 84.4% coverage; pass2@-2 gives 95.33% / 83.6% -- better precision at the same coverage. Lowering pass 1's threshold is a strictly worse way to buy coverage than adding pass 2.",
+    "At pass2@0 the trade is +10.0 points of coverage for -1.0 point of precision (69.0->79.1%, 97.65->96.63%), and threads per half roughly halve (778->426 on game_18_H1 against 23 true players).",
+    "Pass 2 is far more precise than pass 1 at the same threshold: at 4.0 it adds 146 correct merges for 6 wrong across all six halves. That is the accumulated-evidence effect appearing on BOTH sides of the comparison rather than one.",
+    "Pass-2 threshold is the better coverage dial. It can be lowered well below pass 1's because a thread-to-thread comparison has strictly more evidence than a thread-to-fragment one."
+  ],
+  "caveats": [
+    "GT-substrate throughout: observability-span fragments, GT team gate, no fragment containing two players.",
+    "Fitting uses oracle threads on the other matches, so the fitted distribution is cleaner than the applied one.",
+    "Merge correctness is scored by majority player on each side, so an already-impure thread can absorb another and count as correct. Thread purity is reported alongside and falls at the lowest pass-2 threshold (92.6-80.9% at -2), which is the honest signal that -2 is past the useful point."
+  ]
+}

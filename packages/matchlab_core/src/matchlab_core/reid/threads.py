@@ -55,6 +55,7 @@ class ThreadState:
     last_end: int
     exit_xy: np.ndarray
     first_start: int
+    entry_xy: np.ndarray | None = None
 
     @classmethod
     def from_fragment(
@@ -66,9 +67,11 @@ class ThreadState:
         start: int,
         end: int,
         exit_xy,
+        entry_xy=None,
         grid: tuple[int, int] = DEFAULT_GRID,
     ) -> ThreadState:
         emb = None if embedding is None else np.asarray(embedding, dtype=np.float64)
+        entry = np.asarray(exit_xy if entry_xy is None else entry_xy, dtype=np.float64)
         return cls(
             counts=_counts(xs, ys, grid),
             n_frames=int(len(np.asarray(xs).ravel())),
@@ -78,6 +81,7 @@ class ThreadState:
             last_end=int(end),
             exit_xy=np.asarray(exit_xy, dtype=np.float64),
             first_start=int(start),
+            entry_xy=entry,
         )
 
     def merged_with(self, other: ThreadState) -> ThreadState:
@@ -87,6 +91,10 @@ class ThreadState:
             last_end, exit_xy = other.last_end, other.exit_xy
         else:
             last_end, exit_xy = self.last_end, self.exit_xy
+        if other.first_start < self.first_start:
+            entry_xy = other.entry_xy
+        else:
+            entry_xy = self.entry_xy
         if self.embedding_sum is None:
             emb = other.embedding_sum
         elif other.embedding_sum is None:
@@ -103,6 +111,7 @@ class ThreadState:
             last_end=last_end,
             exit_xy=exit_xy,
             first_start=min(self.first_start, other.first_start),
+            entry_xy=entry_xy,
         )
 
     def footprint(self, *, sigma: float = 1.0) -> Footprint:

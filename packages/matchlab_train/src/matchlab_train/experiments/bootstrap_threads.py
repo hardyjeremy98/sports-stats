@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import pickle
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,21 +130,45 @@ def corrupt_fragments(frags, embeddings: dict, c: Corruption):
     return out, emb
 
 
+CACHE = Path("data/experiments/bootstrap-cache")
+
+
 def half_frames(key: str):
-    """Fragments plus the per-fragment endpoints the transition prior needs."""
+    """Fragments plus the per-fragment endpoints the transition prior needs.
+
+    Cached, and the endpoint lookup is done by sorting the observable rows once
+    and slicing per fragment. The naive version masked all ~1.6M rows once per
+    fragment -- 2,500 full-array scans per half -- which was both slow and the
+    reason this died under memory pressure.
+    """
+    cache = CACHE / f"{key}.pkl"
+    if cache.exists():
+        frags, first_xy, last_xy = pickle.loads(cache.read_bytes())
+        return frags, first_xy, last_xy, (load_appearance(key) or {})
+
     half = load_half(VAL_H5, key)
     frags = build_fragments(half, min_frames=50, relative=True)
     rows = half.rows
+    obs = rows[~np.isnan(rows[:, COL.ROI_X])]
+    order = np.lexsort((obs[:, COL.FRAME], obs[:, COL.PLAYER_ID]))
+    obs = obs[order]
+    pids = obs[:, COL.PLAYER_ID]
+    frames = obs[:, COL.FRAME]
+
     first_xy, last_xy = [], []
     for f in frags:
-        sel = (rows[:, COL.PLAYER_ID] == f.player_id) & ~np.isnan(rows[:, COL.ROI_X])
-        sub = rows[sel]
-        sub = sub[(sub[:, COL.FRAME] >= f.start) & (sub[:, COL.FRAME] <= f.end)]
-        sub = sub[np.argsort(sub[:, COL.FRAME])]
-        first_xy.append(sub[0, [COL.X, COL.Y]].astype(float))
-        last_xy.append(sub[-1, [COL.X, COL.Y]].astype(float))
-    app = load_appearance(key) or {}
-    return frags, np.array(first_xy), np.array(last_xy), app
+        lo = int(np.searchsorted(pids, f.player_id, "left"))
+        hi = int(np.searchsorted(pids, f.player_id, "right"))
+        block = frames[lo:hi]
+        a = lo + int(np.searchsorted(block, f.start, "left"))
+        b = lo + int(np.searchsorted(block, f.end, "right"))
+        first_xy.append(obs[a, [COL.X, COL.Y]].astype(float))
+        last_xy.append(obs[b - 1, [COL.X, COL.Y]].astype(float))
+    first_xy, last_xy = np.array(first_xy), np.array(last_xy)
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(pickle.dumps((frags, first_xy, last_xy)))
+    return frags, first_xy, last_xy, (load_appearance(key) or {})
 
 
 def initial_states(frags, first_xy, last_xy, app) -> list[ThreadState]:
@@ -156,7 +181,8 @@ def initial_states(frags, first_xy, last_xy, app) -> list[ThreadState]:
             e = e / n if n > 1e-9 else None
         out.append(
             ThreadState.from_fragment(
-                f.xs, f.ys, embedding=e, start=f.start, end=f.end, exit_xy=last_xy[i]
+                f.xs, f.ys, embedding=e, start=f.start, end=f.end,
+                exit_xy=last_xy[i], entry_xy=first_xy[i],
             )
         )
     return out
@@ -181,6 +207,92 @@ def raw_row(state: ThreadState, state_fp, i: int, states, q_fp, q_proto, first_x
         float(dx[0]),
         float(dy[0]),
     ]
+
+
+def thread_pair_row(a: ThreadState, a_fp, b: ThreadState, b_fp):
+    """Channel raw scores for joining thread `b` onto thread `a` (a ends first).
+
+    The pass-2 counterpart of `raw_row`. Both sides are accumulated here, which
+    is the whole point: pass 1 always had a single fragment on the query side,
+    so half the evidence in every comparison was a 6.6-second smudge.
+    """
+    pa, pb = a.prototype, b.prototype
+    body = float(pa @ pb) if (pa is not None and pb is not None) else np.nan
+    dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
+    return [
+        body,
+        js_distance(b_fp, a_fp),
+        (b.first_start - a.last_end) / FPS,
+        float(dx[0]),
+        float(dy[0]),
+    ]
+
+
+def agglomerate(
+    threads, t_fp, t_team, t_members, pid, cals, prior, w, *, min_score, rounds=8
+):
+    """Repeatedly merge the best-scoring compatible pair of THREADS.
+
+    Greedy agglomeration rather than one sweep: every merge strengthens the
+    surviving thread, so a pair that was below threshold can clear it once one
+    side has absorbed more evidence. That is the actual two-pass idea -- pass 1
+    only ever compared a thread against a lone fragment.
+
+    Compatibility is the same pair of physically-certain constraints used
+    everywhere else: same team, and non-overlapping spans, because one player
+    cannot be in two places at once.
+    """
+    threads = list(threads)
+    t_fp = list(t_fp)
+    t_members = [list(m) for m in t_members]
+    correct = wrong = 0
+    for _ in range(rounds):
+        live = [k for k in range(len(threads)) if threads[k] is not None]
+        cands = []
+        for ai, a in enumerate(live):
+            for b in live[ai + 1 :]:
+                x, y = (a, b) if threads[a].last_end <= threads[b].first_start else (b, a)
+                if t_team[x] != t_team[y] or threads[x].last_end >= threads[y].first_start:
+                    continue
+                cands.append((x, y))
+        if not cands:
+            break
+        rows = np.array(
+            [thread_pair_row(threads[x], t_fp[x], threads[y], t_fp[y]) for x, y in cands]
+        )
+        scores = channel_llrs(rows, cals, prior) @ w
+        order = np.argsort(-scores)
+        used: set[int] = set()
+        n_merged = 0
+        for idx in order:
+            if scores[idx] < min_score:
+                break
+            x, y = cands[idx]
+            if x in used or y in used:
+                continue
+            used.update((x, y))
+            # Scored while both sides are still intact: the merge is right only
+            # if each side was mostly the same player.
+            mx = Counter(pid[t_members[x]]).most_common(1)[0][0]
+            my = Counter(pid[t_members[y]]).most_common(1)[0][0]
+            correct += mx == my
+            wrong += mx != my
+            threads[x] = threads[x].merged_with(threads[y])
+            t_fp[x] = threads[x].footprint()
+            t_members[x] = t_members[x] + t_members[y]
+            threads[y] = None
+            t_members[y] = []
+            n_merged += 1
+        if not n_merged:
+            break
+    keep = [k for k in range(len(threads)) if threads[k] is not None]
+    return (
+        [threads[k] for k in keep],
+        [t_fp[k] for k in keep],
+        [t_members[k] for k in keep],
+        int(correct),
+        int(wrong),
+    )
 
 
 def oracle_pairs(frags, states, first_xy):
@@ -214,6 +326,18 @@ def oracle_pairs(frags, states, first_xy):
 def fit_from(matches: list[str]):
     import gc
 
+    # Cached on the fit-match set: nothing about it varies across operating
+    # points, and rebuilding it per sweep is what kept dying under memory
+    # pressure from concurrent jobs.
+    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}.pkl"
+    if fit_cache.exists():
+        cals_d, prior_d, w = pickle.loads(fit_cache.read_bytes())
+        return (
+            {k: LLRCalibrator.from_dict(v) for k, v in cals_d.items()},
+            TransitionPrior.from_dict(prior_d),
+            w,
+        )
+
     rows, labels = [], []
     for m in matches:
         for key in (f"{m}_H1", f"{m}_H2"):
@@ -240,6 +364,10 @@ def fit_from(matches: list[str]):
     # Weights are fitted per-decision here rather than per-field: a greedy
     # thread assignment has no fixed candidate set to normalise over.
     w = fit_fusion_weights(llr, np.arange(len(llr)) // 64, y)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    fit_cache.write_bytes(
+        pickle.dumps(({k: v.to_dict() for k, v in cals.items()}, prior.to_dict(), w))
+    )
     return cals, prior, w
 
 
@@ -264,6 +392,8 @@ def thread_half(
     min_margin: float,
     accumulate: bool = True,
     corruption: Corruption | None = None,
+    pass2: bool = False,
+    pass2_score: float = 4.0,
 ) -> dict:
     """Greedy sequential threading.
 
@@ -337,6 +467,13 @@ def thread_half(
             t_team.append(int(team[i]))
             t_members.append([int(i)])
 
+    p2_correct = p2_wrong = 0
+    if pass2:
+        threads, t_fp, t_members, p2_correct, p2_wrong = agglomerate(
+            threads, t_fp, t_team, t_members, pid,
+            cals, prior, w, min_score=pass2_score,
+        )
+
     sizes = [len(m) for m in t_members]
     pure = sum(1 for m in t_members if len(set(pid[m])) == 1)
     n_players = int(len(set(pid.tolist())))
@@ -349,9 +486,13 @@ def thread_half(
         "true_players": n_players,
         "merges_needed": len(frags) - n_players,
         "threads": len(threads),
-        "merges": int(correct + wrong),
-        "correct": int(correct),
-        "wrong": int(wrong),
+        "merges": int(correct + wrong + p2_correct + p2_wrong),
+        "correct": int(correct + p2_correct),
+        "wrong": int(wrong + p2_wrong),
+        "pass1_correct": int(correct),
+        "pass1_wrong": int(wrong),
+        "pass2_correct": int(p2_correct),
+        "pass2_wrong": int(p2_wrong),
         "pure_threads": int(pure),
         "largest_thread": int(max(sizes)) if sizes else 0,
     }
@@ -361,6 +502,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--min-score", type=float, nargs="+", default=[0.0, 2.0, 4.0, 6.0])
     ap.add_argument("--min-margin", type=float, default=0.0)
+    ap.add_argument("--pass2-score", type=float, nargs="+", default=[4.0],
+                    help="threshold for thread-to-thread agglomeration in pass 2")
     ap.add_argument("--matches", nargs="+", default=list(MATCHES),
                     help="held-out matches to evaluate; the rest are always fitted on")
     ap.add_argument(
@@ -385,19 +528,26 @@ def main() -> None:
             for cont in args.contaminate:
                 corr = None if cont <= 0 else Corruption(contaminate=cont, seed=0)
                 for key in (f"{held_out}_H1", f"{held_out}_H2"):
-                    for acc in (True, False):
+                    arms = [(True, None), (False, None)]
+                    arms += [(True, p) for p in args.pass2_score]
+                    for acc, p2s in arms:
+                        p2 = p2s is not None
                         r = thread_half(key, cals, prior, w, min_score=ms,
                                         min_margin=args.min_margin, accumulate=acc,
-                                        corruption=corr)
+                                        corruption=corr, pass2=p2,
+                                        pass2_score=p2s if p2 else 0.0)
                         r["min_score"] = ms
                         r["accumulate"] = acc
+                        r["pass2"] = p2
+                        r["pass2_score"] = p2s
                         r["contaminate"] = cont
                         results.append(r)
+                        arm = (f"ACCUM+P2@{p2s:g}" if p2 else "ACCUM") if acc else "recent"
                         print(
-                            f"  {key} thr={ms:4.1f} c={cont:4.2f}"
-                            f" {'ACCUM' if acc else 'recent':>6s}"
+                            f"  {key} thr={ms:4.1f} c={cont:4.2f} {arm:>9s}"
                             f"  merges {r['merges']:5d}"
                             f"  correct {r['correct']:5d}  wrong {r['wrong']:4d}"
+                            f"  (p2 {r['pass2_correct']:4d}/{r['pass2_wrong']:3d})"
                             f"  threads {r['threads']:4d} (true {r['true_players']})",
                             flush=True,
                         )
@@ -408,11 +558,12 @@ def main() -> None:
     summary = {}
     for ms in args.min_score:
       for cont in args.contaminate:
-        for acc in (True, False):
+        arms = [(True, None), (False, None)] + [(True, p) for p in args.pass2_score]
+        for acc, p2s in arms:
             rows = [
                 r for r in results
                 if r["min_score"] == ms and r["accumulate"] == acc
-                and r["contaminate"] == cont
+                and r["contaminate"] == cont and r["pass2_score"] == p2s
             ]
             if not rows:
                 continue
@@ -423,13 +574,14 @@ def main() -> None:
             # Coverage against the merges the footage actually requires. Precision
             # alone flatters an abstaining system: merging nothing scores 100%.
             need = sum(r["merges_needed"] for r in rows)
-            summary[f"thr={ms}/c={cont}/{'accum' if acc else 'recent'}"] = {
+            arm = (f"accum+p2@{p2s:g}" if p2s is not None else "accum") if acc else "recent"
+            summary[f"thr={ms}/c={cont}/{arm}"] = {
                 "correct": c, "wrong": wr, "merges_needed": need,
                 "precision": round(c / max(c + wr, 1), 4),
                 "coverage": round(c / max(need, 1), 4),
             }
             print(
-                f"{ms:10.1f} {cont:7.2f} {'ACCUM' if acc else 'recent':>10s}"
+                f"{ms:10.1f} {cont:7.2f} {arm:>10s}"
                 f" {c + wr:8d} {c:8d}"
                 f" {wr:7d} {100 * c / max(c + wr, 1):9.2f}%"
                 f" {100 * c / max(need, 1):8.2f}% {100 * pt / max(th, 1):7.1f}%"

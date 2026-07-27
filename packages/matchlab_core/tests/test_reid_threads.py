@@ -62,6 +62,18 @@ def test_the_exit_point_is_the_latest_fragments_not_the_longest():
         assert merged.exit_xy == pytest.approx(np.array([0.9, 0.9]))
 
 
+def test_the_entry_point_is_the_earliest_fragments():
+    """Symmetric to the exit point, and needed for thread-to-thread merging: to
+    ask whether thread B continues thread A, the transition prior compares where
+    A was LAST seen against where B was FIRST seen."""
+    early = _state([0.1], [0.1], start=0, end=10)
+    late = _state([0.9], [0.9], start=100, end=110)
+    for merged in (early.merged_with(late), late.merged_with(early)):
+        assert merged.first_start == 0
+        assert merged.entry_xy == pytest.approx(np.array([0.1, 0.1]))
+        assert merged.exit_xy == pytest.approx(np.array([0.9, 0.9]))
+
+
 def test_accumulation_does_not_depend_on_merge_order():
     """Threads are built greedily and the order fragments arrive in is an
     accident of the tracker, so it must not change what the thread represents."""
