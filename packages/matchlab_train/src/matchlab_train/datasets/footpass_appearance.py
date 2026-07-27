@@ -41,18 +41,24 @@ class AppearanceConfig:
     reid_model: str = "prtreid"
 
 
-def sample_frames(frags, *, per_fragment: int) -> dict[int, list[int]]:
-    """frame_idx -> fragment indices needing a crop there. Evenly spaced."""
-    want: dict[int, list[int]] = {}
-    for fi, f in enumerate(frags):
-        span = np.linspace(f.start, f.end, num=min(per_fragment, f.end - f.start + 1))
-        for fr in np.unique(span.astype(int)):
-            want.setdefault(int(fr), []).append(fi)
-    return want
+def sample_frames(frags, *, stride: int = 25) -> list[int]:
+    """Frames to decode: a fixed global stride, not per-fragment seeks.
+
+    Random seeking in a 3.7 GB H.264 file is far slower than one sequential
+    pass, and a global grid lets every visible player in a decoded frame be
+    embedded at once rather than decoding the same frame once per fragment.
+    With `stride` below the minimum fragment length (50 frames), every fragment
+    is guaranteed at least one sample.
+    """
+    if not frags:
+        return []
+    lo = min(f.start for f in frags)
+    hi = max(f.end for f in frags)
+    return list(range(int(lo), int(hi) + 1, stride))
 
 
 def write_det_file(
-    half: FootpassHalf, frags, want: dict[int, list[int]], out: Path
+    half: FootpassHalf, frags, want: list[int], out: Path
 ) -> dict[tuple[int, int], int]:
     """MOT det.txt of GT boxes for the sampled (frame, fragment) pairs.
 
@@ -62,19 +68,24 @@ def write_det_file(
     different player or empty pitch.
     """
     rows = half.rows
+    # fragment lookup: (player_id, frame) -> fragment index
+    owner: dict[tuple[int, int], int] = {}
+    for fi, f in enumerate(frags):
+        for fr in range(int(f.start), int(f.end) + 1):
+            owner[(f.player_id, fr)] = fi
+
+    want_set = set(want)
     by_frame: dict[int, list[tuple[int, np.ndarray]]] = {}
-    for fr, fis in want.items():
-        for fi in fis:
-            pid = frags[fi].player_id
-            sel = (rows[:, COL.FRAME] == fr) & (rows[:, COL.PLAYER_ID] == pid)
-            if not sel.any():
-                continue
-            r = rows[sel][0]
-            if np.isnan(r[COL.ROI_X]):
-                continue
-            by_frame.setdefault(fr, []).append(
-                (fi, r[[COL.ROI_X, COL.ROI_Y, COL.ROI_WIDTH, COL.ROI_HEIGHT]].astype(float))
-            )
+    sel_rows = rows[np.isin(rows[:, COL.FRAME].astype(int), list(want_set))]
+    sel_rows = sel_rows[~np.isnan(sel_rows[:, COL.ROI_X])]
+    for r in sel_rows:
+        fr = int(r[COL.FRAME])
+        fi = owner.get((int(r[COL.PLAYER_ID]), fr))
+        if fi is None:
+            continue  # visible, but not inside any kept fragment
+        by_frame.setdefault(fr, []).append(
+            (fi, r[[COL.ROI_X, COL.ROI_Y, COL.ROI_W, COL.ROI_H]].astype(float))
+        )
 
     index: dict[tuple[int, int], int] = {}
     lines = []

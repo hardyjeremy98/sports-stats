@@ -154,15 +154,29 @@ def extract_half(
     )
 
 
+APPEARANCE_DIR = Path("data/experiments/footpass-appearance")
+
+
+def load_appearance(key: str) -> dict[int, np.ndarray] | None:
+    """Per-fragment PRTreID prototypes, if they have been extracted."""
+    p = APPEARANCE_DIR / key / "fragment_embeddings.pkl"
+    if not p.exists():
+        return None
+    return pickle.loads(p.read_bytes())
+
+
 def load_block(path: Path, keys: list[str], *, tag: str) -> list[HalfData]:
     CACHE.mkdir(parents=True, exist_ok=True)
     out = []
     for key in keys:
-        cache = CACHE / f"{tag}-{key}.pkl"
+        app = load_appearance(key)
+        # Cache key records whether body ID is present: a cache built without
+        # embeddings must never be reused for a body arm.
+        cache = CACHE / f"{tag}-{key}{'-body' if app else ''}.pkl"
         if cache.exists():
             out.append(pickle.loads(cache.read_bytes()))
             continue
-        hd = extract_half(path, key)
+        hd = extract_half(path, key, appearance=app)
         cache.write_bytes(pickle.dumps(hd))
         out.append(hd)
     return out
