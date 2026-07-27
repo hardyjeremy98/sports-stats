@@ -74,19 +74,20 @@ def collate(batch, framespan: int):
     Encoder sources are all `framespan` long so they need no padding; targets are
     one token per event plus SOS/EOS, which varies per window.
     """
-    import numpy as np
     import torch
 
     features, frames, actions, roles, event_frames = zip(*batch)
     max_tgt = max(a.shape[0] for a in actions)
 
+    # The one-hot frame channel must encode the SAME values fed to the positional
+    # encoding -- the reference one-hots `enc_abs_frame` itself, which is 1-based
+    # window-local. One-hotting arange(T) instead makes the two frame channels
+    # disagree by one, a quieter cousin of the absolute/window-local bug that made
+    # DST's first run score 0.035.
     src = torch.stack(
         [
-            torch.cat(
-                [f, torch.from_numpy(one_hot_frames(np.arange(f.shape[0]), framespan))],
-                dim=-1,
-            )
-            for f in features
+            torch.cat([f, torch.from_numpy(one_hot_frames(fr.numpy(), framespan))], dim=-1)
+            for f, fr in zip(features, frames)
         ]
     )
     src_frames = torch.stack(list(frames))

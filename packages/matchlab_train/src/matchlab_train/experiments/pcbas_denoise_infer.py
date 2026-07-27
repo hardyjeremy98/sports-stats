@@ -154,9 +154,8 @@ class PCBASDenoiseInferExperiment(Experiment):
                     torch.cat(
                         [
                             torch.from_numpy(s.features),
-                            torch.from_numpy(
-                                one_hot_frames(np.arange(len(s.frames)), p.framespan)
-                            ),
+                            # Same values as the positional encoding -- see collate().
+                            torch.from_numpy(one_hot_frames(s.frames, p.framespan)),
                         ],
                         dim=-1,
                     )

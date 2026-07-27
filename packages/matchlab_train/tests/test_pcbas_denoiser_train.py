@@ -139,3 +139,24 @@ def test_every_shipped_pcbas_config_parses_and_resolves():
     for path in configs:
         cfg = ExperimentConfig.from_yaml(path)
         assert cfg.task in available(), f"{path.name} -> unknown task {cfg.task}"
+
+
+def test_collate_one_hot_encodes_the_same_frames_as_the_positional_encoding():
+    """The encoder gets frame information twice -- a one-hot channel concatenated
+    onto the features, and a sinusoidal positional encoding. They must encode the
+    SAME values. The reference one-hots `enc_abs_frame` itself (1-based window-local);
+    one-hotting arange(T) instead makes them disagree by one, a quieter cousin of the
+    absolute/window-local bug that made DST's first run score 0.035."""
+    import numpy as np
+    from matchlab_core.pcbas.denoiser import ENCODER_FEATURE_DIM
+
+    frames = torch.arange(1, 7)  # 1-based window-local, as the dataset now emits
+    sample = (
+        torch.zeros(6, ENCODER_FEATURE_DIM),
+        frames,
+        *_sample(1, t=6)[2:],
+    )
+    src, src_frames, _, _, _ = collate([sample], FRAMESPAN)
+    one_hot = src[0, :, ENCODER_FEATURE_DIM:]
+    assert np.array_equal(one_hot.argmax(-1).numpy(), src_frames[0].numpy())
+    assert one_hot[0].argmax() == 1  # NOT 0
