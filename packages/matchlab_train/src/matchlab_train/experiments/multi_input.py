@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 from matchlab_core.reid.episodes import build_episodes
 from matchlab_core.reid.evidence import LLRCalibrator
+from matchlab_core.reid.transition import TransitionPrior, displacement
 
 from matchlab_train.datasets.footpass import COL, half_keys, load_half
 from matchlab_train.experiments.position_evidence import (
@@ -52,6 +53,15 @@ CHANNELS: dict[str, tuple[int, bool]] = {
     "continuity": (2, True),   # extrapolation error, lower = more same
     "gap": (3, True),          # seconds apart, lower = more same
 }
+# `transition` is not in CHANNELS because it does not have a scalar raw score to
+# hand to LLRCalibrator: the TransitionPrior IS its calibrator, taking (dt, dx,
+# dy) jointly. Columns 4 and 5 carry the exit->entry displacement in metres.
+DX, DY = 4, 5
+TRANSITION = "transition"
+N_RAW = 6
+# Bumped whenever the raw column layout changes -- a stale pickle would
+# otherwise be silently reinterpreted under the new schema.
+CACHE_SCHEMA = "v2"
 QUALITY_NAMES = (
     "log_field_size",
     "min_duration_s",
@@ -98,7 +108,7 @@ def extract_half(
     half = load_half(path, key)
     frags = build_fragments(half, min_frames=MIN_FRAMES, relative=True)
     if len(frags) < 2:
-        return HalfData(np.zeros((0, 4)), np.zeros((0, len(QUALITY_NAMES))),
+        return HalfData(np.zeros((0, N_RAW)), np.zeros((0, len(QUALITY_NAMES))),
                         np.zeros(0, int), np.zeros(0, bool), 0)
     mat = footprint_matrix(frags)
     last_xy, last_v, first_xy = _endpoints(half, frags)
@@ -126,7 +136,8 @@ def extract_half(
         cont = np.linalg.norm(first_xy[cand] - pred, axis=1)
         body = (emb[cand] @ emb[a]) if emb is not None else np.full(len(cand), np.nan)
 
-        raw.append(np.stack([body, occ, cont, gap_s], axis=1))
+        dxm, dym = displacement(last_xy[a][None, :], first_xy[cand])
+        raw.append(np.stack([body, occ, cont, gap_s, dxm, dym], axis=1))
         qual.append(
             np.stack(
                 [
@@ -172,7 +183,7 @@ def load_block(path: Path, keys: list[str], *, tag: str) -> list[HalfData]:
         app = load_appearance(key)
         # Cache key records whether body ID is present: a cache built without
         # embeddings must never be reused for a body arm.
-        cache = CACHE / f"{tag}-{key}{'-body' if app else ''}.pkl"
+        cache = CACHE / f"{tag}-{CACHE_SCHEMA}-{key}{'-body' if app else ''}.pkl"
         if cache.exists():
             out.append(pickle.loads(cache.read_bytes()))
             continue
@@ -182,22 +193,33 @@ def load_block(path: Path, keys: list[str], *, tag: str) -> list[HalfData]:
     return out
 
 
-def fit_calibrators(blocks: list[HalfData]) -> dict[str, LLRCalibrator]:
+def fit_calibrators(blocks: list[HalfData]) -> dict:
     raw = np.concatenate([b.raw for b in blocks])
     corr = np.concatenate([b.is_correct for b in blocks])
-    cals = {}
+    cals: dict = {}
     for name, (idx, _lower) in CHANNELS.items():
         col = raw[:, idx]
         ok = ~np.isnan(col)
         if not ok.any():
             continue
         cals[name] = LLRCalibrator.fit(col[ok & corr], col[ok & ~corr], max_bins=200)
+    if raw.shape[1] > DY:
+        cals[TRANSITION] = TransitionPrior.fit(
+            raw[:, CHANNELS["gap"][0]], raw[:, DX], raw[:, DY], corr
+        )
     return cals
 
 
-def llr_matrix(hd: HalfData, cals: dict[str, LLRCalibrator], names: list[str]) -> np.ndarray:
+def llr_matrix(hd: HalfData, cals: dict, names: list[str]) -> np.ndarray:
     cols = []
     for n in names:
+        if n == TRANSITION:
+            cols.append(
+                np.asarray(
+                    cals[n].llr(hd.raw[:, CHANNELS["gap"][0]], hd.raw[:, DX], hd.raw[:, DY])
+                )
+            )
+            continue
         idx = CHANNELS[n][0]
         cal = cals[n]
         col = hd.raw[:, idx]

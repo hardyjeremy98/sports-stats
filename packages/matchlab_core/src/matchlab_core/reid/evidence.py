@@ -181,10 +181,14 @@ class LLRCalibrator:
         centers = 0.5 * (edges[:-1] + edges[1:])
         backbone = slope * centers + intercept - prior
 
-        # A bin's correction is trusted in proportion to the evidence in it. The
-        # scarcer class governs: 5,000 impostors and no same-player samples
-        # still cannot say where inside that bin the ratio turns.
-        n_eff = np.minimum(hs, hd).astype(np.float64)
+        # A bin's correction is trusted in proportion to the evidence in it.
+        # TOTAL count, not the scarcer class: a bin holding 5,000 impostors and
+        # no same-player samples is not uninformative, it is strong evidence
+        # that `same` is rare there, and the Laplace-floored ratio gets more
+        # negative as those impostors accumulate. Gating on min(hs, hd) muted the
+        # correction across the whole confident tail of a discriminative channel,
+        # which is the region the merge decision lives in.
+        n_eff = (hs + hd).astype(np.float64)
         weight = n_eff / (n_eff + 10.0)
         correction = weight * _smooth(np.log(ps / pd) - backbone)
 
@@ -268,6 +272,78 @@ def impostor_field_llr(score: float, field_scores, *, higher_is_better: bool) ->
     margin = (score - runner_up) if higher_is_better else (runner_up - score)
     spread = float(field.std()) if len(field) > 1 else (abs(runner_up) or 1.0)
     return float(np.clip(margin / max(spread, 1e-6), -LOG_CLAMP, LOG_CLAMP))
+
+
+def fit_fusion_weights(
+    llrs, ep_index, is_correct, *, l2: float = 1e-3, iters: int = 400, lr: float = 0.1
+) -> np.ndarray:
+    """One weight per channel, fitted as a conditional logit over each field.
+
+    Summing raw LLRs assumes the channels are conditionally independent given
+    identity and share a scale. Measured on FOOTPASS neither holds: occupancy
+    and continuity correlate at 0.31 on impostors, so their evidence is counted
+    twice, and `gap` is calibrated on a pooled population that leaves its LLR
+    spanning a twentieth of body's range, so a unit sum mutes it. One weight per
+    channel corrects both -- the first by shrinking correlated channels, the
+    second by rescaling.
+
+    The objective is the listwise probability that the field's softmax puts on
+    SOME correct candidate, which matches how the score is used (pick one from a
+    field) rather than a per-pair likelihood. Only a global scale is
+    unidentifiable from ranking, so the L2 term simply pins it.
+
+    Episodes with no correct candidate are the abstention population and carry
+    no ranking signal; including them would teach the combiner to prefer
+    whatever such fields happen to contain.
+    """
+    x = np.asarray(llrs, dtype=np.float64)
+    if x.ndim == 1:
+        x = x[:, None]
+    ep = np.asarray(ep_index)
+    ok = np.asarray(is_correct, dtype=bool)
+
+    # Optimise on standardised channels. A channel calibrated on a pooled
+    # population can land on a twentieth of another's scale, and restoring it
+    # would need a weight ~200x larger -- which an L2 term in RAW units
+    # penalises precisely because it is large, so the muted channel stays muted.
+    # Standardising makes the penalty scale-invariant; the weights are mapped
+    # back at the end so callers still apply them to raw LLRs.
+    usable = [
+        np.flatnonzero(ep == e)
+        for e in np.unique(ep)
+        if ok[ep == e].any() and int((ep == e).sum()) > 1
+    ]
+    if not usable:
+        return np.ones(x.shape[1], dtype=np.float64)
+
+    # Standardised over the rows ACTUALLY fitted. Using every row would let an
+    # answerless episode -- which carries no ranking signal and is excluded
+    # below -- still move the result through the preconditioner.
+    rows = np.concatenate(usable)
+    sd = np.maximum(x[rows].std(axis=0), 1e-9)
+    fields = [(x[sel] / sd, ok[sel]) for sel in usable]
+
+    w = np.ones(x.shape[1], dtype=np.float64)
+    m = np.zeros_like(w)
+    v = np.zeros_like(w)
+    for t in range(1, iters + 1):
+        grad = np.zeros_like(w)
+        for feats, mask in fields:
+            s = feats @ w
+            s -= s.max()
+            p = np.exp(s)
+            p /= p.sum()
+            # d/dw log(sum_{correct} p) = E[x | restricted to correct] - E[x]
+            pc = p[mask]
+            tot = pc.sum()
+            if tot <= 0:
+                continue
+            grad += (pc @ feats[mask]) / tot - p @ feats
+        grad = grad / len(fields) - l2 * w
+        m = 0.9 * m + 0.1 * grad
+        v = 0.999 * v + 0.001 * grad**2
+        w += lr * (m / (1 - 0.9**t)) / (np.sqrt(v / (1 - 0.999**t)) + 1e-8)
+    return w / sd
 
 
 def fuse(llrs, weights=None) -> float:

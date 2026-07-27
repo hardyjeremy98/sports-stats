@@ -130,7 +130,10 @@ def test_resolution_scales_with_available_data():
         rng.normal(0.2, 0.05, 100_000), rng.normal(0.8, 0.05, 100_000), max_bins=200
     )
     small = LLRCalibrator.fit(rng.normal(0.2, 0.05, 500), rng.normal(0.8, 0.05, 500))
-    assert len(big.log_ratio) > 5 * len(small.log_ratio)
+    # Counted on `edges`, the binning itself. `log_ratio` holds isotonic BLOCKS,
+    # which collapse to a handful when the classes separate cleanly -- that is
+    # the fit agreeing with itself, not a loss of resolution.
+    assert len(big.edges) > 5 * len(small.edges)
     # And the extra resolution must reach further into the tail. Asserted on
     # llr() rather than on `log_ratio`, which now holds the histogram CORRECTION
     # and is legitimately all-zero for cleanly separated classes -- no bin has

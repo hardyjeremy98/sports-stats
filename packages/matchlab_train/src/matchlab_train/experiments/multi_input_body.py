@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from matchlab_core.reid.evidence import fit_fusion_weights
 
 from matchlab_train.experiments.multi_input import (
     VAL_H5,
@@ -46,15 +47,22 @@ ARMS = [
     ("occupancy",),
     ("continuity",),
     ("gap",),
+    ("transition",),
     ("body", "occupancy"),
+    ("body", "transition"),
+    ("body", "occupancy", "transition"),
     ("body", "occupancy", "continuity"),
     ("body", "occupancy", "continuity", "gap"),
+    ("body", "occupancy", "continuity", "gap", "transition"),
     ("occupancy", "continuity", "gap"),
+    ("occupancy", "transition"),
+    ("occupancy", "continuity", "gap", "transition"),
 ]
 MODEL_ARMS = [
     ("body",),
     ("body", "occupancy", "continuity", "gap"),
-    ("occupancy", "continuity", "gap"),
+    ("body", "occupancy", "continuity", "gap", "transition"),
+    ("occupancy", "continuity", "gap", "transition"),
 ]
 
 
@@ -69,7 +77,9 @@ def load(match: str):
 def conditional_effect(he, cals) -> dict:
     """Where body ID fails, does position rescue it -- and at what cost?"""
     body = llr_matrix(he, cals, ["body"]).sum(axis=1)
-    pos = llr_matrix(he, cals, ["occupancy", "continuity", "gap"]).sum(axis=1)
+    pos = llr_matrix(
+        he, cals, [c for c in ("occupancy", "continuity", "gap", "transition") if c in cals]
+    ).sum(axis=1)
     fixed = broken = wrong = right = 0
     for e in range(he.n_episodes):
         sel = he.ep_index == e
@@ -110,7 +120,9 @@ def main() -> None:
         print(f"{m}: {sum(h.n_episodes for h in cache[m])} episodes")
 
     sums: dict[str, list[float]] = {}
+    weighted: dict[str, list[float]] = {}
     models: dict[str, list[float]] = {}
+    weights_log: list[dict] = []
     cond: list[dict] = []
 
     for fold in FOLDS:
@@ -122,15 +134,31 @@ def main() -> None:
         for h in ev:
             cond.append({"eval": fold["eval"], **conditional_effect(h, cals)})
 
+        tr = cache[fold["train"]]
         for arm in ARMS:
             names = [n for n in arm if n in cals]
             if len(names) != len(arm):
                 continue
+            label = " + ".join(names)
             r1 = []
             for h in ev:
                 s = llr_matrix(h, cals, names).sum(axis=1)
                 r1.append(rank1_from_scores(s, h)[0])
-            sums.setdefault(" + ".join(names), []).extend(r1)
+            sums.setdefault(label, []).extend(r1)
+
+            # Fitted on the TRAIN match: a third match, disjoint from both the
+            # calibration match and the evaluated one.
+            if len(names) > 1:
+                w = fit_fusion_weights(
+                    np.concatenate([llr_matrix(h, cals, names) for h in tr]),
+                    np.concatenate([h.ep_index + 10_000 * i for i, h in enumerate(tr)]),
+                    np.concatenate([h.is_correct for h in tr]),
+                )
+                weighted.setdefault(label, []).extend(
+                    rank1_from_scores(llr_matrix(h, cals, names) @ w, h)[0] for h in ev
+                )
+                weights_log.append({"eval": fold["eval"], "arm": label,
+                                    "w": dict(zip(names, w.round(4), strict=True))})
 
         if not args.skip_model:
             data = {"T": cache[fold["train"]], "E": ev}
@@ -146,11 +174,13 @@ def main() -> None:
                 if r:
                     models.setdefault(label, []).extend(r["per_half_rank1"])
 
-    print(f"\n{'inputs':44s} {'sum r@1':>9s} {'model r@1':>10s}")
+    print(f"\n{'inputs':44s} {'sum r@1':>9s} {'fitted':>9s} {'model r@1':>10s}")
     for k, v in sums.items():
         m = models.get(k)
+        f = weighted.get(k)
         ms = f"{100 * float(np.mean(m)):9.2f}%" if m else "        --"
-        print(f"{k:44s} {100 * float(np.mean(v)):8.2f}% {ms}")
+        fs = f"{100 * float(np.mean(f)):8.2f}%" if f else "       --"
+        print(f"{k:44s} {100 * float(np.mean(v)):8.2f}% {fs} {ms}")
 
     tot = {
         k: sum(c[k] for c in cond)
@@ -162,7 +192,17 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
-        json.dumps({"sum": sums, "model": models, "conditional": cond, "totals": tot}, indent=2)
+        json.dumps(
+            {
+                "sum": sums,
+                "fitted_weights": weighted,
+                "model": models,
+                "weights": weights_log,
+                "conditional": cond,
+                "totals": tot,
+            },
+            indent=2,
+        )
     )
     print(f"\nwritten: {args.out}")
 
