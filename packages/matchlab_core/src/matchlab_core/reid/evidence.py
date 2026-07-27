@@ -25,8 +25,25 @@ from dataclasses import dataclass
 import numpy as np
 
 # +/- this many nats. One sparsely populated bin must not be able to dominate a
-# fused sum; the clamp is what keeps a single channel from acting as a veto.
+# fused sum; the bound is what keeps a single channel from acting as a veto.
 LOG_CLAMP = 6.0
+
+
+def _saturate(x):
+    """Bound the evidence WITHOUT flattening it.
+
+    A hard clip maps everything past the bound onto one value, so the most
+    confident pairs all tie and their order falls to whatever the array index
+    happens to be. Measured on the shipped body-ID channel that tied 19.7% of
+    decisions, and a 1e-9 perturbation of those ties bought +1.14 rank-1 --
+    credit no evidence had earned.
+
+    tanh is strictly increasing everywhere, so ordering survives; it is within
+    1% of the identity below ~0.25 * LOG_CLAMP, so ordinary evidence is
+    unchanged; and it is bounded by LOG_CLAMP, so the no-veto property the
+    clamp existed for still holds.
+    """
+    return LOG_CLAMP * np.tanh(np.asarray(x, dtype=np.float64) / LOG_CLAMP)
 
 
 def _smooth(v: np.ndarray) -> np.ndarray:
@@ -41,16 +58,89 @@ def _smooth(v: np.ndarray) -> np.ndarray:
     return 0.25 * padded[:-2] + 0.5 * padded[1:-1] + 0.25 * padded[2:]
 
 
+def _pav(
+    values: np.ndarray, weights: np.ndarray, positions: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pool-adjacent-violators: nearest non-decreasing fit, weighted.
+
+    Standard isotonic regression -- adjacent blocks that violate the order are
+    replaced by their weighted mean until none remain -- but returning the
+    surviving blocks as (x, y) KNOTS rather than one value per input bin.
+
+    That distinction is the whole point. Expanding a block back over its bins
+    makes the fit a step function, which re-ties every score inside a pooled
+    run: measured at 8.95% of decisions, enough that position again scored most
+    of its apparent gain as tie-breaking. Interpolating between block centroids
+    keeps the fit monotone AND strictly increasing wherever consecutive blocks
+    differ, which is the ordering the raw score had all along.
+    """
+    # Each block is [value, weight, weighted_x_sum] so the pooled block can be
+    # placed at its own centroid rather than smeared over every bin it absorbed.
+    blocks: list[list[float]] = []
+    for val, wt, x in zip(values, weights, positions, strict=True):
+        w = max(float(wt), 1e-9)
+        blocks.append([float(val), w, float(x) * w])
+        while len(blocks) > 1 and blocks[-2][0] > blocks[-1][0]:
+            b = blocks.pop()
+            a = blocks.pop()
+            tot = a[1] + b[1]
+            blocks.append([(a[0] * a[1] + b[0] * b[1]) / tot, tot, a[2] + b[2]])
+    ys = np.array([b[0] for b in blocks], dtype=np.float64)
+    xs = np.array([b[2] / b[1] for b in blocks], dtype=np.float64)
+    return xs, ys
+
+
+def _fit_logistic(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Two-parameter logistic fit, returning (slope, intercept) in nats.
+
+    Newton-Raphson on a standardised score, then de-standardised. This is the
+    backbone the histogram corrects: log-odds of `same` is linear in the score,
+    which is crude in the middle but is defined -- and strictly monotone --
+    everywhere, including out where the counts have run out.
+    """
+    mu, sd = float(x.mean()), float(x.std()) or 1.0
+    z = (x - mu) / sd
+    w = np.zeros(2, dtype=np.float64)
+    design = np.stack([z, np.ones_like(z)], axis=1)
+    for _ in range(50):
+        p = 1.0 / (1.0 + np.exp(-design @ w))
+        grad = design.T @ (y - p)
+        hess = (design * (p * (1.0 - p))[:, None]).T @ design
+        step = np.linalg.solve(hess + 1e-9 * np.eye(2), grad)
+        w += step
+        if np.max(np.abs(step)) < 1e-9:
+            break
+    return float(w[0] / sd), float(w[1] - w[0] * mu / sd)
+
+
 @dataclass
 class LLRCalibrator:
-    """Piecewise-constant log P(score|same) - log P(score|different).
+    """log P(score|same) - log P(score|different).
 
-    Bin edges are quantiles of the pooled scores, so bins are equally populated
-    and resolution concentrates where the data actually is.
+    A logistic backbone plus a histogram correction, blended per bin by how much
+    data that bin actually has. Bin edges are quantiles of the pooled scores, so
+    bins are equally populated and resolution concentrates where the data is.
+
+    The blend exists because equal-count binning cannot resolve a tail: out
+    where one class has no samples left, every bin holds the same counts and
+    Laplace smoothing maps them all to one value. A pure histogram therefore
+    ties the most confident pairs -- 19.7% of decisions on the shipped body-ID
+    channel -- and a 1e-9 perturbation of those ties bought +1.14 rank-1, credit
+    no evidence had earned. The backbone supplies the ordering the counts cannot.
     """
 
     edges: np.ndarray
-    log_ratio: np.ndarray
+    log_ratio: np.ndarray      # histogram correction ON TOP of the backbone
+    slope: float = 0.0
+    intercept: float = 0.0
+    knots: np.ndarray | None = None   # score positions `log_ratio` is defined at
+
+    @property
+    def centers(self) -> np.ndarray:
+        """Where the correction is anchored: isotonic block centroids."""
+        if self.knots is not None:
+            return self.knots
+        return 0.5 * (self.edges[:-1] + self.edges[1:])
 
     @classmethod
     def fit(cls, same_scores, diff_scores, *, max_bins: int = 20) -> LLRCalibrator:
@@ -79,34 +169,81 @@ class LLRCalibrator:
         # Laplace smoothing: an empty bin means "unobserved", not "impossible".
         ps = (hs + 1.0) / (hs.sum() + len(hs))
         pd = (hd + 1.0) / (hd.sum() + len(hd))
+
+        slope, intercept = _fit_logistic(
+            pooled,
+            np.concatenate([np.ones(len(same)), np.zeros(len(diff))]),
+        )
+        # The class prior is a property of how the fitting pool was assembled,
+        # not of the evidence, so it is divided out: the backbone must read zero
+        # when the score says nothing, whatever the pool's same/diff mix was.
+        prior = np.log(max(len(same), 1) / max(len(diff), 1))
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        backbone = slope * centers + intercept - prior
+
+        # A bin's correction is trusted in proportion to the evidence in it. The
+        # scarcer class governs: 5,000 impostors and no same-player samples
+        # still cannot say where inside that bin the ratio turns.
+        n_eff = np.minimum(hs, hd).astype(np.float64)
+        weight = n_eff / (n_eff + 10.0)
+        correction = weight * _smooth(np.log(ps / pd) - backbone)
+
+        # Per-bin noise puts small downward steps into an otherwise increasing
+        # curve. They are tiny -- -0.0005 nats on the body channel -- but they
+        # reorder the channel's own scores, and a merge rule acts on the order.
+        # Isotonic regression is the nearest fit that cannot: it moves the curve
+        # as little as possible subject to never contradicting the score. The
+        # DIRECTION comes from the fitted slope, so a distance channel (JS, gap)
+        # and a similarity channel (cosine) are handled without being told which
+        # is which.
+        combined = backbone + correction
+        counts = (hs + hd).astype(np.float64)
+        if slope >= 0:
+            kx, ky = _pav(combined, counts, centers)
+        else:
+            kx, ky = _pav(combined[::-1], counts[::-1], centers[::-1])
+            kx, ky = kx[::-1], ky[::-1]
         return cls(
             edges=edges,
-            log_ratio=np.clip(_smooth(np.log(ps / pd)), -LOG_CLAMP, LOG_CLAMP),
+            log_ratio=ky - (slope * kx + intercept - prior),
+            slope=slope,
+            intercept=float(intercept - prior),
+            knots=kx,
         )
 
-    @property
-    def centers(self) -> np.ndarray:
-        return 0.5 * (self.edges[:-1] + self.edges[1:])
-
     def llr(self, score: float) -> float:
-        """Linearly interpolated between bin centres.
+        """Backbone plus the interpolated histogram correction, bounded.
 
-        Interpolation is not cosmetic. A piecewise-constant LLR takes only
-        `bins` distinct values, so hundreds of candidate pairs tie at the
-        extreme -- and the extreme is precisely where merge safety is decided.
-        Thresholding a quantised score yields a degenerate operating curve that
-        jumps from "merge nothing" to "merge everything".
+        The correction is interpolated rather than piecewise-constant because a
+        step function takes only `bins` distinct values, so hundreds of pairs
+        tie at the extreme -- and the extreme is precisely where merge safety is
+        decided. Past the outermost bin centre `np.interp` holds the correction
+        flat, which is the honest thing to do: beyond the data there is nothing
+        left to correct, and the backbone carries the ordering on alone.
         """
-        return float(np.interp(score, self.centers, self.log_ratio))
+        c, v = self.centers, self.log_ratio
+        backbone = self.slope * score + self.intercept
+        correction = float(np.interp(score, c, v)) if len(c) else 0.0
+        return float(_saturate(backbone + correction))
 
     def to_dict(self) -> dict:
-        return {"edges": self.edges.tolist(), "log_ratio": self.log_ratio.tolist()}
+        return {
+            "edges": self.edges.tolist(),
+            "log_ratio": self.log_ratio.tolist(),
+            "slope": self.slope,
+            "intercept": self.intercept,
+            "knots": None if self.knots is None else self.knots.tolist(),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> LLRCalibrator:
+        knots = d.get("knots")
         return cls(
             edges=np.asarray(d["edges"], dtype=np.float64),
             log_ratio=np.asarray(d["log_ratio"], dtype=np.float64),
+            slope=float(d.get("slope", 0.0)),
+            intercept=float(d.get("intercept", 0.0)),
+            knots=None if knots is None else np.asarray(knots, dtype=np.float64),
         )
 
 
