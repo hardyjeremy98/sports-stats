@@ -74,9 +74,33 @@ scored above it. So the model is not producing low-confidence actions that get
 filtered — it is not producing them at all, because background wins the argmax over
 all 9 classes. Decode-time class balance, not model capacity, is the lever.
 
-That makes the obvious next experiment free: re-decode the **already-saved** logits
-thresholding on action-class probability rather than taking a global argmax, spending
-our surplus precision on the missing recall. No retraining, no GPU.
+### Measured: the decode threshold is NOT the lever
+
+The obvious inference was that we simply fire too rarely, and that re-decoding the
+saved logits on action-class probability instead of a global argmax would spend our
+surplus precision on the missing recall. **Measured on the saved VAL logits, that is
+wrong**, and it is worth recording so it is not re-attempted:
+
+| decode | preds | micro-F1 | macro-F1 | precision | recall |
+|---|---:|---:|---:|---:|---:|
+| argmax (current) | 5,146 | 0.3274 | **0.2056** | 0.357 | 0.303 |
+| P(action) ≥ 0.45 | 4,615 | 0.3255 | 0.2074 | 0.377 | 0.286 |
+| P(action) ≥ 0.35 | 7,226 | **0.3400** | 0.1995 | 0.313 | 0.372 |
+| P(action) ≥ 0.25 | 11,922 | 0.3171 | 0.1783 | 0.239 | 0.470 |
+| P(action) ≥ 0.15 | 22,123 | 0.2486 | 0.1435 | 0.158 | 0.577 |
+
+Best case is +0.013 micro-F1, and macro-F1 gets *worse*. `argmax` is already
+near-optimal for macro and within a hair of optimal for micro; no change is warranted.
+
+**The decisive comparison is at matched prediction volume.** At threshold 0.25 we emit
+11,922 predictions — essentially the reference's 12,576 — and recall **0.470 against
+its 0.630**. Firing at the same rate, we find about 25% fewer real events.
+
+So the deficit is not an operating-point choice: **our logits are genuinely weaker**.
+That rules out the cheap explanation and points the remaining gap at training —
+principally the 8 unrun epochs (the model was still improving when the budget stopped
+it), and possibly the affine/scale/crop augmentations dropped because
+`albumentations` is not packaged here.
 
 ---
 
