@@ -192,5 +192,55 @@ two larger levers found in this review are not about position at all — they ar
 summary is that position was over-credited by a broken calibrator, and that fixing the
 machinery around the evidence mattered more than adding evidence.
 
-Open: the two-pass bootstrap (`bootstrap_threads.py`) tests whether accumulation survives
-without the oracle, where a wrong merge poisons a thread for every decision after it.
+## 8. End-to-end: what the system actually does
+
+`bootstrap_threads.py` runs the merging without any oracle — fragments in time order, each
+joining a thread or starting one, so later decisions are judged against evidence the system
+built for itself. Scored as correct/wrong merge decisions rather than rank-1, because a
+ranking metric cannot see a thread that quietly fused two players 40 minutes earlier.
+
+All 6 halves, 13,016 merges required:
+
+| operating point | merges made | correct | wrong | precision | coverage |
+|---|---|---|---|---|---|
+| conservative | 9,202 | 8,986 | 216 | **97.7%** | 69.0% |
+| aggressive | 11,603 | 10,980 | 623 | 94.6% | 84.4% |
+
+Against the single-fragment control, accumulation wins on **both** axes in 8 of 8 half ×
+threshold comparisons — more correct merges *and* fewer wrong ones. There is no
+precision/recall trade being made.
+
+Identity is not 69% solved in any useful sense: at that operating point each player is still
+split across 20–30 unlinked threads. What the system delivers reliably is "this is
+consistently one person", not "this is *the* person from earlier in the match".
+
+## 9. Fragment purity — the assumption that turned out to be backwards
+
+Every number above rests on fragments that never contain two players. The stated worry was
+that a contaminated fragment would permanently poison a thread's accumulated territory and
+appearance, and that accumulation would therefore be *fragile* to real tracker output.
+
+Measured by splicing a same-team player over the tail of a fraction of the evaluated
+fragments, keeping the majority player's label, and remapping the exit point to the donor
+(game_18, conservative operating point):
+
+| contamination | accumulated precision | coverage | single-fragment precision | coverage |
+|---|---|---|---|---|
+| 0% | 98.66% | 67.1% | 95.10% | 55.3% |
+| 5% | 98.17% | 65.7% | 92.99% | 53.2% |
+| 15% | 96.59% | 63.6% | 87.79% | 48.9% |
+| 30% | 92.57% | 60.1% | 78.17% | 42.7% |
+
+**The worry was wrong, and in the useful direction.** Accumulation degrades roughly 3× more
+slowly than the single-fragment representation (−6.1 vs −16.9 points of precision at 30%
+contamination). Pooling over many fragments dilutes a corrupted one; representing a
+candidate by a single fragment means a corrupted fragment *is* the candidate. Accumulation
+is not merely better on clean data, it is the more robust representation under exactly the
+failure mode that was expected to break it.
+
+Still untested: real detector output (missed and spurious boxes), a learned team classifier
+rather than the GT gate, and phone footage. Contamination here is simulated from GT
+positions, not observed from a tracker.
+
+Open: re-measure the merge frontier on the fixed calibrator (the −598 regression attributed
+to position was measured on a different pair population and is unattributable).
