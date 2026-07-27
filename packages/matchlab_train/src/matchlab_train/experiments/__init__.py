@@ -5,6 +5,7 @@ from matchlab_train.experiments import (  # noqa: F401
     gate2_resmooth,
     pcbas_action_head,
     pcbas_checkpoint_health,
+    pcbas_denoise_infer,
     pcbas_denoiser,
     pcbas_infer_logits,
     pcbas_score,

@@ -216,12 +216,16 @@ class DSTDenoiser(nn.Module):
         src_frames: Tensor,
         src_key_padding_mask: Tensor | None = None,
         max_events: int = 64,
-    ) -> list[list[tuple[int, int, int]]]:
-        """Greedy autoregressive decode -> per-batch lists of `(action, role, frame)`.
+    ) -> list[list[tuple[int, int, int, float]]]:
+        """Greedy autoregressive decode -> per-batch `(action, role, frame, score)`.
 
         Stops a sequence at its first EOS. The reference decodes a fixed number of
         steps and leaves EOS handling to the caller, which silently emits garbage
         tokens past the end of the real event list.
+
+        `score` is the action head's probability for the emitted class. The metric
+        needs it to order greedy matching and to apply a confidence floor, so a decode
+        that returned only argmax indices would be unscoreable.
         """
         device = src.device
         b = src.shape[0]
@@ -233,7 +237,7 @@ class DSTDenoiser(nn.Module):
         tokens[:, 0, OUTPUT_DIM] = 1.0  # timestamp one-hot index 0
         frames = torch.zeros(b, 1, device=device)
 
-        results: list[list[tuple[int, int, int]]] = [[] for _ in range(b)]
+        results: list[list[tuple[int, int, int, float]]] = [[] for _ in range(b)]
         finished = [False] * b
 
         for _ in range(max_events):
@@ -251,7 +255,8 @@ class DSTDenoiser(nn.Module):
             )[:, -1:, :]
 
             head = self.token_projection(out)
-            action = head[..., :ACTION_VOCAB].softmax(-1).argmax(-1)  # (B,1)
+            action_probs = head[..., :ACTION_VOCAB].softmax(-1)
+            action = action_probs.argmax(-1)  # (B,1)
             role = head[..., ACTION_VOCAB:].softmax(-1).argmax(-1)
             timestamp = self.timestamp_projection(out).softmax(-1).argmax(-1)
 
@@ -262,7 +267,12 @@ class DSTDenoiser(nn.Module):
                     finished[i] = True
                     continue
                 results[i].append(
-                    (int(action[i, 0]), int(role[i, 0]), int(timestamp[i, 0]))
+                    (
+                        int(action[i, 0]),
+                        int(role[i, 0]),
+                        int(timestamp[i, 0]),
+                        float(action_probs[i, 0, action[i, 0]]),
+                    )
                 )
             if all(finished):
                 break

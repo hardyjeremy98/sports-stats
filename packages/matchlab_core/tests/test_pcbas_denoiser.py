@@ -231,10 +231,20 @@ def test_generated_tokens_are_in_vocabulary():
     torch.manual_seed(0)
     model = _model().eval()
     for seq in model.generate(_src(2, 6), torch.zeros(2, 6, dtype=torch.long), max_events=6):
-        for action, role, frame in seq:
+        for action, role, frame, score in seq:
             assert 0 <= action < ACTION_VOCAB and action != EOS_ACTION
             assert 0 <= role < ROLE_VOCAB
             assert 0 <= frame < FRAMESPAN + 2
+            assert 0.0 <= score <= 1.0
+
+
+def test_generate_returns_a_score_the_metric_can_use():
+    """A decode returning only argmax indices is unscoreable: the metric needs a
+    confidence to order greedy matching and to apply its threshold."""
+    torch.manual_seed(0)
+    model = _model().eval()
+    seqs = model.generate(_src(1, 6), torch.zeros(1, 6, dtype=torch.long), max_events=4)
+    assert all(len(tok) == 4 for tok in seqs[0])
 
 
 @pytest.mark.parametrize("encoder", ["flat", "attn"])
