@@ -46,6 +46,10 @@ class Params(BaseModel):
 
     framespan: int = FRAMESPAN
     stride: int | None = None
+    # Random training windows per half per epoch, as the reference does. Its own
+    # default is 200; its train script passes 750. 200 keeps epoch cost equal to the
+    # previous fixed-stride run so the comparison isolates the sampling change.
+    repeat: int = 200
     hidden_dim: int = 512
     n_heads: int = 8
     n_layers: int = 6
@@ -131,6 +135,7 @@ class PCBASDenoiserExperiment(Experiment):
             stride=p.stride,
             train=True,
             seed=p.seed,
+            repeat=p.repeat,
         )
         val_ds = FootpassWindowDataset(
             p.val_h5_path,
@@ -171,6 +176,8 @@ class PCBASDenoiserExperiment(Experiment):
             )
 
         for epoch in range(1, p.epochs + 1):
+            if epoch > 1:
+                train_ds.resample()  # fresh random window offsets each epoch
             model.train()
             totals = {"action": 0.0, "role": 0.0, "timestamp": 0.0, "total": 0.0}
             n = 0

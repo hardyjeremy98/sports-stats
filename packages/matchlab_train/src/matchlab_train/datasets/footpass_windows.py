@@ -239,12 +239,14 @@ class FootpassWindowDataset:
         train: bool = True,
         seed: int = 345,
         halves: list[str] | None = None,
+        repeat: int = 200,
     ) -> None:
         self.h5_path = Path(h5_path)
         self.logits_dir = Path(logits_dir)
         self.framespan = framespan
         self.stride = stride if stride is not None else framespan // 2
         self.train = train
+        self.repeat = repeat
         self.rng = np.random.default_rng(seed)
         self.keys = [
             k
@@ -257,16 +259,41 @@ class FootpassWindowDataset:
         self._logits: dict[str, np.ndarray] = {}
         self.index = self._build_index()
 
+    def _bounds(self, key: str) -> tuple[int, int]:
+        """First and last legal window start for a half."""
+        rows = self._half_rows(key)
+        frames = rows[:, FRAME]
+        first, last = int(np.nanmin(frames)), int(np.nanmax(frames))
+        last = min(last, self._half_logits(key).shape[2] - 1)
+        return first, max(first + 1, last - self.framespan + 1)
+
     def _build_index(self) -> list[tuple[str, int]]:
+        """Window starts.
+
+        Training uses RANDOM offsets, `repeat` per half, matching the reference.
+        This is not a detail: with a fixed stride every event appears at only about
+        two distinct window-local positions ever, so the timestamp head is asked to
+        localise events it has only ever seen in two places. Measured with fixed
+        stride 375, timestamp validation loss stalled at 4.35 (random is 6.62) while
+        action and role improved cleanly -- the signature of exactly that.
+
+        Evaluation keeps deterministic stride windows so a score is reproducible.
+        """
         index: list[tuple[str, int]] = []
         for key in self.keys:
-            rows = self._half_rows(key)
-            frames = rows[:, FRAME]
-            first, last = int(np.nanmin(frames)), int(np.nanmax(frames))
-            last = min(last, self._half_logits(key).shape[2] - 1)
-            for start in range(first, max(first + 1, last - self.framespan + 2), self.stride):
-                index.append((key, start))
+            first, latest = self._bounds(key)
+            if self.train:
+                for _ in range(self.repeat):
+                    index.append((key, int(self.rng.integers(first, max(first + 1, latest)))))
+            else:
+                for start in range(first, max(first + 1, latest + 1), self.stride):
+                    index.append((key, start))
         return index
+
+    def resample(self) -> None:
+        """Redraw random training offsets. Call between epochs."""
+        if self.train:
+            self.index = self._build_index()
 
     def _half_rows(self, key: str) -> np.ndarray:
         if key not in self._rows:

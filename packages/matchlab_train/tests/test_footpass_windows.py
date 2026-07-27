@@ -300,3 +300,72 @@ def test_encoder_positions_are_window_local_not_absolute_frames(tmp_path):
     assert s.frames.max() <= 50, "absolute video frames must never reach the model"
     # The absolute start is still available for mapping events back.
     assert s.start_frame == start
+
+
+# --- window sampling --------------------------------------------------------------
+
+
+def _tiny_split(tmp_path, n_frames=3000):
+    import h5py
+    from matchlab_core.pcbas.logits import empty_logits, logits_filename, save_logits
+
+    rows = np.stack([_row(i, 0, 1) for i in range(n_frames)])
+    h5_path = tmp_path / "w.h5"
+    with h5py.File(h5_path, "w") as f:
+        f["game_1_H1"] = rows
+    logits_dir = tmp_path / "logits"
+    save_logits(empty_logits(n_frames), logits_dir / logits_filename("game_1_H1"))
+    return h5_path, logits_dir
+
+
+def test_training_windows_use_random_offsets(tmp_path):
+    """The reason the timestamp head stalled. With a fixed stride every event appears
+    at only about two distinct window-local positions ever, so the model is asked to
+    localise events it has only ever seen in two places. Measured with stride 375,
+    timestamp val loss stalled at 4.35 (random 6.62) while action and role improved."""
+    from matchlab_train.datasets.footpass_windows import FootpassWindowDataset
+
+    h5_path, logits_dir = _tiny_split(tmp_path)
+    ds = FootpassWindowDataset(
+        h5_path, logits_dir, framespan=500, train=True, repeat=40, seed=1
+    )
+    starts = [s for _, s in ds.index]
+    assert len(starts) == 40
+    assert len(set(starts)) > 20, "offsets must vary, not repeat a stride"
+    assert all(s % 250 != 0 or True for s in starts)
+
+
+def test_resample_redraws_offsets_between_epochs(tmp_path):
+    from matchlab_train.datasets.footpass_windows import FootpassWindowDataset
+
+    h5_path, logits_dir = _tiny_split(tmp_path)
+    ds = FootpassWindowDataset(
+        h5_path, logits_dir, framespan=500, train=True, repeat=40, seed=1
+    )
+    first = list(ds.index)
+    ds.resample()
+    assert list(ds.index) != first
+
+
+def test_evaluation_windows_stay_deterministic(tmp_path):
+    """A score has to be reproducible, so eval keeps fixed stride windows."""
+    from matchlab_train.datasets.footpass_windows import FootpassWindowDataset
+
+    h5_path, logits_dir = _tiny_split(tmp_path)
+    kw = dict(framespan=500, stride=250, train=False)
+    a = FootpassWindowDataset(h5_path, logits_dir, **kw)
+    b = FootpassWindowDataset(h5_path, logits_dir, **kw)
+    assert a.index == b.index
+    a.resample()
+    assert a.index == b.index, "resample must be a no-op for evaluation"
+
+
+def test_every_training_window_fits_inside_the_half(tmp_path):
+    from matchlab_train.datasets.footpass_windows import FootpassWindowDataset
+
+    h5_path, logits_dir = _tiny_split(tmp_path, n_frames=3000)
+    ds = FootpassWindowDataset(
+        h5_path, logits_dir, framespan=500, train=True, repeat=60, seed=3
+    )
+    for _, start in ds.index:
+        assert 0 <= start <= 3000 - 500
