@@ -233,7 +233,7 @@ def episode_rows(hd: HalfData, cals, names: list[str], *, max_neg: int | None = 
         yield feats[sel], corr
 
 
-def train_and_eval_model(data, cals, names, *, epochs, seed=0, device="cpu"):
+def train_and_eval_model(data, cals, names, *, epochs, args, seed=0, device="cpu"):
     import torch
     from torch import optim
 
@@ -242,8 +242,17 @@ def train_and_eval_model(data, cals, names, *, epochs, seed=0, device="cpu"):
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
 
-    train = [r for hd in data["T"] for r in episode_rows(hd, cals, names,
-                                                         max_neg=64, rng=rng)]
+    # Field size must match evaluation: the model's context term is a pool over
+    # the field, so training on 64-candidate fields and evaluating on ~550 shifts
+    # its input distribution by an order of magnitude. Subsample EPISODES (cheap,
+    # unbiased) rather than candidates within an episode.
+    train = []
+    for hd in data["T"]:
+        rows = list(episode_rows(hd, cals, names, max_neg=args.max_neg, rng=rng))
+        train.extend(rows)
+    if args.max_train_episodes and len(train) > args.max_train_episodes:
+        pick = rng.choice(len(train), args.max_train_episodes, replace=False)
+        train = [train[i] for i in pick]
     if not train:
         return None
     d = train[0][0].shape[1]
@@ -252,7 +261,7 @@ def train_and_eval_model(data, cals, names, *, epochs, seed=0, device="cpu"):
 
     model = SetScorer(d).to(device)
     opt = optim.Adam(model.parameters(), lr=1e-3)
-    bs = 32
+    bs = 8
     for ep in range(epochs):
         rng.shuffle(train)
         tot = 0.0
@@ -304,6 +313,9 @@ def main() -> None:
     ap.add_argument("--dev-halves", type=int, default=4)
     ap.add_argument("--epochs", type=int, default=8)
     ap.add_argument("--skip-model", action="store_true")
+    ap.add_argument("--max-neg", type=int, default=None,
+                    help="cap negatives per training episode; default = full field")
+    ap.add_argument("--max-train-episodes", type=int, default=4000)
     ap.add_argument("--out", type=Path,
                     default=Path("docs/reports/2026-07-27-multi-input-raw.json"))
     args = ap.parse_args()
@@ -378,7 +390,7 @@ def main() -> None:
                 continue
             label = " + ".join(names)
             print(f"  arm: {label}")
-            r = train_and_eval_model(data, cals, names, epochs=args.epochs)
+            r = train_and_eval_model(data, cals, names, epochs=args.epochs, args=args)
             if r:
                 results["model"][label] = r
         print(f"\n{'arm':40s} {'sum r@1':>9s} {'model r@1':>10s} {'delta':>8s}")
