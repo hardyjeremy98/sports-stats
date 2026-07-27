@@ -90,3 +90,33 @@ def test_dedup_output_is_sorted_by_frame():
 
 def test_dedup_of_nothing_is_nothing():
     assert dedupe([], 25) == []
+
+
+def test_encode_decode_round_trip_recovers_exact_frames():
+    """THE decisive plumbing test, and the one missing when DST's first end-to-end
+    run scored 0.035: encode ground-truth events as decoder tokens, decode them
+    back, and require the original absolute frames and slots.
+
+    Tested in isolation, both halves looked right. Only the round trip pins the
+    SOS-reserved timestamp offset (window frame f is encoded f+1) against the
+    inverse (window_start + timestamp - 1). A mismatch here would be indisputably
+    a bug; agreement means a poor score is the model's, not the plumbing's.
+    """
+    import numpy as np
+    from matchlab_train.datasets.footpass_windows import build_tokens
+
+    window_start = 74_088
+    events = np.array(
+        [[0, 0, 1], [37, 16, 2], [300, 25, 8], [749, 7, 5]], dtype=np.int64
+    )
+    actions, roles, frames = build_tokens(events, 750)
+
+    tokens = [
+        (int(a.argmax()), int(r.argmax()), int(f), 0.9)
+        for a, r, f in zip(actions, roles, frames)
+    ]
+    decoded = tokens_to_events(tokens, window_start)
+
+    assert [e.frame_idx for e in decoded] == [window_start + f for f in (0, 37, 300, 749)]
+    assert [e.slot for e in decoded] == [0, 16, 25, 7]
+    assert [e.class_id for e in decoded] == [1, 2, 8, 5]

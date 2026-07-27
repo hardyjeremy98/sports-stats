@@ -262,3 +262,41 @@ def test_one_hot_frames_clips_out_of_range():
     out = one_hot_frames(np.array([-3, 10_000]), 750)
     assert out[0].argmax() == 0
     assert out[1].argmax() == 751
+
+
+# --- positional coordinate system -------------------------------------------------
+
+
+def test_encoder_positions_are_window_local_not_absolute_frames(tmp_path):
+    """The bug that made DST's first end-to-end run score 0.035 against stage 1's
+    0.327.
+
+    The decoder's timestamps are window-local (`build_tokens` encodes window frame f
+    as f+1). If the ENCODER receives absolute video frames instead, the two are in
+    different coordinate systems and the model cannot align a decoder query with an
+    encoder position -- it can still learn the class prior, which is exactly the
+    failure signature we saw. Absolute frames also alias the sinusoidal encoding at
+    magnitudes around 150,000.
+
+    The reference normalises identically (`Encoder_abs_frame_nb -= min_Frame - 1`)
+    despite naming the variable "abs" and commenting it "Absolute frame number".
+    """
+    import h5py
+    from matchlab_core.pcbas.logits import empty_logits, logits_filename, save_logits
+    from matchlab_train.datasets.footpass_windows import FootpassWindowDataset
+
+    start = 74_000
+    rows = np.stack([_row(start + i, 0, 1) for i in range(60)])
+    h5_path = tmp_path / "w.h5"
+    with h5py.File(h5_path, "w") as f:
+        f["game_9_H2"] = rows
+    logits_dir = tmp_path / "logits"
+    save_logits(empty_logits(start + 60), logits_dir / logits_filename("game_9_H2"))
+
+    ds = FootpassWindowDataset(h5_path, logits_dir, framespan=50, stride=50, train=False)
+    s = ds.sample(0)
+    assert s.frames[0] == 1, "positions must be 1-based window-local"
+    assert s.frames[-1] == 50
+    assert s.frames.max() <= 50, "absolute video frames must never reach the model"
+    # The absolute start is still available for mapping events back.
+    assert s.start_frame == start

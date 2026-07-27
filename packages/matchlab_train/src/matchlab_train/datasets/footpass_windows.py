@@ -94,7 +94,14 @@ class WindowSample:
     key: str
     start_frame: int
     features: np.ndarray  # (T, 364)
-    frames: np.ndarray  # (T,) absolute video frames
+    # (T,) WINDOW-LOCAL 1-based positions for the positional encoding -- NOT absolute
+    # video frames. The reference calls this `Encoder_abs_frame_nb` and comments it
+    # "Absolute frame number", but line 237 of its DST_Dataset subtracts
+    # `min_Frame - 1`, making it 1..framespan. Feeding true absolute frames (up to
+    # ~157,000) aliases the sinusoidal encoding AND puts the encoder in a different
+    # coordinate system from the decoder, whose timestamps are window-local -- so the
+    # model cannot align a decoder query with an encoder position at all.
+    frames: np.ndarray
     action_tokens: np.ndarray  # (N+2, 10) with SOS and EOS
     role_tokens: np.ndarray  # (N+2, 27)
     event_frames: np.ndarray  # (N+2,) window-local, 0 for SOS
@@ -282,12 +289,16 @@ class FootpassWindowDataset:
         key, start = self.index[i]
         rows = self._half_rows(key)
         logits = self._half_logits(key)
-        frames = np.arange(start, start + self.framespan)
+        # Absolute frames index the tactical rows; window-local 1-based positions go
+        # to the model. Conflating the two is what made DST's first end-to-end run
+        # score 0.035 -- see `WindowSample.frames`.
+        absolute = np.arange(start, start + self.framespan)
+        positions = np.arange(1, self.framespan + 1)
 
         window_rows = rows[
             (rows[:, FRAME] >= start) & (rows[:, FRAME] < start + self.framespan)
         ]
-        kinematics = build_kinematics(window_rows, frames)
+        kinematics = build_kinematics(window_rows, absolute)
         window_logits = np.zeros((N_CLASSES, N_SLOTS, self.framespan), dtype=np.float32)
         available = min(self.framespan, max(0, logits.shape[2] - start))
         if available > 0:
@@ -306,7 +317,7 @@ class FootpassWindowDataset:
             key=key,
             start_frame=start,
             features=encoder_features(kinematics, window_logits),
-            frames=frames,
+            frames=positions,
             action_tokens=actions,
             role_tokens=roles,
             event_frames=event_frames,
