@@ -339,3 +339,95 @@ wrong, worse than not having the channel at all (353). The status quo was immune
 it was inert. So the channel should be gated on calibration **confidence**, not coverage: a
 low-confidence solve must abstain rather than supply a plausible-but-wrong endpoint. Untested;
 this is the open item.
+
+## 11. Reachability as a hard constraint: rejected, and the shipped gate is a latent hazard
+
+Two agents argued gate-vs-score. **Both abandoned their assigned positions**, independently,
+and converged on: keep it a score.
+
+**The gate loses on ORACLE coordinates, before calibration error enters.** All 6 halves,
+thr 4.0, pass2@0, against the 10,392 correct / 358 wrong baseline:
+
+| envelope | correct | wrong |
+|---|---|---|
+| none (score only) | 10,392 | 358 |
+| 8.0 m/s | 10,368 | 382 |
+| 9.5 m/s | 10,385 | 368 |
+| 12.0 m/s | 10,385 | 370 |
+| 15.0 m/s | 10,381 | 374 |
+
+Every envelope is worse on both axes, and the effect is non-monotone in the threshold — the
+signature of trajectory churn rather than a designed effect. Only **20** decisions across six
+halves had their top-1 vetoed, yet one half swings 46 merges: **a gate's system-level effect is
+not the sum of its vetoes, it is dominated by trajectory divergence.** At this sample size the
+oracle-coordinate effect is honestly *unmeasurable*, not *free*.
+
+**A veto is not an abstention.** This kills the risk-asymmetry argument that motivated the
+proposal. The system takes an argmax over *surviving* candidates, so deleting the right answer
+promotes the runner-up — an impostor. Instrumented over all 6 halves at 5 m endpoint noise: 229
+top-1 vetoes, 217 of them false (95%), of which 107 abstained, 87 recovered a correct merge
+elsewhere, and **23 merged the wrong player** — a wrong merge the ungated system did not make.
+On oracle coordinates the ratio is 1 in 6. The product's preference for abstention is therefore
+an argument for **scores that can be outvoted**, not for constraints that silently re-route the
+decision.
+
+Corollary worth keeping: the brief's claim that a veto is "unrecoverable by construction" is
+also false — ~40% of false vetoes recover a correct merge from another candidate.
+
+**A hard gate is bit-identical to a large finite score.** Independently measured by both agents:
+the 9.5 m/s gate produces merge-for-merge identical output to a −10 nat penalty (agent A) and a
+−50 nat penalty (agent B), at both noise levels. A hard constraint is a score with an unbounded
+coefficient. It adds no capability — only the removal of the dial that lets other evidence
+overrule an estimated position.
+
+**Physics cannot see the errors we actually make.** **92.7% of the 358 wrong merges imply under
+6 m/s.** And 99.7% of gate firings are inert, hitting candidates the scorer already rejects.
+The ceiling was always tiny: in the pool the system actually faces, the impossible region holds
+0.6% of impostors.
+
+**It is a short-gap rule in a physics costume.** 97.3% of firings are at gaps under 5 s, 26.7%
+under 1 s — exactly where positional error dominates, since speed = |d|/dt amplifies endpoint
+error by 1/dt. At a 0.5 s gap, a genuine 6 m/s run needs only **0.88 m of error per endpoint**
+to fabricate a 9.5 m/s impossibility. The repo's own measured camera-motion recovery error is
+**0.5–6.1 m**. Break-even is ~1.5–2 m and we are not inside it. Below a quarter-second gap the
+gate deletes the *majority* of true continuations even on oracle coordinates.
+
+### The shipped pipeline already has this gate
+
+`matchlab_core/reid/gates.py::MotionFeasibilityGate`, wired in `configs/pipeline.tdlp-full-reid.yaml`:
+`max_speed_cm_s: 900.0` (9.0 m/s), `max_speed_px_s: 800.0`, `soft_gap_s: 15.0`,
+`calibration_min_confidence: 0.5`. **Position A was not a proposal; it is production.**
+
+It has never been exercised in metric mode: the pitch branch needs calibration on *both*
+endpoint frames, and PnLCalib clears confidence ≥0.5 on 4.4% of SNMOT frames, so SPO-59,
+SPO-73, SPO-85 and the smoke runs all scored on the pixel bound alone. Its authors hedged two of
+the three regimes that matter — long gaps (soft beyond 15 s) and missing calibration (coverage
+required). **The unhedged one is calibration present but WRONG**, which is precisely where the
+gate's own precision falls from 70% to 5%. So improving calibration coverage will *activate* a
+veto measured to be net harmful. That is a latent regression, not a latent improvement.
+
+### Two larger levers this surfaced
+
+**The team gate is the biggest unbudgeted risk in the stack.** Only *"times don't overlap"* is
+genuinely certain — team comes from a classifier in deployment, and SPO-73 measured a
+kit-colour gate falsely vetoing 19% of true re-entry pairs. Simulated here by flipping fragment
+team labels (game_18): 5% error costs **−136** correct merges, 10% costs **−201**. That is
+**20–30× the entire reachability-gate effect in either direction**. The general principle:
+**a hard constraint inherits the error rate of whatever estimates it.** Non-overlap is estimated
+by frame indices (exact); team by a classifier (19% measured pair false-veto); reachability by
+calibration (0.5–6 m). Reachability is the worst-estimated of the three.
+
+**A one-sided prior beats both the gate and the status quo.** Letting the transition channel
+enable merges but never penalise them, with weights refitted:
+
+| transition channel | correct | wrong | precision | coverage |
+|---|---|---|---|---|
+| two-sided, tanh ±6 (shipped) | 10,392 | 358 | 96.67% | 79.84% |
+| one-sided (enable-only) | **10,535** | 373 | 96.58% | **80.94%** |
+
+**+143 correct for +15 wrong** — the marginal merges are 90.5% correct. Not a Pareto win, so it
+is a product decision, but it is the same trade the permissive defaults already made
+deliberately. It confirms §10's flip-count finding from the opposite direction: reachability's
+negative side should be **weakened**, not hardened. Caveat: the flip counts predicted +31/−1 and
+the truth was +143/+15 — they over-predicted the gain 2× and missed the wrong-merge cost
+entirely, so flip counts are not counterfactuals.
