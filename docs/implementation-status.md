@@ -418,6 +418,28 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   CodaLab-agreement-gated; the HF `val.tar` object served publicly, so the gate was not
   clicked through. The formerly-open "commercial-use sign-off" question (SPO-16) is **moot**
   under the research posture — there is no commercial or shippable target.
+- **FOOTPASS tactical tier acquired and schema-verified; no ingest adapter yet (2026-07-27)** —
+  `configs/datasets/footpass.json` (still an empty `sequences: []` starter manifest) +
+  [`docs/reference/footpass-setup.md`](reference/footpass-setup.md). 54 complete matches from the
+  SoccerNet 2026 Player-Centric Ball-Action Spotting challenge, carrying full-match track-level
+  identity, jersey, 13 ground-truth tactical roles, pitch positions and velocities.
+  **On disk:** `data/footpass/tactical/{train,val,challenge}_tactical_data.h5`, 9.3 GB extracted
+  — 96/6/6 keys (`game_<id>_H<half>`) = 48/3/3 matches, 157.2M rows in train alone, halves of
+  ~72k frames (~48 min @ 25 fps) over 22–23 players. **14 columns for train/val, 13 for
+  challenge** (the action `class` is withheld for the evaluation server). **No video
+  downloaded** (25.7 GB low-res / 206 GB full-HD, deferred — full-HD is the only video tier
+  useful for B2 crops). Acquisition needs a Hugging Face read token **plus** a per-account
+  access grant (401 = token/scope, 403 = not authorized); the `tactical_data_*.zip` archives
+  are **not** encrypted, so the NDA password is not needed for this tier — and note `unzip -P`
+  succeeds silently on an unencrypted archive, so extraction success never confirms a password.
+  Filed as a B4 asset, but it is the only substrate available on which **B2 role/zone occupancy
+  evidence is measurable at all**: the SoccerNet tracking tier is 30-second / 750-frame clips
+  and a positional footprint needs minutes. **Measured and directly relevant to B2:** per-frame
+  bbox visibility is only 36–45%, per-player 9–48% (median 37%) — players are off-camera the
+  majority of a broadcast match, which is exactly the fragmentation/re-entry regime the merge
+  layer targets, with GT identity spanning every gap. **Bounds on use:** FOOTPASS *supplies*
+  tracking, jersey and role as inputs, so it is a development and isolation substrate, never a
+  do-no-harm gate for identity — the same standing caution as the GT-fragment harness.
 - Action-spotting scoring (SPO-47/49): a timestamped-event ground-truth representation
   (`EventGroundTruth`, `matchlab_core/event_gt.py`) distinct from the box/track
   `GroundTruth` used everywhere else, an `ingest-soccernet-ball` CLI that registers SoccerNet
@@ -871,6 +893,97 @@ Measured local findings recorded by the repository guidance:
   `min_similarity: 1.01` to restore the old anchor-only behaviour. The harness carries ~7×
   the evidence of the old one: 153 true re-entry pairs on tuning vs 21 for the whole SPO-73
   held-out verdict, over 198 person tracks fragmenting into 323 fragments.
+- **⚠️ SUPERSEDED 2026-07-28 by the entry below.** Its headline (+1.35 rank-1 from position)
+  was 84% a tie-breaking artefact of a defective calibrator, and its statement that "FOOTPASS
+  has no video, so there are no appearance embeddings on this substrate" is now false —
+  PRTreID embeddings exist for all six val halves. Retained for provenance; do not cite.
+  **Position/occupancy is real re-ID evidence but not a merge decider (2026-07-27; FOOTPASS
+  tactical, 48 train / 3 val complete matches; report
+  [`2026-07-27-position-evidence-reid.md`](reports/2026-07-27-position-evidence-reid.md)):**
+  a tracklet's occupancy footprint, taken over **observable frames only** and expressed
+  **relative to the team's observable centroid**, separates same-player from different-player
+  fragment pairs at pooled **AUC 0.771** on held-out matches (pre-registered bar ≥0.70,
+  **PASS**), rising with fragment duration (0.743 under 4 s → **0.868** over 30 s).
+  **Absolute occupancy scores only 0.655**: a player is observable only when play is near them,
+  so raw occupancy partly measures where the *ball* was — a selection effect, removed by the
+  centroid subtraction, worth +0.116 AUC. **But at the zero-wrong frontier position alone
+  repairs 14 of 13,016 needed merges (0.1%)**, and gating to ≥10 s fragments does not rescue it
+  (11 of 5,385); at the loose point it is 1,376 correct / 1,301 wrong. **Position therefore has
+  the same shape as appearance — good ranking body, overlapping tail** — the third distinct
+  signal (KPR, PRTreID, occupancy) to show it. Pair-dependence is present but weak: distant-role
+  impostors carry 29% more evidence than same-role ones (bar was 50%), so the **role-conditional
+  global assignment layer was dropped** by its own pre-registered rule. **Scope the negative
+  precisely:** this says *formation-relative occupancy under mutual-best + margin cannot clear a
+  zero-wrong bar alone*. It says nothing about **fusion**, which is the design's actual claim
+  and is **untested** — FOOTPASS has no video, so there are no appearance embeddings on this
+  substrate. New pure modules: `reid/occupancy.py`, `reid/evidence.py` (calibrated LLR +
+  impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
+  `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
+  No shipped default was changed.
+- **The calibrator was destroying more evidence than position added; accumulation and the
+  combiner are the real levers (2026-07-28; FOOTPASS val, 3 matches × 2 halves, 3-fold match
+  rotation; report
+  [`2026-07-28-position-evidence-reappraisal.md`](reports/2026-07-28-position-evidence-reappraisal.md)):**
+  four independent review agents audited the position work and the headline did not survive.
+  `LLRCalibrator` tied **19.7%** of body-ID decisions at the top (equal-count quantile bins
+  cannot resolve a tail; per-bin noise inverted 17% of adjacent pairs; `LOG_CLAMP` flattened
+  the rest). A **1e-9** perturbation — too small to reorder any genuinely distinct pair —
+  bought **+1.14** of position's claimed **+1.35** rank-1, and uniform random noise bought
+  +0.58; the raw uncalibrated cosine beat the calibrated body channel outright. Rebuilt as a
+  logistic backbone + count-weighted histogram correction + isotonic regression returned as
+  block-centroid knots + `tanh` saturation: ties **19.71% → 0.00%**, body rank-1 94.23% →
+  **95.37%** (exactly the raw cosine's, as an order-preserving transform must be), and
+  **position's honest contribution is +0.28, not +1.35**. **(a) Fitted fusion weights are worth
+  more than any channel:** a unit sum assumes conditional independence and a shared scale, and
+  neither holds (occupancy↔continuity correlate 0.31 on impostors; `gap`'s LLR spans a
+  twentieth of body's range). One weight per channel fitted on a held-out match gives
+  **96.26% vs 94.92% for the sum** — adding a channel to the *sum* made it worse by 0.45.
+  **(b) A spatio-temporal transition prior** (`reid/transition.py`, bounded diffusion
+  σ(Δt)=σ∞√(1−e^(−Δt/τ)), anisotropic) is the strongest single position channel (51.26% vs
+  occupancy's 41.02%) and subsumes continuity+gap, but earns a fitted weight of only ~0.1;
+  best arm is `body + occupancy + transition` at **96.27%**. **⚠️ PROVISIONAL (2026-07-28):
+  all of these transition figures were measured on an UNBOUNDED channel** — `_saturate` is
+  applied inside `LLRCalibrator.llr` but the prior is appended raw, so it reaches −3754 nats
+  against body's −3.87 (17.0% of rows past −6, sd inflated 17.9×). The ~0.1 weight is
+  therefore in raw units and NOT comparable to the other channels'. Also note the
+  96.27-vs-96.20 margin is not significant: paired over 6 halves, p=0.781, and it loses on
+  3 of 6. Re-measurement with the channel bounded is in progress; treat (b) as unsettled. **(c) Accumulation is the biggest
+  lever:** representing a candidate by its whole thread rather than one fragment is worth
+  **+12.8 rank-1 on body ID** and +7.4 on occupancy, and beats a longest-single-fragment
+  control, so the gain is accumulation and not more frames. **(d) End to end, without any
+  oracle** (`experiments/bootstrap_threads.py`), greedy sequential threading plus a
+  thread-to-thread agglomerative second pass makes **10,293 of 13,016 required merges at 359
+  wrong — 96.6% precision, 79.1% coverage**; the single-fragment control manages 93.6% / 57.4%.
+  **(e) Fragment impurity runs the OPPOSITE way to the stated risk:** splicing same-team ID
+  switches into 30% of fragments costs accumulation 6.1 points of precision against the
+  control's 16.9 — pooling dilutes a corrupted fragment, whereas a single-fragment candidate
+  *is* the corrupted fragment. **Closed by measurement, do not retry:** joint one-to-one
+  assignment (hard combinatorial ceiling +0.36 pp, measured +0.09), role discovery as an input
+  (0.418 agreement vs 0.900 for the trivial per-player mean), `impostor_field_llr` (proven
+  rank-neutral — an affine transform within an episode), and a pass-1 margin requirement
+  (dominated on both axes once pass 2 exists). New pure modules: `reid/transition.py`,
+  `reid/threads.py`, `evidence.py::fit_fusion_weights`. **All of it sits on GT observability
+  spans with a GT team gate** — no real detector, no learned team classifier, no phone
+  footage — so every number is an upper bound. No shipped default was changed.
+- **Calibration had never run in any benchmarked re-ID experiment (2026-07-27).** The re-ID
+  configs carried `calibrate: enabled: false` (`manifest.json` for the 2026-07-26 smoke runs
+  records `status: skipped`), and the merge engine's pitch-metric motion branch
+  (`reid/gates.py:84`) only applies where calibration covers both endpoint frames — so SPO-59,
+  SPO-73, SPO-85 and the full-system smoke all scored on the GMC **pixel** bound alone. Position
+  contributed nothing to those results, not even as a veto. PnLCalib is now enabled in
+  `configs/pipeline.tdlp-full-reid-oracle.yaml` (with the required `pitch: fifa`).
+  **Measured coverage on SNMOT-116** (run `calibcov-116`, calibrate 162.6 s): homographies for
+  **750/750 frames**, but **confidence ≥0.5 on only 4.4%** (mean 0.240) — and the engine's
+  `calibration_min_confidence` is 0.5, so the pitch-metric branch would *still* skip ~96% of
+  frames. Whether that reflects genuine calibration error or a conservative confidence metric
+  is **unresolved**: the obvious sanity check (projected players land on the pitch) is vacuous
+  because `stages/fuse/minimap.py:258` clips to pitch bounds, and SoccerNet tracking ships no
+  GT pitch positions to score against.
+- **Smoke-run merge triage: wrong merges are same-team, at long gaps (2026-07-27).** Judged
+  against GT track identity and GT team, the 2026-07-26 smoke runs made 3 wrong merges: **2 are
+  same-team** (same-kit teammates, gaps of 227 and 263 frames ≈ 9–10.5 s) and **1 is a
+  goalkeeper merged across teams** — keepers wear a different kit from their own side, so that
+  one is a **team-gate defect** (SPO-75), not an appearance failure.
 - **Phase 3 tracker benchmark + SPO-34 exit gate (2026-07-19).** On frozen detections, no
   off-the-shelf candidate cleared the pre-registered promotion bar (BoT-SORT+body-ReID/SPO-31
   directionally positive but sub-bar on purity; TDLP-bbox/SPO-32 and OC-SORT/SPO-33 regress) —

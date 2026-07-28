@@ -1,0 +1,23 @@
+{
+  "question": "Does an ACCUMULATED candidate territory beat a single candidate fragment as the occupancy comparison target?",
+  "script": "scratchpad/accum.py (three arms over one shared field)",
+  "framing_note": "Deployment shape: a NEW fragment q arrives and is matched to identity THREADS built only from fragments with end < q.start. This is the reverse of matchlab_core/reid/episodes.py, which admits FUTURE fragments as candidates. Field size here is ~11 threads, not ~550 fragments, so rank-1 is NOT comparable to the six-arm ablation table.",
+  "threading": "oracle (GT player_id) -- this is a CEILING on what a two-pass bootstrap could deliver, not an achievable number",
+  "no_future_information": true,
+  "arms": {
+    "recent": "candidate = its most recent prior fragment (equivalent to today's fragment-vs-fragment design)",
+    "longest": "candidate = its longest prior fragment (control: is any gain merely 'more frames'?)",
+    "accum": "candidate = ALL its prior fragments pooled"
+  },
+  "per_half": {
+    "game_18_H1": {"episodes": 2530, "field": 11.3, "rank1": {"recent": 0.3941, "longest": 0.3549, "accum": 0.4368}, "auc": {"recent": 0.8249, "longest": 0.8102, "accum": 0.8391}},
+    "game_18_H2": {"episodes": 2283, "field": 11.6, "rank1": {"recent": 0.3841, "longest": 0.3675, "accum": 0.4350}, "auc": {"recent": 0.8250, "longest": 0.8142, "accum": 0.8539}},
+    "game_24_H1": {"episodes": 2219, "field": 10.9, "rank1": {"recent": 0.5205, "longest": 0.5295, "accum": 0.6043}, "auc": {"recent": 0.8701, "longest": 0.8708, "accum": 0.8971}},
+    "game_24_H2": {"episodes": 2242, "field": 13.2, "rank1": {"recent": 0.4581, "longest": 0.4715, "accum": 0.5268}, "auc": {"recent": 0.8538, "longest": 0.8541, "accum": 0.8850}},
+    "game_47_H1": {"episodes": 1802, "field": 10.9, "rank1": {"recent": 0.4928, "longest": 0.5860, "accum": 0.6093}, "auc": {"recent": 0.8541, "longest": 0.8881, "accum": 0.9041}},
+    "game_47_H2": {"episodes": 1940, "field": 12.4, "rank1": {"recent": 0.3979, "longest": 0.3881, "accum": 0.4820}, "auc": {"recent": 0.8337, "longest": 0.8170, "accum": 0.8598}}
+  },
+  "mean_rank1": {"recent": 0.4413, "longest": 0.4496, "accum": 0.5157},
+  "mean_auc": {"recent": 0.8436, "longest": 0.8424, "accum": 0.8732},
+  "finding": "Accumulation wins on all 6 halves: +7.4 rank-1 over the current fragment-vs-fragment design and +6.6 over the longest-prior-fragment control, so the gain is accumulation and not merely more observed frames. AUC +0.030. This restores the justification for the two-pass bootstrap that was dropped earlier."
+}

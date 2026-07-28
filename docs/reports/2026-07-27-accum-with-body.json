@@ -1,0 +1,10 @@
+{
+  "body (recent)": 0.8161153456258403,
+  "body (ACCUM)": 0.9440532134526275,
+  "occupancy (recent)": 0.4412838508822117,
+  "occupancy (ACCUM)": 0.5156804552373563,
+  "body+occ (recent)": 0.8239966128914255,
+  "body+occ (ACCUM)": 0.92040280526094,
+  "body+occ+gap (recent)": 0.8295840391578357,
+  "body+occ+gap (ACCUM)": 0.9274430760238087
+}

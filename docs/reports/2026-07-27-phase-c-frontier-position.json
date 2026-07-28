@@ -1,0 +1,249 @@
+{
+  "variant": "B-formation-relative",
+  "min_frames": 50,
+  "per_half": {
+    "game_18_H1": {
+      "fragments": 2553,
+      "merges_needed": 2530,
+      "admitted_pairs": 543,
+      "frontier_correct": 1,
+      "frontier_wrong": 0,
+      "loose_correct": 255,
+      "loose_wrong": 288,
+      "budget_curve": {
+        "0": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "5": {
+          "correct": 8,
+          "wrong": 5
+        },
+        "10": {
+          "correct": 14,
+          "wrong": 10
+        },
+        "25": {
+          "correct": 31,
+          "wrong": 25
+        },
+        "50": {
+          "correct": 45,
+          "wrong": 48
+        }
+      }
+    },
+    "game_18_H2": {
+      "fragments": 2310,
+      "merges_needed": 2283,
+      "admitted_pairs": 486,
+      "frontier_correct": 1,
+      "frontier_wrong": 0,
+      "loose_correct": 206,
+      "loose_wrong": 280,
+      "budget_curve": {
+        "0": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "5": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "10": {
+          "correct": 3,
+          "wrong": 8
+        },
+        "25": {
+          "correct": 4,
+          "wrong": 19
+        },
+        "50": {
+          "correct": 16,
+          "wrong": 49
+        }
+      }
+    },
+    "game_24_H1": {
+      "fragments": 2241,
+      "merges_needed": 2219,
+      "admitted_pairs": 429,
+      "frontier_correct": 4,
+      "frontier_wrong": 0,
+      "loose_correct": 239,
+      "loose_wrong": 190,
+      "budget_curve": {
+        "0": {
+          "correct": 4,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 4,
+          "wrong": 0
+        },
+        "5": {
+          "correct": 11,
+          "wrong": 4
+        },
+        "10": {
+          "correct": 13,
+          "wrong": 8
+        },
+        "25": {
+          "correct": 22,
+          "wrong": 25
+        },
+        "50": {
+          "correct": 62,
+          "wrong": 50
+        }
+      }
+    },
+    "game_24_H2": {
+      "fragments": 2272,
+      "merges_needed": 2242,
+      "admitted_pairs": 444,
+      "frontier_correct": 2,
+      "frontier_wrong": 0,
+      "loose_correct": 250,
+      "loose_wrong": 194,
+      "budget_curve": {
+        "0": {
+          "correct": 2,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 3,
+          "wrong": 1
+        },
+        "5": {
+          "correct": 13,
+          "wrong": 4
+        },
+        "10": {
+          "correct": 15,
+          "wrong": 9
+        },
+        "25": {
+          "correct": 22,
+          "wrong": 22
+        },
+        "50": {
+          "correct": 67,
+          "wrong": 50
+        }
+      }
+    },
+    "game_47_H1": {
+      "fragments": 1824,
+      "merges_needed": 1802,
+      "admitted_pairs": 379,
+      "frontier_correct": 1,
+      "frontier_wrong": 0,
+      "loose_correct": 217,
+      "loose_wrong": 162,
+      "budget_curve": {
+        "0": {
+          "correct": 1,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 3,
+          "wrong": 1
+        },
+        "5": {
+          "correct": 4,
+          "wrong": 4
+        },
+        "10": {
+          "correct": 13,
+          "wrong": 7
+        },
+        "25": {
+          "correct": 23,
+          "wrong": 22
+        },
+        "50": {
+          "correct": 59,
+          "wrong": 50
+        }
+      }
+    },
+    "game_47_H2": {
+      "fragments": 1970,
+      "merges_needed": 1940,
+      "admitted_pairs": 396,
+      "frontier_correct": 5,
+      "frontier_wrong": 0,
+      "loose_correct": 209,
+      "loose_wrong": 187,
+      "budget_curve": {
+        "0": {
+          "correct": 5,
+          "wrong": 0
+        },
+        "1": {
+          "correct": 5,
+          "wrong": 0
+        },
+        "5": {
+          "correct": 9,
+          "wrong": 4
+        },
+        "10": {
+          "correct": 13,
+          "wrong": 10
+        },
+        "25": {
+          "correct": 23,
+          "wrong": 25
+        },
+        "50": {
+          "correct": 59,
+          "wrong": 46
+        }
+      }
+    }
+  },
+  "total": {
+    "merges_needed": 13016,
+    "frontier_correct": 14,
+    "frontier_wrong": 0,
+    "loose_correct": 1376,
+    "loose_wrong": 1301,
+    "budget_curve": {
+      "0": {
+        "correct": 14,
+        "wrong": 0
+      },
+      "1": {
+        "correct": 17,
+        "wrong": 2
+      },
+      "5": {
+        "correct": 46,
+        "wrong": 21
+      },
+      "10": {
+        "correct": 71,
+        "wrong": 52
+      },
+      "25": {
+        "correct": 125,
+        "wrong": 138
+      },
+      "50": {
+        "correct": 308,
+        "wrong": 293
+      }
+    }
+  }
+}

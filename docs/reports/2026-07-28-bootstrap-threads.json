@@ -1,0 +1,48 @@
+{
+  "question": "Does accumulated-thread evidence survive WITHOUT oracle threading, where a wrong merge poisons the thread it joins for every later decision?",
+  "experiment": "matchlab_train.experiments.bootstrap_threads",
+  "method": "Fragments in time order; each joins an existing thread or starts a new one. Channels (body / occupancy / gap / transition) scored against the THREAD, fused with weights fitted on the other two matches. Threading is the system's own -- no GT is used to build threads, only to score the outcome.",
+  "control": "identical decision rule and channels, but a thread is represented by its most recent fragment alone. Without this arm the result would be unattributable -- it could be the threading rule rather than the accumulated evidence.",
+  "folds": "held-out match evaluated; calibrators, transition prior and fusion weights fitted on the other two matches (oracle threads there)",
+  "status": "4 of 6 halves complete (game_18, game_24); the game_47 fold was cut short by memory pressure from a concurrent job and is reported separately",
+  "per_half": [
+    {"key": "game_18_H1", "thr": 0.0, "accumulate": true,  "merges": 2273, "correct": 2182, "wrong": 91,  "threads": 280,  "true_players": 23},
+    {"key": "game_18_H1", "thr": 0.0, "accumulate": false, "merges": 2112, "correct": 1694, "wrong": 418, "threads": 441,  "true_players": 23},
+    {"key": "game_18_H2", "thr": 0.0, "accumulate": true,  "merges": 2030, "correct": 1958, "wrong": 72,  "threads": 280,  "true_players": 27},
+    {"key": "game_18_H2", "thr": 0.0, "accumulate": false, "merges": 1831, "correct": 1517, "wrong": 314, "threads": 479,  "true_players": 27},
+    {"key": "game_24_H1", "thr": 0.0, "accumulate": true,  "merges": 2039, "correct": 1955, "wrong": 84,  "threads": 202,  "true_players": 22},
+    {"key": "game_24_H1", "thr": 0.0, "accumulate": false, "merges": 1905, "correct": 1511, "wrong": 394, "threads": 336,  "true_players": 22},
+    {"key": "game_24_H2", "thr": 0.0, "accumulate": true,  "merges": 2063, "correct": 1775, "wrong": 288, "threads": 209,  "true_players": 30},
+    {"key": "game_24_H2", "thr": 0.0, "accumulate": false, "merges": 1955, "correct": 1490, "wrong": 465, "threads": 317,  "true_players": 30},
+    {"key": "game_18_H1", "thr": 4.0, "accumulate": true,  "merges": 1775, "correct": 1744, "wrong": 31,  "threads": 778,  "true_players": 23},
+    {"key": "game_18_H1", "thr": 4.0, "accumulate": false, "merges": 1532, "correct": 1431, "wrong": 101, "threads": 1021, "true_players": 23},
+    {"key": "game_18_H2", "thr": 4.0, "accumulate": true,  "merges": 1497, "correct": 1484, "wrong": 13,  "threads": 813,  "true_players": 27},
+    {"key": "game_18_H2", "thr": 4.0, "accumulate": false, "merges": 1264, "correct": 1228, "wrong": 36,  "threads": 1046, "true_players": 27},
+    {"key": "game_24_H1", "thr": 4.0, "accumulate": true,  "merges": 1667, "correct": 1600, "wrong": 67,  "threads": 574,  "true_players": 22},
+    {"key": "game_24_H1", "thr": 4.0, "accumulate": false, "merges": 1491, "correct": 1359, "wrong": 132, "threads": 750,  "true_players": 22},
+    {"key": "game_24_H2", "thr": 4.0, "accumulate": true,  "merges": 1729, "correct": 1653, "wrong": 76,  "threads": 543,  "true_players": 30},
+    {"key": "game_24_H2", "thr": 4.0, "accumulate": false, "merges": 1533, "correct": 1345, "wrong": 188, "threads": 739,  "true_players": 30}
+  ],
+  "totals": {
+    "thr_0.0": {"accumulated": {"correct": 7870, "wrong": 535, "precision": 0.9363},
+                "recent":      {"correct": 6212, "wrong": 1591, "precision": 0.7961}},
+    "thr_4.0": {"accumulated": {"correct": 6481, "wrong": 187, "precision": 0.9720},
+                "recent":      {"correct": 5363, "wrong": 457, "precision": 0.9215}}
+  },
+  "fitted_weights": [
+    {"eval": "game_18", "body": 1.994, "occupancy": 0.960, "gap": 1.132, "transition": 0.012},
+    {"eval": "game_24", "body": 1.929, "occupancy": 0.496, "gap": 0.786, "transition": 0.010}
+  ],
+  "findings": [
+    "Accumulation wins on BOTH axes in 8 of 8 comparisons -- more correct merges AND fewer wrong ones, at both operating points, on two matches whose fitting sets are disjoint. There is no precision/recall trade being made.",
+    "At the safer operating point (thr=4.0): +1118 correct merges and 2.4x fewer wrong ones (187 vs 457). Wrong merges are the metric the product cares about most, since a silent player swap is worse than temporary unknown identity.",
+    "It survives self-threading. The system builds the accumulated evidence from its own merge decisions, so a wrong merge poisons that thread for every later decision -- and the result still holds. That was the risk that justified dropping the two-pass bootstrap earlier, and it does not materialise at these operating points.",
+    "Threads remain over-fragmented (202-813 threads against 22-30 true players), so this is a high-precision partial threading, not a solved identity assignment."
+  ],
+  "caveats": [
+    "GT-substrate: fragments are GT observability spans, so detection and within-fragment tracking are perfect and no fragment contains an ID switch.",
+    "The team gate uses GT team labels.",
+    "Calibrators, transition prior and fusion weights are fitted on ORACLE threads in the other matches, so the distribution they are fitted on is cleaner than the one they are applied to. Optimistic, not corrected.",
+    "Merge correctness is scored against the joined thread's MAJORITY player, so an already-impure thread can absorb a fragment and be counted correct."
+  ]
+}
