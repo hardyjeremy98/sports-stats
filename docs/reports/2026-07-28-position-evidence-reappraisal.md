@@ -99,7 +99,7 @@ is exactly why the sum was damaged.
 | occupancy | 41.02% | | |
 | continuity | 29.10% | | |
 | gap | 14.12% | | |
-| **transition** | **51.26%** | | |
+| **transition** ⚠️ | **51.26%** | | |
 | body + occupancy | 95.54% | 96.16% | |
 | body + transition | 95.57% | 95.59% | |
 | **body + occupancy + transition** | 95.64% | **96.27%** | |
@@ -117,7 +117,13 @@ Three things to read off it:
   physics on the gap instead of treating displacement and elapsed time as separate channels.
 - **The transition prior is the strongest single position channel** (51.26% vs occupancy's
   41.02%), and removing its Δt conditioning costs −24.7 pp, so the conditioning *is* the
-  signal.
+  signal. **⚠️ PROVISIONAL (2026-07-28): every `transition` figure on this page was measured
+  on an UNBOUNDED channel.** `_saturate` (tanh, ±6 nats) is applied inside
+  `LLRCalibrator.llr`, so all four calibrated channels are bounded, but the transition prior
+  is appended raw (`multi_input.py:216`, `bootstrap_threads.py:391`) and reaches −3754 nats
+  against body's −3.87, with 17.0% of rows beyond −6 and its sd inflated 17.9×. Because
+  tanh is a monotone NONLINEAR compression, bounding changes the channel's shape and not
+  merely its units, so these numbers do not transfer. Re-measurement in progress.
 - **The set scorer wins only where no channel dominates** — position-only, 63.96% vs 61.74%.
   With body present the 4-parameter conditional logit beats it at a fraction of the cost.
   Keep it as a research arm; do not make it the default.

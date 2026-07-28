@@ -941,7 +941,13 @@ Measured local findings recorded by the repository guidance:
   **(b) A spatio-temporal transition prior** (`reid/transition.py`, bounded diffusion
   σ(Δt)=σ∞√(1−e^(−Δt/τ)), anisotropic) is the strongest single position channel (51.26% vs
   occupancy's 41.02%) and subsumes continuity+gap, but earns a fitted weight of only ~0.1;
-  best arm is `body + occupancy + transition` at **96.27%**. **(c) Accumulation is the biggest
+  best arm is `body + occupancy + transition` at **96.27%**. **⚠️ PROVISIONAL (2026-07-28):
+  all of these transition figures were measured on an UNBOUNDED channel** — `_saturate` is
+  applied inside `LLRCalibrator.llr` but the prior is appended raw, so it reaches −3754 nats
+  against body's −3.87 (17.0% of rows past −6, sd inflated 17.9×). The ~0.1 weight is
+  therefore in raw units and NOT comparable to the other channels'. Also note the
+  96.27-vs-96.20 margin is not significant: paired over 6 halves, p=0.781, and it loses on
+  3 of 6. Re-measurement with the channel bounded is in progress; treat (b) as unsettled. **(c) Accumulation is the biggest
   lever:** representing a candidate by its whole thread rather than one fragment is worth
   **+12.8 rank-1 on body ID** and +7.4 on occupancy, and beats a longest-single-fragment
   control, so the gain is accumulation and not more frames. **(d) End to end, without any
