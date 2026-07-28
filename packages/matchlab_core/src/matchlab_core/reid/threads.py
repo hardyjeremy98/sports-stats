@@ -1,9 +1,16 @@
 """Accumulated identity-thread state.
 
 The merging harness represents a candidate by a single fragment. On FOOTPASS a
-fragment lasts a median 6.6 s and touches 3 of 96 pitch cells (p10 = 1), while
-the player's whole territory touches 22 -- so "the candidate that typically
-occupies that space" was being asked of a smudge that had never been anywhere.
+fragment lasts a median 8.2 s (12.2 s mean) and, on game_18_H1, touches a median
+of 3 of 96 pitch cells (p10 = 1) while the player's whole territory touches 22 --
+so "the candidate that typically occupies that space" was being asked of a smudge
+that had never been anywhere.
+
+A fragment here is a GT OBSERVABILITY SPAN, not a tracker tracklet: it splits
+whenever the player is off-camera for more than 2 frames, where a tracker bridges
+short occlusions with its motion buffer. Real tracklets on SNMOT under the same
+>=2 s filter have a median of 10.0 s, so this substrate is more fragmented than
+reality.
 
 Measured with oracle threading, representing a candidate by everything seen of
 it so far is worth +12.8 rank-1 on body ID and +7.4 on occupancy, and it beats a

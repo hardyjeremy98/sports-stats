@@ -128,8 +128,9 @@ under fitted weights.
 
 ## 4. Accumulation is a bigger lever than the position representation
 
-Today a candidate is one fragment: median 6.6 s, touching **3** of 96 pitch cells (p10 = 1),
-against the **22** a whole player's territory covers. Representing a candidate by everything
+Today a candidate is one fragment: median **8.2 s** (12.2 s mean) touching, on game_18_H1, a
+median of **3** of 96 pitch cells (p10 = 1) against the **22** a whole player's territory
+covers. Representing a candidate by everything
 seen of it so far instead (oracle-threaded, no future information — so a ceiling):
 
 | arm | recent fragment | longest fragment | **accumulated** |
@@ -178,6 +179,14 @@ clamping a z-score and summing it with nats. Superseded by fitted weights.
   moves occupancy AUC by +0.004, below the 8.7 m grid resolution) and truncation to 2 s costs
   little, but neither degradation tests a fragment that fuses two players — which is what a
   real tracker produces and what would corrupt a footprint far more.
+- **A "fragment" here is not a tracker tracklet.** It is a GT observability span, split
+  whenever the player is off-camera for more than 2 frames; a tracker instead bridges short
+  occlusions with its motion buffer and can carry an ID switch inside one tracklet. Measured
+  under a matched >=2 s filter, real tracklets on SNMOT have a median duration of **10.0 s**
+  against these fragments' **8.2 s**. So this substrate is MORE fragmented than reality --
+  more joins required, less evidence in each -- which makes the accumulation result
+  conservative, while every other difference (no ID switches, perfect detection, GT team
+  gate) runs the other way.
 - **The candidate field is oracle-purified** by a GT team gate.
 - **Analyst-level selection on the eval set.** Formation-relative coordinates, `max_bins=200`
   and the interpolation fix were each chosen by their effect on these same val halves. The
@@ -217,7 +226,7 @@ consistently one person", not "this is *the* person from earlier in the match".
 ### A second, thread-to-thread pass
 
 Pass 1 always compares a thread against a **lone fragment**, so half the evidence in every
-comparison is a 6.6-second smudge. Pass 2 agglomerates thread-to-thread — greedy, re-scored
+comparison is an 8-second smudge. Pass 2 agglomerates thread-to-thread — greedy, re-scored
 each round because every merge strengthens the surviving thread — so both sides are
 accumulated. Pass-1 threshold fixed at 4.0, pass-2 threshold swept:
 
