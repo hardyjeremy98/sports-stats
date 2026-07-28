@@ -29,7 +29,7 @@ import numpy as np
 LOG_CLAMP = 6.0
 
 
-def _saturate(x):
+def saturate(x):
     """Bound the evidence WITHOUT flattening it.
 
     A hard clip maps everything past the bound onto one value, so the most
@@ -228,7 +228,7 @@ class LLRCalibrator:
         c, v = self.centers, self.log_ratio
         backbone = self.slope * score + self.intercept
         correction = float(np.interp(score, c, v)) if len(c) else 0.0
-        return float(_saturate(backbone + correction))
+        return float(saturate(backbone + correction))
 
     def to_dict(self) -> dict:
         return {

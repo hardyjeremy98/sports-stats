@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from matchlab_core.reid.evidence import LLRCalibrator, fit_fusion_weights
+from matchlab_core.reid.evidence import LLRCalibrator, fit_fusion_weights, saturate
 from matchlab_core.reid.occupancy import js_distance
 from matchlab_core.reid.threads import ThreadState
 from matchlab_core.reid.transition import TransitionPrior, displacement
@@ -388,7 +388,13 @@ def channel_llrs(r: np.ndarray, cals, prior) -> np.ndarray:
         cols.append(
             np.array([cals[name].llr(float(v)) if not np.isnan(v) else 0.0 for v in col])
         )
-    cols.append(np.asarray(prior.llr(r[:, 2], r[:, 3], r[:, 4])))
+    # Bounded like every other channel. The prior itself is deliberately
+    # unbounded -- a 60 m move in 1 s costs it tens of nats, which is the point --
+    # but `fit_fusion_weights` gives each channel ONE linear coefficient, and a
+    # column reaching -3754 nats against everything else's +/-6 cannot share one.
+    # Reporting the ratio honestly is the prior's job; putting channels on a
+    # common footing is this layer's.
+    cols.append(np.asarray(saturate(prior.llr(r[:, 2], r[:, 3], r[:, 4]))))
     return np.stack(cols, axis=1)
 
 

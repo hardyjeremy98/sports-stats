@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 from matchlab_core.reid.episodes import build_episodes
-from matchlab_core.reid.evidence import LLRCalibrator
+from matchlab_core.reid.evidence import LLRCalibrator, saturate
 from matchlab_core.reid.transition import TransitionPrior, displacement
 
 from matchlab_train.datasets.footpass import COL, half_keys, load_half
@@ -214,9 +214,13 @@ def llr_matrix(hd: HalfData, cals: dict, names: list[str]) -> np.ndarray:
     cols = []
     for n in names:
         if n == TRANSITION:
+            # Bounded to match the calibrated channels -- see channel_llrs in
+            # bootstrap_threads.py for why the fusion layer owns this, not the prior.
             cols.append(
                 np.asarray(
-                    cals[n].llr(hd.raw[:, CHANNELS["gap"][0]], hd.raw[:, DX], hd.raw[:, DY])
+                    saturate(
+                        cals[n].llr(hd.raw[:, CHANNELS["gap"][0]], hd.raw[:, DX], hd.raw[:, DY])
+                    )
                 )
             )
             continue

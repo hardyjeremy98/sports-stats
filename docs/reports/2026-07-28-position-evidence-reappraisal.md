@@ -117,8 +117,8 @@ Three things to read off it:
   physics on the gap instead of treating displacement and elapsed time as separate channels.
 - **The transition prior is the strongest single position channel** (51.26% vs occupancy's
   41.02%), and removing its Δt conditioning costs −24.7 pp, so the conditioning *is* the
-  signal. **⚠️ PROVISIONAL (2026-07-28): every `transition` figure on this page was measured
-  on an UNBOUNDED channel.** `_saturate` (tanh, ±6 nats) is applied inside
+  signal. **⚠️ SUPERSEDED (2026-07-28): every `transition` figure on this page was measured
+  on an UNBOUNDED channel; see §10 for the corrected result.** `_saturate` (tanh, ±6 nats) is applied inside
   `LLRCalibrator.llr`, so all four calibrated channels are bounded, but the transition prior
   is appended raw (`multi_input.py:216`, `bootstrap_threads.py:391`) and reaches −3754 nats
   against body's −3.87, with 17.0% of rows beyond −6 and its sd inflated 17.9×. Because
@@ -288,3 +288,54 @@ positions, not observed from a tracker.
 
 Open: re-measure the merge frontier on the fixed calibrator (the −598 regression attributed
 to position was measured on a different pair population and is unattributable).
+
+## 10. The transition channel was mis-scaled; bounding it is a free win
+
+Two agents argued opposite sides of "drop `gap` and let the transition prior carry the
+physics". Both abandoned their assigned positions, independently, and converged.
+
+**The channel was never on the same scale as the others.** `saturate` (tanh, ±6 nats) runs
+inside `LLRCalibrator.llr`, so the four calibrated channels are bounded; the transition prior
+was appended raw and bypassed it, reaching **−3754 nats** against body's −3.87, with 17.0% of
+rows beyond −6 and its sd inflated **17.9×**. `fit_fusion_weights` standardises by sd, so its
+reported weight (0.0121) was in raw units and NOT comparable to the others'. It did not mean
+the channel was inert.
+
+Bounding it identically, verified end to end on all 6 halves:
+
+| transition | correct | wrong | precision | coverage |
+|---|---|---|---|---|
+| unbounded (shipped) | 10,293 | 359 | 96.63% | 79.08% |
+| **tanh ±6** | **10,392** | **358** | **96.67%** | **79.84%** |
+| tanh ±25 | 10,308 | 380 | 96.44% | 79.19% |
+| channel deleted | 10,299 | 353 | 96.69% | 79.13% |
+
+**+99 correct merges for −1 wrong.** Note the fourth row: unbounded, the channel was
+statistically indistinguishable from **deleting it**. Its fitted weight rises 21× when bounded
+(0.0121 → 0.2552), into the same range as its neighbours.
+
+**`gap` stays, and is more load-bearing after the fix, not less.** At ±6, dropping `gap` costs
+**+204 wrong merges** (358 → 562). At matched coverage the un-bounded comparison is +147 wrong
+(+41%), worse in 6/6 halves (sign test p=0.031). On the impostor population `gap` and
+`transition` correlate **−0.17** (Spearman −0.31 to −0.43): complementary, not redundant.
+Transition fires precisely where `gap` is *wrong* — on short gaps, where `gap` says +0.36 nats.
+
+**The margin that started this is noise.** 96.27 vs 96.20: paired over 6 halves, mean +0.067
+against a per-half sd of 0.536, exact permutation **p = 0.78**, and it loses on 3 of 6. The
+whole top cluster spans 0.11 points against a between-half sd of 1.3–1.5. The ranking ablation
+cannot license removing a channel.
+
+**The channel's advertised rationale is backwards.** `transition.py` claimed the value was
+that it "can rule an identity out; it can never assert one". Leave-one-out flip counts at ±6
+over 13,170 decisions: **enabling** merges 218 right / 8 wrong; the impossibility **veto** 1
+correct block against **31** blocks of correct merges. The half that was advertised is the half
+that costs — and saturation preferentially truncates it (the veto reaches −3754, the enabling
+side caps near +3.6 by construction), which is *why* bounding helps.
+
+**Deployment.** Missing calibration is free: at the measured 4.4% coverage the prior abstains
+to 0 and the system collapses to the identical no-transition configuration (357 wrong, both
+arms). **Wrong calibration is the risk** — at 5 m endpoint error the bounded arm reaches 436
+wrong, worse than not having the channel at all (353). The status quo was immune only because
+it was inert. So the channel should be gated on calibration **confidence**, not coverage: a
+low-confidence solve must abstain rather than supply a plausible-but-wrong endpoint. Untested;
+this is the open item.

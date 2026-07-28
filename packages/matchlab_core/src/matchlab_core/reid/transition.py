@@ -14,11 +14,25 @@ under 35 s -- so an equal-count histogram puts no bin edge anywhere useful and a
 fine grid holds single-digit counts per cell. A six-parameter closed form fitted
 on hundreds of thousands of links has support where the counts do not.
 
-The asymmetry is structural and is the reason this is safe to add: positive
-evidence is capped by a volume-gain term that decays toward zero as the gap
-grows, while negative evidence is quadratic and unbounded. The prior can rule an
-identity out; it can never assert one. It is still an INPUT -- every value is
-finite, so overwhelming evidence on another channel can always outvote it.
+The asymmetry is structural: positive evidence is capped by a volume-gain term
+that decays toward zero as the gap grows, while negative evidence is quadratic
+and unbounded. It is still an INPUT -- every value is finite, so overwhelming
+evidence on another channel can always outvote it.
+
+MEASURED CORRECTION (2026-07-28). This docstring used to claim the asymmetry was
+"the reason this is safe to add: the prior can rule an identity out, it can never
+assert one". The leave-one-out flip counts say the opposite. Over 13,170 pass-1
+decisions with the channel bounded at +/-6, its value is almost entirely in
+ENABLING merges -- "you re-entered exactly where the diffusion predicts" -- at
+218 right against 8 wrong, while the impossibility VETO is net harmful: 1 correct
+block against 31 blocks of merges that were correct. The half of the channel this
+docstring advertised is the half that costs.
+
+That also explains why bounding helps rather than hurts. Saturation truncates the
+veto side hard (values reach -3754 nats) and the enabling side barely at all (it
+caps near +3.6 by construction), so it preferentially removes the harmful half.
+Consumers must bound this before fusing it -- see `channel_llrs` in
+`matchlab_train/experiments/bootstrap_threads.py`.
 
 Pure: arrays in, values out. No I/O, no config.
 """
