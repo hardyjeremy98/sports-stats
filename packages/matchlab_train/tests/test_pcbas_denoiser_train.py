@@ -35,9 +35,13 @@ def test_experiment_is_registered():
     assert "pcbas-denoiser" in available()
 
 
-def test_effective_batch_matches_the_reference():
+def test_effective_batch_is_deliberately_smaller_than_the_reference():
+    """We trade batch size for optimiser steps. The reference gets ~2,000 steps per
+    epoch from 192,000 windows; we can afford 19,200 windows, so at its effective
+    batch of 96 we would take only 200 steps -- and step count, not batch size, is
+    what DST is short of (~3,000 vs their ~30,000)."""
     p = Params()
-    assert p.batch_size * p.accum_steps == 96
+    assert p.batch_size * p.accum_steps == 24
 
 
 def test_denoiser_hyperparameters_match_the_reference():
@@ -64,13 +68,13 @@ def test_optimizer_applies_the_reference_weight_decay():
     assert Params().weight_decay == 1e-4
 
 
-def test_reference_lr_decay_schedule_is_configured():
-    """ExponentialLR(0.1) stepped at epochs 3, 6 and 8, so most of the run trains at
-    1e-3x the base rate. Annealing is what sharpens a fine-grained classification
-    head, and the timestamp head is precisely the one that failed to converge."""
+def test_lr_decay_is_disabled_until_the_step_budget_supports_it():
+    """Copying the reference's epoch numbers (3/6/8) was wrong: it takes ~2,000
+    optimiser steps per epoch to our ~200, so the same epochs are 10x earlier in
+    steps. It annealed us to 2.5e-7 before convergence -- the run flatlined from
+    epoch 8 and scored micro-F1 0.048 against 0.119 undecayed."""
     p = Params()
-    assert p.lr_decay == 0.1
-    assert p.lr_decay_epochs == (3, 6, 8)
+    assert p.lr_decay == 1.0 and p.lr_decay_epochs == ()
 
 
 def test_label_smoothing_matches_the_reference():

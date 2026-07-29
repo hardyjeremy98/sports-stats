@@ -53,11 +53,14 @@ class Params(BaseModel):
     weight_decay: float = 1e-4
     # The reference smooths action and role but deliberately NOT the frame head.
     label_smoothing: float = 0.05
-    # ExponentialLR(0.1) stepped at epochs 3, 6 and 8 -- so most of the run trains at
-    # 1e-3x the base rate. Annealing is what sharpens a fine-grained head, and the
-    # timestamp head is the one that failed to converge.
-    lr_decay: float = 0.1
-    lr_decay_epochs: tuple[int, ...] = (3, 6, 8)
+    # The reference anneals ExponentialLR(0.1) at epochs 3/6/8 -- but it takes ~2,000
+    # optimiser steps per epoch to our ~200, so its epoch 3 is 6,000 steps in, ours is
+    # 600. Copying the EPOCH numbers annealed us to 2.5e-7 before convergence and the
+    # run flatlined from epoch 8 (val 7.668 -> 7.659 over seven epochs) where the
+    # undecayed run was still at 6.351 and falling. Measured: micro-F1 0.048 vs 0.119.
+    # Disabled by default until the step budget can support it.
+    lr_decay: float = 1.0
+    lr_decay_epochs: tuple[int, ...] = ()
     hidden_dim: int = 512
     n_heads: int = 8
     n_layers: int = 6
@@ -66,7 +69,12 @@ class Params(BaseModel):
 
     epochs: int = 15
     batch_size: int = 8
-    accum_steps: int = 12  # effective 96, matching the reference
+    # The reference's effective batch is 96 (batch 96, no accumulation) and it takes
+    # ~2,000 optimiser steps per epoch. We cannot match its 192,000 windows/epoch --
+    # that is ~45 h -- so we buy steps with a smaller effective batch instead:
+    # accum 3 gives 4x the updates for identical compute. A deviation, but the
+    # binding constraint is optimiser steps (~3,000 vs their ~30,000), not batch size.
+    accum_steps: int = 3
     num_workers: int = 4
     lr: float = 2.5e-4
     # The reference's 1000-step warmup is <=1 epoch for it (2,000 optimiser steps in
