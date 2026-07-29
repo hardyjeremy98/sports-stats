@@ -125,7 +125,60 @@ and *required* for the PAVE-style `attn` encoder.
 
 ---
 
-## The attribution experiment (running)
+## RESULT: the attribution experiment answers it — DST works
+
+**With oracle stage-1 input, DST scores micro-F1 0.9104** (macro 0.6791, precision 0.886,
+recall 0.936, TP 5,682 / FP 730 / FN 388 against 6,070 GT events), against **0.1188** on
+our real stage-1 logits.
+
+| DST input | micro-F1 | macro-F1 |
+|---|---:|---:|
+| our stage 1 (itself 0.3274) | 0.1188 | 0.0600 |
+| **oracle (perfect)** | **0.9104** | **0.6791** |
+
+The model, tokenisation, training loop, autoregressive decode and scoring path are all
+sound. **Stage-1 quality is the binding constraint**, and every hour spent there pays
+twice because stage 2 inherits it.
+
+Event volume is well calibrated too — ~1,090 emitted per half against ~1,010 ground
+truth, where the real-input runs emitted 2,000+.
+
+Training also behaved completely differently. On oracle input all 15 epochs ran inside
+the 3 h budget and the losses kept falling steeply to the end (val total 3.983 → 3.543 →
+2.615 over the last three epochs), where the real-input run had flattened:
+
+| | real input, final | oracle, final |
+|---|---:|---:|
+| val total | 6.351 | **2.615** |
+| action | 0.642 | **0.144** |
+| role | 1.345 | **0.149** |
+| timestamp | 4.364 | **2.321** |
+
+### Three caveats
+
+1. **Not a claimable pipeline score.** The input is ground truth.
+2. **It proves capacity, not inference.** With oracle input DST can largely read its input
+   back out; what earns the reference its 0.41 → 0.72 lift is *inferring* events absent
+   from the input. This rules out "DST is broken"; it does not prove DST will infer well
+   from a merely-good stage 1.
+3. **Rare classes stay hard even with perfect input** — tackle 0.200 (3 of 26), block
+   0.469, shot 0.576. That is a decoder-side class-prior limit, not a detection one, and
+   no amount of stage-1 work will fix it. It is also why macro trails micro so far.
+
+We have two points on the input→output curve, (0.327 → 0.119) and (1.0 → 0.91). That is
+not enough to interpolate a prediction, and none is offered.
+
+### Next, in order
+
+1. **Finish stage 1's schedule** — 12 of 20 epochs, still improving at the last one, and
+   the final epoch won checkpoint selection on both metrics.
+2. **Restore the dropped augmentations** — affine/scale/crop, lost because
+   `albumentations` is not packaged here.
+3. Only then revisit stage 2's own budget (~5x short of the reference's exposure).
+
+---
+
+## Appendix — the attribution experiment as designed
 
 Budget and input quality imply opposite next actions, and no amount of tuning separates
 them. So: **train DST on oracle stage-1 logits** synthesised from ground truth
@@ -142,3 +195,5 @@ player has no bounding box and which no visual model can reach, making it an **u
 on what any stage 1 could hand the sequence stage.
 
 **The resulting number is not a claimable pipeline score.** Its input is ground truth.
+
+Config: `pcbas_oracle_logits` → `pcbas-denoiser` on `logits/oracle_train` → `pcbas-denoise-infer`.
