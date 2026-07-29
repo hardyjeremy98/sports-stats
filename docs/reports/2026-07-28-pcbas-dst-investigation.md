@@ -95,12 +95,18 @@ Restricted to its **most confident 826 predictions**, precision is still 11.9%. 
 that had learned anything reliable would be far more accurate on its top 7% than its
 bottom. Stage 1 holds 0.357 precision across 5,146 predictions.
 
-This is the strongest single piece of evidence that DST has not learned the task, as
-opposed to having learned it and being miscalibrated.
+At the time this was the strongest evidence that DST had not learned the task, as opposed
+to having learned it and being miscalibrated. **The oracle experiment below shows the
+correct reading: DST learns the task fine when its input carries the signal.** With weak
+input there is simply nothing for its confidence to be confident *about*.
 
 ---
 
-## What has NOT been ruled out
+## What had NOT been ruled out, before the oracle experiment
+
+Both of these were live hypotheses implying opposite next actions. The oracle experiment
+below resolves them: **training budget is NOT the blocker** (15 oracle epochs inside the
+same 3 h budget reached 0.91), and **input quality is**.
 
 **Training budget.** DST has had roughly **one fifth** the exposure the reference gave it:
 
