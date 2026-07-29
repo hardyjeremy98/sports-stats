@@ -8,6 +8,7 @@ from matchlab_train.experiments import (  # noqa: F401
     pcbas_denoise_infer,
     pcbas_denoiser,
     pcbas_infer_logits,
+    pcbas_oracle_logits,
     pcbas_score,
     reid_ablation,
 )
