@@ -131,6 +131,50 @@ and *required* for the PAVE-style `attn` encoder.
 
 ---
 
+## ⚠️ RETRACTED — the attribution experiment was confounded
+
+**The conclusion below ("stage-1 quality is the binding constraint") is NOT supported by
+the evidence and should not be relied on.** An audit on 2026-07-30 found the comparison
+confounded by training length.
+
+Both runs used `max_hours: 3.0`. The oracle run fitted **15 epochs** (2.89 h); the
+real-input run hit the budget at **10** (3.28 h). Through the matched epochs the two are
+indistinguishable — the real-input run is *ahead* on epochs 3–8:
+
+| epoch | oracle val total | real val total |
+|---|---:|---:|
+| 5 | 7.707 | **7.678** |
+| 8 | 6.893 | **6.617** |
+| 10 | 5.925 | 6.351 |
+| 11–15 | 5.353 → **2.615** | *never ran* |
+
+The oracle arm's entire advantage appears in epochs 11–15, which the real arm never ran.
+**0.9104 vs 0.1188 is substantially "15 epochs vs 10 epochs".** The experiment does not
+establish that DST copes with clean but not noisy input, because the noisy arm was never
+run to the same budget.
+
+The error was comparing final-against-final without checking equal budgets. The fix is to
+re-run the real-input arm to a matched 15 epochs.
+
+### What the failure actually looks like: purely temporal
+
+Fraction of GT events with a same-(team, shirt, class) prediction within ±d frames:
+
+| | ±3 | ±12 | ±50 | ±200 |
+|---|---:|---:|---:|---:|
+| our stage 1 | 0.227 | 0.309 | 0.342 | 0.405 |
+| **our DST** | 0.049 | 0.187 | 0.516 | **0.682** |
+| reference TAAD | — | 0.631 | 0.696 | 0.760 |
+
+**Our DST raises event coverage 0.405 → 0.682 — it genuinely infers events stage 1
+missed — but smears them over ±150 frames.** At δ=200 it reaches recall 0.632, equal to
+the reference TAAD's. Nothing is wrong with *what* or *who*; only *when*. The 752-way
+timestamp softmax is the slowest head to converge, and the truncated schedule starves it.
+
+---
+
+## Superseded conclusion (kept for the record)
+
 ## RESULT: the attribution experiment answers it — DST works
 
 **With oracle stage-1 input, DST scores micro-F1 0.9104** (macro 0.6791, precision 0.886,
