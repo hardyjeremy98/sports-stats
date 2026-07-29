@@ -120,3 +120,12 @@ def test_encode_decode_round_trip_recovers_exact_frames():
     assert [e.frame_idx for e in decoded] == [window_start + f for f in (0, 37, 300, 749)]
     assert [e.slot for e in decoded] == [0, 16, 25, 7]
     assert [e.class_id for e in decoded] == [1, 2, 8, 5]
+
+
+def test_dedupe_keeps_the_highest_scorer_at_a_duplicated_frame():
+    """Two events at the SAME frame in one (slot, class) group. The dict-overwrite
+    must leave the higher scorer; it previously kept the lower, understating every
+    duplicate's confidence and degrading the metric's greedy match ordering."""
+    kept = dedupe([_ev(100, score=0.9), _ev(100, score=0.2)], 25)
+    assert len(kept) == 1
+    assert kept[0].score == pytest.approx(0.9)

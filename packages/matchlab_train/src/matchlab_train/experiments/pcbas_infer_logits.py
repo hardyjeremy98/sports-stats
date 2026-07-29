@@ -56,7 +56,7 @@ INFERENCE_DUMMY_BOX = (50.0, 50.0, 72.5, 99.0)
 class Params(BaseModel):
     h5_path: str = "data/footpass/tactical/val_tactical_data.h5"
     video_root: str = "data/footpass/videos_352x640"
-    checkpoint: str = "data/weights/pcbas/action_head_best.pt"
+    checkpoint: str = "data/weights/pcbas/action_head_selected.pt"
     out_dir: str = "data/footpass/logits/val"
     clip_length: int = 50
     stride: int = 25

@@ -107,7 +107,10 @@ def dedupe(events: list[PCBASEvent], window: int) -> list[PCBASEvent]:
     for group in by_group.values():
         frames = np.array([e.frame_idx for e in group])
         scores = np.array([e.score for e in group])
-        by_frame = {e.frame_idx: e for e in sorted(group, key=lambda e: -e.score)}
+        # ASCENDING, so the dict's overwrite-on-collision leaves the HIGHEST scorer.
+        # Descending kept the lowest, which understates every duplicate's confidence
+        # and degrades the metric's greedy match ordering.
+        by_frame = {e.frame_idx: e for e in sorted(group, key=lambda e: e.score)}
         for frame in suppress(frames, scores, window):
             kept.append(by_frame[frame])
     kept.sort(key=lambda e: (e.frame_idx, e.slot))

@@ -46,10 +46,18 @@ class Params(BaseModel):
 
     framespan: int = FRAMESPAN
     stride: int | None = None
-    # Random training windows per half per epoch, as the reference does. Its own
-    # default is 200; its train script passes 750. 200 keeps epoch cost equal to the
-    # previous fixed-stride run so the comparison isolates the sampling change.
+    # Random training windows per half per epoch, as the reference does. Its TRAIN
+    # script passes repeat=2000 (750 is its VAL value), so its exposure is ~15x ours,
+    # not the 5x previously recorded.
     repeat: int = 200
+    weight_decay: float = 1e-4
+    # The reference smooths action and role but deliberately NOT the frame head.
+    label_smoothing: float = 0.05
+    # ExponentialLR(0.1) stepped at epochs 3, 6 and 8 -- so most of the run trains at
+    # 1e-3x the base rate. Annealing is what sharpens a fine-grained head, and the
+    # timestamp head is the one that failed to converge.
+    lr_decay: float = 0.1
+    lr_decay_epochs: tuple[int, ...] = (3, 6, 8)
     hidden_dim: int = 512
     n_heads: int = 8
     n_layers: int = 6
@@ -61,7 +69,10 @@ class Params(BaseModel):
     accum_steps: int = 12  # effective 96, matching the reference
     num_workers: int = 4
     lr: float = 2.5e-4
-    warmup_steps: int = 1000
+    # The reference's 1000-step warmup is <=1 epoch for it (2,000 optimiser steps in
+    # epoch 1 alone). At our 200 steps/epoch the same number would still be ramping at
+    # epoch 5 of 10 -- half the run spent below the intended LR. Scaled to ~1 epoch.
+    warmup_steps: int = 200
 
     action_loss_weight: float = 1.0
     role_loss_weight: float = 1.0
@@ -157,14 +168,16 @@ class PCBASDenoiserExperiment(Experiment):
             dropout=p.dropout,
             encoder=p.encoder,  # type: ignore[arg-type]
         ).to(device)
-        # The reference applies no weight decay anywhere in this stage.
-        opt = torch.optim.AdamW(model.parameters(), lr=p.lr, weight_decay=0.0)
+        # The reference DOES apply weight decay here (1e-4 on every non-bias
+        # parameter); an earlier comment here claimed the opposite.
+        opt = torch.optim.AdamW(model.parameters(), lr=p.lr, weight_decay=p.weight_decay)
 
         ckpt_dir = Path(p.checkpoint_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         history: list[dict] = []
         started = time.time()
         step = 0
+        best_val = float("inf")
 
         def loader(ds, shuffle):
             return DataLoader(
@@ -191,9 +204,15 @@ class PCBASDenoiserExperiment(Experiment):
                     totals[k] += float(losses[k].detach())
                 n += 1
                 if (i + 1) % p.accum_steps == 0:
+                    warm = min(1.0, (step + 1) / max(p.warmup_steps, 1))
+                    decays = sum(1 for e in p.lr_decay_epochs if epoch > e)
                     for g in opt.param_groups:
-                        g["lr"] = p.lr * min(1.0, (step + 1) / max(p.warmup_steps, 1))
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                        g["lr"] = p.lr * warm * (p.lr_decay**decays)
+                    # No gradient clipping: the reference does none, and with three
+                    # summed cross-entropies starting near 10.3 a norm-1.0 clip binds
+                    # on essentially every early step, rescaling all heads uniformly
+                    # and throttling the largest-gradient one -- the timestamp head,
+                    # which is exactly the head that failed to converge.
                     opt.step()
                     opt.zero_grad(set_to_none=True)
                     step += 1
@@ -213,6 +232,16 @@ class PCBASDenoiserExperiment(Experiment):
                 {"model": model.state_dict(), "epoch": epoch, "params": p.model_dump()},
                 ckpt_dir / f"denoiser_{p.encoder}_last.pt",
             )
+            # The reference's published arm is a BEST-on-val checkpoint (epoch 6 of
+            # 15), not the last one. Keeping only `last` meant we always scored a
+            # model chosen by wall-clock rather than by validation.
+            if record["val_total"] < best_val:
+                best_val = record["val_total"]
+                torch.save(
+                    {"model": model.state_dict(), "epoch": epoch, "params": p.model_dump()},
+                    ckpt_dir / f"denoiser_{p.encoder}_best.pt",
+                )
+                print(f"  new best val_total {best_val:.4f}", flush=True)
             print(f"epoch {epoch}: {record}", flush=True)
 
             if p.max_hours is not None and (time.time() - started) / 3600 >= p.max_hours:
@@ -255,12 +284,17 @@ class PCBASDenoiserExperiment(Experiment):
         role_t = target[..., ACTION_VOCAB:OUTPUT_DIM].argmax(-1)
         stamp_t = target[..., OUTPUT_DIM:].argmax(-1)
 
-        def ce(logits, targets):
-            per = torch.nn.functional.cross_entropy(logits, targets, reduction="none")
+        def ce(logits, targets, smoothing=0.0):
+            per = torch.nn.functional.cross_entropy(
+                logits, targets, reduction="none", label_smoothing=smoothing
+            )
             return (per * keep).sum() / keep.sum().clamp(min=1)
 
-        action = ce(out[:, :ACTION_VOCAB], action_t)
-        role = ce(out[:, ACTION_VOCAB:OUTPUT_DIM], role_t)
+        # The reference smooths action and role but deliberately NOT the frame head:
+        # smoothing a 752-way positional target would spread mass over unrelated
+        # timestamps, which is the opposite of the sharpening it needs.
+        action = ce(out[:, :ACTION_VOCAB], action_t, p.label_smoothing)
+        role = ce(out[:, ACTION_VOCAB:OUTPUT_DIM], role_t, p.label_smoothing)
         stamp = ce(out[:, OUTPUT_DIM:], stamp_t)
         total = (
             p.action_loss_weight * action

@@ -33,6 +33,10 @@ from matchlab_core.pcbas.schema import ACTION_CLASSES, CLASS_NAMES
 
 Identity = Literal["slot", "shirt"]
 
+# Sentinel used by both the ingest (NaN shirt column) and the roster remap
+# (unoccupied slot). Never matchable -- see `_identity_key`.
+UNKNOWN_SHIRT = -1
+
 DEFAULT_DELTA = 12
 DEFAULT_CONF_THRESH = 0.15
 
@@ -87,6 +91,14 @@ def _identity_key(ev: PCBASEvent, identity: Identity) -> tuple[int, ...]:
         raise ValueError(
             f"identity='shirt' but event at frame {ev.frame_idx} has no shirt_number"
         )
+    if ev.shirt_number == UNKNOWN_SHIRT:
+        # "Unknown" is not an identity. Both the GT ingest (a NaN shirt column) and the
+        # export-time roster remap (an unoccupied slot) emit -1, so without this an
+        # unidentified prediction could MATCH an unidentified ground-truth event and
+        # score as a correct attribution. Untriggered on FOOTPASS VAL/TRAIN, which have
+        # no unknown shirts either side -- but Phase 3 assigns roles rather than taking
+        # them from ground truth, and then it fires.
+        return (ev.left_to_right, UNKNOWN_SHIRT, id(ev))
     return (ev.left_to_right, ev.shirt_number)
 
 

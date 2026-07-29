@@ -9,9 +9,12 @@ Keeping it a frozen, on-disk contract is what makes the two stages independently
 trainable and independently replaceable -- Phase 3 swaps MatchDay tracking and role
 assignment in behind exactly this shape, without the denoiser knowing.
 
-Slots with no observed player at a frame are all-zero rather than argmax-background.
-Zero is distinguishable from a confident background prediction, which matters because
-the sequence stage's job includes inferring actions for players it cannot see.
+Slots with no observed player are MASKED at the pooling step, not zeroed in the
+output: `ActionHead` zeroes the pooled feature, then a Conv1d(k=3) + BatchNorm +
+Linear-with-bias still emits a learned non-zero vector, with some temporal leakage
+from neighbouring frames. That matches the reference exactly. Frames never covered by
+any inference window ARE all-zero, which is a different thing and is reported
+separately as `uncovered_frames`.
 """
 
 from __future__ import annotations

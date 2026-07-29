@@ -7,5 +7,9 @@ output_dir: data/experiments
 params:
   h5_path: data/footpass/tactical/val_tactical_data.h5
   video_root: data/footpass/videos_352x640
-  checkpoint: data/weights/pcbas/action_head_best.pt
+  # action_head_selected.pt, NOT action_head_best.pt. `best` is chosen during
+  # training on a small validation subsample; `selected` is chosen afterwards by
+  # re-scoring EVERY kept epoch. Pointing this config at `best` reproduced a
+  # different, worse number than the one reported under the same experiment name.
+  checkpoint: data/weights/pcbas/action_head_selected.pt
   out_dir: data/footpass/logits/val

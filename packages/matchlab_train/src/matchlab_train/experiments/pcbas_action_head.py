@@ -62,6 +62,14 @@ class Params(BaseModel):
     lr_head: float = 1e-3
     weight_decay: float = 1e-4
     warmup_steps: int = 50
+    # The reference drops LR x10 at epoch 10 (`ExponentialLR(opt, 0.1)` stepped when
+    # `epoch % 10 == 0 and epoch > 5`) and freezes the X3D backbone for epochs <= 2.
+    # Omitting the anneal is what produced late-stage overfitting in the v2 run: train
+    # loss kept falling while val loss rose 40% and predictions collapsed from 461 to
+    # 229, at exactly the epoch the reference anneals.
+    lr_decay: float = 0.1
+    lr_decay_every: int = 10
+    freeze_backbone_epochs: int = 2
     background_weight: float = 0.05
     action_weight: float = 0.95
 
@@ -80,6 +88,31 @@ class Params(BaseModel):
     # would exceed it, checkpointing as usual -- an unattended run that overruns is
     # worse than a shorter one that reports honestly how far it got.
     max_hours: float | None = None
+
+
+def lr_scale(epoch: int, step: int, params: Params) -> float:
+    """Composed warmup and step decay, as a multiple of the base learning rate.
+
+    Warmup ramps over the first `warmup_steps` optimiser steps; on top of that the
+    rate drops by `lr_decay` for each completed `lr_decay_every` epochs, matching the
+    reference's `epoch % 10 == 0 and epoch > 5` guard (which fires at epoch 10 and
+    again at 20, the latter having no effect on a 20-epoch run).
+    """
+    warm = min(1.0, (step + 1) / max(params.warmup_steps, 1))
+    decays = max(0, (epoch - 1) // params.lr_decay_every)
+    return warm * (params.lr_decay**decays)
+
+
+def set_backbone_trainable(model, trainable: bool) -> None:
+    """Freeze or unfreeze the X3D backbone.
+
+    The reference trains only the randomly-initialised head for the first 2 epochs.
+    Without it, a random head at lr 1e-3 backpropagates into pretrained X3D behind
+    only a 50-step warmup -- the standard way to damage pretrained features early.
+    """
+    for name, param in model.named_parameters():
+        if name.startswith(("stem", "block2", "block3", "block4")):
+            param.requires_grad = trainable
 
 
 def _param_groups(model, params: Params) -> list[dict]:
@@ -222,10 +255,6 @@ class PCBASActionHeadExperiment(Experiment):
         weights = class_weights(p.background_weight, p.action_weight).to(device)
 
         step = 0
-
-        def warmup(_: int) -> float:
-            return min(1.0, (step + 1) / max(p.warmup_steps, 1))
-
         ckpt_dir = Path(p.checkpoint_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         history: list[dict] = []
@@ -233,6 +262,10 @@ class PCBASActionHeadExperiment(Experiment):
         best_val = float("inf")
 
         for epoch in range(1, p.epochs + 1):
+            frozen = epoch <= p.freeze_backbone_epochs
+            set_backbone_trainable(model, not frozen)
+            if frozen:
+                print(f"  epoch {epoch}: X3D backbone FROZEN", flush=True)
             if epoch > 1:
                 train_ds.resample()
             loader = DataLoader(
@@ -263,9 +296,10 @@ class PCBASActionHeadExperiment(Experiment):
                 n_batches += 1
 
                 if (i + 1) % p.accum_steps == 0:
+                    scale = lr_scale(epoch, step, p)
                     for g in opt.param_groups:
                         base = p.lr_backbone if g["name"].startswith("backbone") else p.lr_head
-                        g["lr"] = base * warmup(step)
+                        g["lr"] = base * scale
                     scaler.step(opt)
                     scaler.update()
                     opt.zero_grad(set_to_none=True)

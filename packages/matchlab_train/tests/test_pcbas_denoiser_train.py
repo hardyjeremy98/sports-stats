@@ -42,22 +42,40 @@ def test_effective_batch_matches_the_reference():
 
 def test_denoiser_hyperparameters_match_the_reference():
     p = Params()
-    assert (p.lr, p.warmup_steps, p.epochs) == (2.5e-4, 1000, 15)
+    # warmup_steps is scaled to OUR step count, not copied: the reference's 1000
+    # steps is <=1 epoch for it (2,000 optimiser steps in epoch 1) but would be half
+    # our 10-epoch run. Scaled to ~1 epoch at our 200 steps/epoch.
+    assert (p.lr, p.warmup_steps, p.epochs) == (2.5e-4, 200, 15)
     assert (p.hidden_dim, p.n_heads, p.n_layers, p.dropout) == (512, 8, 6, 0.1)
     assert p.framespan == 750
     assert p.encoder == "flat"  # reference default; "attn" is the PAVE arm
 
 
-def test_optimizer_applies_no_weight_decay():
-    """The reference decays nothing in this stage, unlike the action head which
-    decays its Conv/Linear weights. Silently inheriting AdamW's 0.01 default would
-    be an unrecorded hyperparameter change."""
+def test_optimizer_applies_the_reference_weight_decay():
+    """CORRECTED. An earlier version of this test (and the docstring it guarded)
+    asserted the reference applies NO weight decay in this stage. It does: 1e-4 on
+    every non-bias parameter. The wrong assertion locked in the wrong behaviour."""
     import inspect
 
     from matchlab_train.experiments.pcbas_denoiser import PCBASDenoiserExperiment
 
     source = inspect.getsource(PCBASDenoiserExperiment.run)
-    assert "weight_decay=0.0" in source
+    assert "weight_decay=p.weight_decay" in source
+    assert Params().weight_decay == 1e-4
+
+
+def test_reference_lr_decay_schedule_is_configured():
+    """ExponentialLR(0.1) stepped at epochs 3, 6 and 8, so most of the run trains at
+    1e-3x the base rate. Annealing is what sharpens a fine-grained classification
+    head, and the timestamp head is precisely the one that failed to converge."""
+    p = Params()
+    assert p.lr_decay == 0.1
+    assert p.lr_decay_epochs == (3, 6, 8)
+
+
+def test_label_smoothing_matches_the_reference():
+    """0.05 on action and role; deliberately NOT on the frame head."""
+    assert Params().label_smoothing == 0.05
 
 
 def test_collate_pads_targets_to_the_longest_sequence():

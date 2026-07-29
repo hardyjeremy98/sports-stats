@@ -139,3 +139,23 @@ def test_half_with_no_predictions_counts_as_all_false_negatives():
     r = score_halves({"a": [_ev(1, 0, 2)]}, {})
     assert r.per_class[2].fn == 1
     assert r.micro_f1 == 0.0
+
+
+def test_unknown_shirt_never_matches_another_unknown_shirt():
+    """`-1` means "we could not identify this player", from a NaN GT shirt column or
+    an unoccupied slot in the roster remap. Two unknowns matching would score an
+    unidentified prediction as a correct attribution.
+
+    Untriggered on FOOTPASS VAL/TRAIN (no unknown shirts either side), but Phase 3
+    assigns roles rather than taking them from ground truth, and then it fires."""
+    gt = [_ev(100, 0, 2, shirt=-1)]
+    pred = [_ev(100, 0, 2, shirt=-1)]
+    r = score_events(gt, pred, identity="shirt")
+    assert r.tp == 0
+    assert (r.fp, r.fn) == (1, 1)
+
+
+def test_known_shirts_still_match_normally():
+    """Guard on the above: the fix must not break ordinary identity matching."""
+    r = score_events([_ev(100, 0, 2, shirt=7)], [_ev(100, 5, 2, shirt=7)], identity="shirt")
+    assert r.tp == 1
