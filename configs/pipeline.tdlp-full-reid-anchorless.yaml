@@ -1,0 +1,111 @@
+# ANCHORLESS twin of pipeline.tdlp-full-reid.yaml. Identical in every other
+# respect; the only change is anchor_source: oracle-jersey -> none.
+#
+# Why this exists (2026-08-01): all three reid-engine pipeline configs were
+# oracle-anchored, so the anchorless path -- the one ADR 001 says the product
+# must work in, without jersey OCR -- existed only as a per-arm override
+# inside some configs/train/ benchmarks. Both merge engines merge two
+# tracklets sharing an anchor ON THE ANCHOR ALONE (reid/merge.py:113-125,
+# reid/twopass.py:253-261), so with oracle-jersey anchors at coverage 1.0
+# every entity-level metric is partly GT jersey labels reassembling
+# tracklets. That silently invalidated a merge-engine A/B; see
+# docs/reports/2026-08-01-anchorless-merge-ab.md.
+#
+# Use this config for any claim about re-ID merging performance. Use the
+# oracle-anchored config to study the anchor layer itself, or as the upper
+# bound it is. eval.json now records which of the two you ran
+# (`oracle_inputs.entity_metrics_use_gt_identity`).
+
+# TDLP-full substrate + the B2 re-ID engine in the ASSOCIATE slot (SPO-53).
+# The engine consumes the tracker's own per-frame KPR/pose features
+# (frame_features.npz, exported by the tdlp-full stage) and owns the whole
+# tracklet -> named-entity path, so the identity slot is `none` by design —
+# the slot survives as a seam for other experiments. See
+# configs/pipeline.tdlp-full.yaml for the external-trackers requirements.
+name: tdlp-full-reid-anchorless
+description: >
+  SOTA TDLP-full tracker + reid-engine association: constraint-gated tracklet
+  merging over the tracker's own part-based features, closed-roster naming
+  with abstention. Identity slot deliberately none.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: tdlp-full
+    params:
+      device: cuda:0
+      timeout_s: 7200.0
+      keep_work: false
+      # Backbone for the re-ID feature artifact (Jeremy, 2026-07-25). The
+      # tracker still runs KPR internally; this is the ASSOCIATE layer's input.
+      reid_model: prtreid
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: reid-engine
+    params:
+      # Permissive merging, adopted 2026-07-26 (SPO-85): mutual-best at zero
+      # margin, floor 0.80. Measured on GT fragments: entity IDF1 0.9536 vs
+      # 0.8502 no-op, identity switches 125 -> 41, entity purity 0.986.
+      # Deliberately admits ~15% wrong merges so downstream work can see them;
+      # this FAILS the zero-tolerance do-no-harm gate by design. Raise
+      # merge_min_margin to 0.04 for the conservative end of the curve.
+      min_similarity: 0.80
+      merge_decision_rule: mutual-best
+      merge_min_margin: 0.0
+      overlap_tolerance_frames: 2
+      # Representation (SPO-54)
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      # Constraint gates (SPO-55): sharp GMC pixel bound for short gaps,
+      # opportunistic pitch-metric bound where calibration covers both
+      # endpoints, deliberately soft beyond soft_gap_s.
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
+      # Anchor layer (SPO-56): oracle jersey anchors from the video's GT
+      # (benchmark condition; needs ingested GT next to the video). Set
+      # anchor_source: none for anchor-free runs.
+      anchor_source: none
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

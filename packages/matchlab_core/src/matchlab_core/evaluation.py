@@ -240,6 +240,8 @@ def evaluate_run(
     result["attribution"] = detect_context(manifest)
     attribute_switches(result)
 
+    result["oracle_inputs"] = oracle_inputs(manifest)
+
     mq = merge_quality(tracklets_by_id, players_data, gt_by_frame, iou_threshold)
     result["association"].update({k: v for k, v in mq.items() if k != "merged_pairs"})
     result["association"]["merged_pairs"] = mq["merged_pairs"]
@@ -504,6 +506,54 @@ def _gt_composition_of_tracklet(
             gid = gts[best_gi][0]
             votes[gid] = votes.get(gid, 0) + 1
     return votes
+
+
+def oracle_inputs(manifest: dict) -> dict:
+    """Which ground-truth-derived inputs this run's metrics depend on.
+
+    Added 2026-08-01 after an oracle input silently invalidated a headline.
+    `anchor_source: oracle-jersey` hands the associate stage each tracklet's
+    correct identity from GT, and BOTH merge engines merge two tracklets that
+    share an anchor on the anchor alone -- pairwise at priority tier 0
+    (`reid/merge.py`), two-pass in pass 1 (`reid/twopass.py`). Entity IDF1,
+    merge precision and entity purity were being emitted identically whether
+    anchors were GT or absent, so an oracle-anchored number could be quoted as
+    a re-ID result with nothing in the artifact to contradict it.
+
+    This is provenance, not a gate: oracle inputs are legitimate and
+    deliberate in benchmark tiers. It exists so a metric cannot be quoted
+    without its substrate. `entity_metrics_use_gt_identity` is the one flag
+    worth reading before quoting anything at the entity level.
+    """
+    stages = (manifest.get("config") or {}).get("stages") or {}
+
+    def impl(slot: str) -> str | None:
+        return (stages.get(slot) or {}).get("impl")
+
+    def params(slot: str) -> dict:
+        return (stages.get(slot) or {}).get("params") or {}
+
+    anchor_source = params("associate").get("anchor_source")
+    # The stage default is "none"; every shipped reid-engine config overrides
+    # it, so an absent key means anchorless only when the slot is populated.
+    anchored = anchor_source == "oracle-jersey"
+    return {
+        "detect": impl("detect"),
+        "detections_are_ground_truth": impl("detect") == "oracle",
+        "track": impl("track"),
+        "associate": impl("associate"),
+        "anchor_source": anchor_source,
+        "anchor_coverage": params("associate").get("anchor_coverage") if anchored else None,
+        "anchor_noise": params("associate").get("anchor_noise") if anchored else None,
+        "merge_strategy": params("associate").get("merge_strategy"),
+        "entity_metrics_use_gt_identity": anchored,
+        "note": (
+            "anchor_source=oracle-jersey: tracklets sharing an anchor merge on "
+            "the anchor alone in both merge engines, so entity-level metrics "
+            "here are partly GT jersey labels reassembling tracklets, not "
+            "re-ID performance. Re-score anchorless before quoting."
+        ) if anchored else None,
+    }
 
 
 def tracklet_purity(
