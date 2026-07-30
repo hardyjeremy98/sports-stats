@@ -209,6 +209,13 @@ machinery around the evidence mattered more than adding evidence.
 
 ## 8. End-to-end: what the system actually does
 
+> **⚠️ SUPERSEDED 2026-07-30.** The numbers in this section were measured on fragments cut at
+> an 80 ms absence, which is far finer than a tracker's output and mixes in a large population
+> of trivially easy re-links. Rebuilt with a 1.2 s buffer so the units are tracker-shaped,
+> precision falls **96.63% → 88.31%** at matched coverage and wrong merges rise 3.7×. See
+> [`2026-07-30-tracker-shaped-tracklets.md`](2026-07-30-tracker-shaped-tracklets.md). The
+> accumulation finding survives and widens; the transition prior's fitted weight rises 6×.
+
 `bootstrap_threads.py` runs the merging without any oracle — fragments in time order, each
 joining a thread or starting one, so later decisions are judged against evidence the system
 built for itself. Scored as correct/wrong merge decisions rather than rank-1, because a

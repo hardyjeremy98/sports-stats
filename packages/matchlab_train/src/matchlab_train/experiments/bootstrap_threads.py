@@ -56,6 +56,13 @@ from matchlab_train.experiments.position_evidence import build_fragments
 FPS = 25.0
 MATCHES = ("game_18", "game_24", "game_47")
 CHANNELS = ("body", "occupancy", "gap")
+# How long a player may be out of frame before the span is cut. The default of 2
+# frames (80 ms) makes fragments finer than any real tracker's output: a tracker
+# bridges short absences with its motion buffer and only surrenders after ~1 s,
+# so re-ID is asked about the LONGER gaps. Raise this to make the units
+# tracker-shaped, so that every required merge is a genuine re-ID decision
+# rather than a re-link the tracker would have made internally.
+MAX_GAP_FRAMES = 2
 
 
 @dataclass(frozen=True)
@@ -151,13 +158,15 @@ def half_frames(key: str):
     fragment -- 2,500 full-array scans per half -- which was both slow and the
     reason this died under memory pressure.
     """
-    cache = CACHE / f"{key}.pkl"
+    cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}.pkl"
     if cache.exists():
         frags, first_xy, last_xy = pickle.loads(cache.read_bytes())
         return frags, first_xy, last_xy, (load_appearance(key) or {})
 
     half = load_half(VAL_H5, key)
-    frags = build_fragments(half, min_frames=50, relative=True)
+    frags = build_fragments(
+        half, max_gap_frames=MAX_GAP_FRAMES, min_frames=50, relative=True
+    )
     rows = half.rows
     obs = rows[~np.isnan(rows[:, COL.ROI_X])]
     order = np.lexsort((obs[:, COL.FRAME], obs[:, COL.PLAYER_ID]))
@@ -339,7 +348,7 @@ def fit_from(matches: list[str]):
     # Cached on the fit-match set: nothing about it varies across operating
     # points, and rebuilding it per sweep is what kept dying under memory
     # pressure from concurrent jobs.
-    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}.pkl"
+    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}.pkl"
     if fit_cache.exists():
         cals_d, prior_d, w = pickle.loads(fit_cache.read_bytes())
         return (
@@ -515,9 +524,13 @@ def thread_half(
 
 
 def main() -> None:
+    global MAX_GAP_FRAMES
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--min-score", type=float, nargs="+", default=[0.0, 2.0, 4.0, 6.0])
     ap.add_argument("--min-margin", type=float, default=0.0)
+    ap.add_argument("--max-gap-frames", type=int, default=2,
+                    help="frames a player may be out of frame before the span is cut; "
+                         "~30 (1.2s) approximates a real tracker's buffer")
     ap.add_argument("--pass2-score", type=float, nargs="+", default=[4.0],
                     help="threshold for thread-to-thread agglomeration in pass 2")
     ap.add_argument("--matches", nargs="+", default=list(MATCHES),
@@ -532,6 +545,7 @@ def main() -> None:
         "--out", type=Path, default=Path("docs/reports/2026-07-28-bootstrap-threads.json")
     )
     args = ap.parse_args()
+    MAX_GAP_FRAMES = args.max_gap_frames
 
     results = []
     for held_out in args.matches:

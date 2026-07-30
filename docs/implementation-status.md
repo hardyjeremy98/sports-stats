@@ -956,6 +956,21 @@ Measured local findings recorded by the repository guidance:
   7 reid-engine runs have 0 goalkeepers; the 12 runs with goalkeepers use the incumbent
   associator), so the downstream merge effect is unmeasured. Set `team_min_confidence: 0.0` to
   restore the old behaviour.
+- **Every pre-2026-07-30 re-ID figure was measured on over-segmented fragments (2026-07-30;
+  report [`2026-07-30-tracker-shaped-tracklets.md`](reports/2026-07-30-tracker-shaped-tracklets.md)).**
+  Fragments were cut whenever a player was out of frame for more than 2 frames (80 ms). A real
+  tracker bridges short absences with its motion buffer and only surrenders after ~1 s, so that
+  substrate mixed a large population of trivially easy re-links into the merge set. Rebuilt with
+  `max_gap_frames=30` (1.2 s) so the units are tracker-shaped: **precision falls 96.63% → 88.31%
+  at matched coverage, wrong merges rise 359 → 1,314 (3.7x), thread purity 93.7% → 71.4%.**
+  The honest current figure is **92.6% precision / 65.7% coverage** (pass 1 only); the pass-2
+  threshold was tuned on the easy substrate and is far too aggressive here. **Two findings
+  survive and strengthen:** accumulated threads still beat the single-fragment control by +10.2
+  points of coverage at better precision, and the transition prior's fitted weight rises 6x
+  (0.255 -> 1.587, on par with body ID's 1.81) — the earlier "nearly decoration" verdict was an
+  artifact of decisions too easy to need physics. Note the gap histogram alone understated this:
+  only 2.7% of required merges had sub-second gaps, because the easy cases were not the
+  sub-second ones but everything the buffer absorbs.
 - **The calibrator was destroying more evidence than position added; accumulation and the
   combiner are the real levers (2026-07-28; FOOTPASS val, 3 matches × 2 halves, 3-fold match
   rotation; report
