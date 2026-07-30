@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from matchlab_core.reid.evidence import saturate
+
 DIGITS = 10        # digit columns 0..9 of a char-probability row
 EOS = 10           # end-of-string column
 N_NUMBERS = 100    # jersey numbers 0..99
@@ -84,3 +86,74 @@ def _reweight_lengths(logprobs: np.ndarray, single_digit_prior: float) -> np.nda
         if np.isfinite(total):
             out[sel] = out[sel] - total + np.log(max(share, _FLOOR))
     return out
+
+
+def tracklet_likelihood(crop_logprobs, weights, *, temperature: float = 1.0) -> np.ndarray:
+    """Combine per-crop log-likelihoods into ONE likelihood over numbers.
+
+    Identity evidence is aggregated per tracklet, never decided per frame
+    (ADR 002). Crops are weighted by legibility x crop quality and summed in
+    the log domain -- the paper's "conditional independence over time" -- then
+    divided by a single fitted temperature.
+
+    ONE temperature, not `LLRCalibrator`: jersey has `transition`'s shape (a
+    joint likelihood, not a scalar similarity), and the substrate carries 153
+    true re-entry pairs, which cannot support a 20-bin density ratio.
+
+    No crops, or no weight, returns the FLAT likelihood -- exactly neutral in
+    `pair_llr`, which is how abstention stays free of any gate.
+    """
+    lp = np.asarray(crop_logprobs, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64)
+    flat = np.full(N_NUMBERS, 1.0 / N_NUMBERS)
+    if lp.size == 0 or w.size == 0 or float(w.sum()) <= 0.0:
+        return flat
+    total = (w[:, None] * lp).sum(axis=0) / max(float(temperature), _FLOOR)
+    finite = total[np.isfinite(total)]
+    if not finite.size:
+        return flat
+    total = total - float(finite.max())
+    likelihood = np.exp(np.where(np.isfinite(total), total, -np.inf))
+    s = float(likelihood.sum())
+    return likelihood / s if s > 0.0 else flat
+
+
+def uniform_prior() -> np.ndarray:
+    """The prior when no roster or dataset frequency is known."""
+    return np.full(N_NUMBERS, 1.0 / N_NUMBERS, dtype=np.float64)
+
+
+def number_prior(numbers, *, alpha: float = 1.0) -> np.ndarray:
+    """P(number), Laplace-smoothed from observed numbers.
+
+    Smoothing for the same reason as `evidence.py`: an unobserved number means
+    "not seen", not "impossible". This prior is what makes agreement on a
+    common number weak evidence and on a rare one strong.
+    """
+    counts = np.full(N_NUMBERS, float(alpha), dtype=np.float64)
+    for n in numbers:
+        idx = int(n)
+        if 0 <= idx < N_NUMBERS:
+            counts[idx] += 1.0
+    return counts / counts.sum()
+
+
+def pair_llr(l_a, l_b, prior) -> float:
+    """Marginalised log-likelihood ratio that two tracklets share a number.
+
+                Sum_n  prior(n) * L_a(n) * L_b(n)          one number, both reads
+        LR  =  ------------------------------------------
+               (Sum_n prior L_a) * (Sum_m prior L_b)       two independent numbers
+
+    The floor on the numerator is load-bearing, not defensive hygiene: a hard
+    disagreement drives it toward zero, and flooring rather than bailing out is
+    what turns that into the channel's maximum NEGATIVE evidence instead of a
+    NaN or a spurious neutral. `saturate` then bounds it, so even a certain
+    contradiction cannot veto the fused sum outright.
+    """
+    a = np.asarray(l_a, dtype=np.float64)
+    b = np.asarray(l_b, dtype=np.float64)
+    p = np.asarray(prior, dtype=np.float64)
+    num = max(float((p * a * b).sum()), _FLOOR)
+    den = max(float((p * a).sum()) * float((p * b).sum()), _FLOOR)
+    return float(saturate(np.log(num / den)))
