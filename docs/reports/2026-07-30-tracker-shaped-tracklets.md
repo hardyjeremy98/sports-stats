@@ -1,5 +1,10 @@
 # Re-ID measured on tracker-shaped tracklets — the earlier headline was inflated
 
+> **Superseded in part (2026-07-30):** the substrate change described here stands, but every
+> precision figure below was computed with the majority-label verdict, which double-charges
+> poisoned threads. See `2026-07-30-edge-metric.md` for the corrected numbers
+> (pass 1: 95.09%, not 92.56%). Coverage and purity are unaffected.
+
 **Date:** 2026-07-30
 **Data:** FOOTPASS val, 3 matches × 2 halves, 3-fold match rotation
 **Change:** fragments built with `max_gap_frames=30` (1.2 s) instead of `2` (80 ms)

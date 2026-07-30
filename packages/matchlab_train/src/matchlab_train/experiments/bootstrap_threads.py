@@ -65,6 +65,18 @@ CHANNELS = ("body", "occupancy", "gap")
 MAX_GAP_FRAMES = 2
 
 
+def link_endpoints(members_x: list[int], members_y: list[int]) -> tuple[int, int]:
+    """The two tracklets a merge edge actually bridges.
+
+    Members are chronological in both passes, so the edge runs from x's last
+    tracklet to y's first. Scoring against these rather than against a thread's
+    majority player keeps the verdict fixed to the link that was made: a thread
+    that has already absorbed the wrong player would otherwise start marking
+    correct continuations wrong, and wrong ones right.
+    """
+    return members_x[-1], members_y[0]
+
+
 @dataclass(frozen=True)
 class Corruption:
     """How far to degrade GT fragments toward real tracker output.
@@ -265,6 +277,7 @@ def agglomerate(
     t_fp = list(t_fp)
     t_members = [list(m) for m in t_members]
     correct = wrong = 0
+    maj_correct = maj_wrong = 0
     for _ in range(rounds):
         live = [k for k in range(len(threads)) if threads[k] is not None]
         cands = []
@@ -290,12 +303,16 @@ def agglomerate(
             if x in used or y in used:
                 continue
             used.update((x, y))
-            # Scored while both sides are still intact: the merge is right only
-            # if each side was mostly the same player.
+            # Scored while both sides are still intact. The verdict is on the
+            # edge itself -- the facing ends of the two threads -- with the
+            # majority rule kept alongside so the two can be compared.
+            a, b = link_endpoints(t_members[x], t_members[y])
+            correct += pid[a] == pid[b]
+            wrong += pid[a] != pid[b]
             mx = Counter(pid[t_members[x]]).most_common(1)[0][0]
             my = Counter(pid[t_members[y]]).most_common(1)[0][0]
-            correct += mx == my
-            wrong += mx != my
+            maj_correct += mx == my
+            maj_wrong += mx != my
             threads[x] = threads[x].merged_with(threads[y])
             t_fp[x] = threads[x].footprint()
             t_members[x] = t_members[x] + t_members[y]
@@ -311,6 +328,8 @@ def agglomerate(
         [t_members[k] for k in keep],
         int(correct),
         int(wrong),
+        int(maj_correct),
+        int(maj_wrong),
     )
 
 
@@ -453,6 +472,7 @@ def thread_half(
     t_team: list[int] = []
     t_members: list[list[int]] = []
     correct = wrong = 0
+    maj_correct = maj_wrong = 0
 
     for i in np.argsort(start):
         live = [
@@ -474,9 +494,12 @@ def thread_half(
             runner = float(scores[o[1]]) if len(o) > 1 else -np.inf
 
         if best_k is not None and best_s >= min_score and (best_s - runner) >= min_margin:
+            a, b = link_endpoints(t_members[best_k], [int(i)])
+            correct += pid[a] == pid[b]
+            wrong += pid[a] != pid[b]
             majority = Counter(pid[t_members[best_k]]).most_common(1)[0][0]
-            correct += majority == pid[i]
-            wrong += majority != pid[i]
+            maj_correct += majority == pid[i]
+            maj_wrong += majority != pid[i]
             if accumulate:
                 threads[best_k] = threads[best_k].merged_with(states[i])
                 t_fp[best_k] = threads[best_k].footprint()
@@ -493,8 +516,10 @@ def thread_half(
             t_members.append([int(i)])
 
     p2_correct = p2_wrong = 0
+    p2_maj_correct = p2_maj_wrong = 0
     if pass2:
-        threads, t_fp, t_members, p2_correct, p2_wrong = agglomerate(
+        (threads, t_fp, t_members, p2_correct, p2_wrong,
+         p2_maj_correct, p2_maj_wrong) = agglomerate(
             threads, t_fp, t_team, t_members, pid,
             cals, prior, w, min_score=pass2_score,
         )
@@ -518,6 +543,10 @@ def thread_half(
         "pass1_wrong": int(wrong),
         "pass2_correct": int(p2_correct),
         "pass2_wrong": int(p2_wrong),
+        # Legacy accounting, kept only so the change in what is measured is
+        # visible rather than silent.
+        "majority_correct": int(maj_correct + p2_maj_correct),
+        "majority_wrong": int(maj_wrong + p2_maj_wrong),
         "pure_threads": int(pure),
         "largest_thread": int(max(sizes)) if sizes else 0,
     }
@@ -584,7 +613,7 @@ def main() -> None:
 
     print(f"\n{'threshold':>10s} {'contam':>7s} {'candidate':>10s} {'merges':>8s}"
           f" {'correct':>8s} {'wrong':>7s} {'precision':>10s} {'coverage':>9s}"
-          f" {'purity':>8s}")
+          f" {'purity':>8s} {'majority%':>9s}")
     summary = {}
     for ms in args.min_score:
       for cont in args.contaminate:
@@ -599,6 +628,8 @@ def main() -> None:
                 continue
             c = sum(r["correct"] for r in rows)
             wr = sum(r["wrong"] for r in rows)
+            mc = sum(r["majority_correct"] for r in rows)
+            mw = sum(r["majority_wrong"] for r in rows)
             pt = sum(r["pure_threads"] for r in rows)
             th = sum(r["threads"] for r in rows)
             # Coverage against the merges the footage actually requires. Precision
@@ -609,12 +640,15 @@ def main() -> None:
                 "correct": c, "wrong": wr, "merges_needed": need,
                 "precision": round(c / max(c + wr, 1), 4),
                 "coverage": round(c / max(need, 1), 4),
+                "majority_correct": mc, "majority_wrong": mw,
+                "majority_precision": round(mc / max(mc + mw, 1), 4),
             }
             print(
                 f"{ms:10.1f} {cont:7.2f} {arm:>10s}"
                 f" {c + wr:8d} {c:8d}"
                 f" {wr:7d} {100 * c / max(c + wr, 1):9.2f}%"
                 f" {100 * c / max(need, 1):8.2f}% {100 * pt / max(th, 1):7.1f}%"
+                f" {100 * mc / max(mc + mw, 1):9.2f}%"
             )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
