@@ -115,16 +115,29 @@ class Params(BaseModel):
     merge_min_margin: float = 0.0
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
-    # Merge strategy. "two-pass" (default since 2026-07-31) accumulates
-    # tracklets into identity threads and then merges whole threads against
-    # each other, scoring four calibrated evidence channels -- appearance,
-    # pitch occupancy, elapsed time, and a bounded-diffusion transition prior.
-    # Measured on FOOTPASS it reaches 96.6% merge precision at 80.6% coverage
-    # against 97.3% / 58.7% for "pairwise", the single-pass union-find engine.
-    # Under two-pass the ONLY hard constraints are same-team and
-    # non-overlapping tracklets; motion feasibility becomes a scored channel
-    # rather than a veto, which is what the measurements support.
-    merge_strategy: str = "two-pass"
+    # Merge strategy. "pairwise" is the single-pass union-find engine and is
+    # the default; "two-pass" accumulates tracklets into identity threads and
+    # then merges whole threads against each other, scoring four calibrated
+    # evidence channels -- appearance, pitch occupancy, elapsed time, and a
+    # bounded-diffusion transition prior. Under two-pass the ONLY hard
+    # constraints are same-team and non-overlapping tracklets; motion
+    # feasibility becomes a scored channel rather than a veto.
+    #
+    # two-pass was briefly the default (2026-07-31) on the strength of a
+    # FOOTPASS result and an SNMOT A/B that showed a tie. That A/B was invalid:
+    # it ran with anchor_source=oracle-jersey at coverage 1.0, and two-pass
+    # merges two tracklets sharing an anchor on the anchor alone
+    # (reid/twopass.py), so GT jersey labels did much of the grouping. Rerun
+    # ANCHORLESS on the same 8 SNMOT sequences, two-pass loses to pairwise at
+    # every threshold on a 1-D sweep: -0.0273 mean entity IDF1 at the shipped
+    # 4.0/2.0 (better on 1 of 8 sequences) and -0.0060 at its best point
+    # (-1.0/-3.0). Reverted 2026-08-01; see
+    # docs/reports/2026-08-01-anchorless-merge-ab.md.
+    #
+    # This does NOT retire two-pass. SNMOT carries ~1.2 tracklets per player,
+    # so it cannot exercise the accumulation two-pass exists for; the FOOTPASS
+    # regime (~2,100 tracklets for ~26 players) remains untested anchorless.
+    merge_strategy: str = "pairwise"
     fusion_model: str = "configs/reid/fusion-footpass-v1.json"
     pass1_min_score: float = 4.0
     pass2_min_score: float | None = 2.0

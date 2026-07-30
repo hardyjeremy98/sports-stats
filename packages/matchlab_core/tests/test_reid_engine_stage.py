@@ -27,6 +27,7 @@ from matchlab_core.schemas.identity import IdentityKind
 from matchlab_core.schemas.naming import ConfidenceTier, NamingDecision, NamingReport
 from matchlab_core.schemas.reid_detail import ReidDetailReport
 from matchlab_core.schemas.run import StageKind
+from matchlab_core.stages.associate.reid_engine import Params
 
 FPS = 25.0
 
@@ -74,12 +75,11 @@ def _features(rows: list[tuple[int, int, list[float]]]) -> FrameFeatures:
 def _pairwise(params: dict | None = None) -> dict:
     """Pin the single-pass union-find engine.
 
-    `merge_strategy` defaults to "two-pass" (2026-07-31). Tests below that
-    exercise pairwise-only knobs -- the mutual-best rule, the similarity
-    margin, view prototypes, the reid_detail working, and the motion
-    feasibility VETO that two-pass deliberately replaces with a scored
-    transition channel -- select it explicitly rather than silently testing
-    whichever engine happens to be the default.
+    Pairwise is also the current default, but these tests exercise
+    pairwise-only knobs -- the mutual-best rule, the similarity margin, view
+    prototypes, the reid_detail working, and the motion feasibility VETO that
+    two-pass replaces with a scored transition channel -- so they select it
+    explicitly rather than silently testing whichever engine is the default.
     """
     return {"merge_strategy": "pairwise", **(params or {})}
 
@@ -427,8 +427,33 @@ def test_motion_gate_active_in_stage(tmp_path):
     assert report.pairs[0].reason == AssociationRejectReason.MOTION_INFEASIBLE
 
 
-def test_two_pass_is_the_default_engine_and_produces_the_incumbent_artifacts(tmp_path):
-    """The 2026-07-31 default path, end to end through the stage.
+def _two_pass(params: dict | None = None) -> dict:
+    """Pin the two-pass thread engine.
+
+    These tests once relied on two-pass being the default and so silently
+    became pairwise tests when the default was reverted on 2026-08-01 -- and
+    still passed, because none of their assertions distinguish the engines.
+    Selecting explicitly is what makes them tests OF two-pass.
+    """
+    return {"merge_strategy": "two-pass", **(params or {})}
+
+
+def test_default_merge_strategy_is_pairwise(tmp_path):
+    """Pin the default engine so it cannot flip silently again.
+
+    two-pass shipped as the default on 2026-07-31 on the strength of an SNMOT
+    A/B that ran with anchor_source=oracle-jersey at coverage 1.0. two-pass
+    merges two tracklets sharing an anchor on the anchor alone, so GT jersey
+    labels did much of the grouping and the engines looked tied. Anchorless,
+    two-pass loses at every threshold swept (-0.0273 mean entity IDF1 at the
+    then-shipped 4.0/2.0, better on 1 of 8 sequences). See
+    docs/reports/2026-08-01-anchorless-merge-ab.md.
+    """
+    assert Params().merge_strategy == "pairwise"
+
+
+def test_two_pass_is_selectable_and_produces_the_incumbent_artifacts(tmp_path):
+    """The two-pass path, end to end through the stage.
 
     Guards the wiring rather than the merge logic (covered in
     test_reid_twopass.py): the shipped fusion model loads, evidence is built
@@ -439,7 +464,7 @@ def test_two_pass_is_the_default_engine_and_produces_the_incumbent_artifacts(tmp
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.02])])
 
-    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff)
+    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff, _two_pass())
 
     report = AssociationReport.model_validate_json(
         ctx.store.path(ArtifactName.ASSOCIATION).read_text()
@@ -454,7 +479,7 @@ def test_two_pass_abstains_on_dissimilar_appearance(tmp_path):
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [-1.0, 0.0])])
 
-    _, entities = _run_stage(tmp_path, tracklets, teams, ff)
+    _, entities = _run_stage(tmp_path, tracklets, teams, ff, _two_pass())
     assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
 
 
@@ -467,5 +492,7 @@ def test_two_pass_never_crosses_a_team_boundary(tmp_path):
     ]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.0])])
 
-    _, entities = _run_stage(tmp_path, tracklets, teams, ff, {"pass1_min_score": -1e9})
+    _, entities = _run_stage(
+        tmp_path, tracklets, teams, ff, _two_pass({"pass1_min_score": -1e9})
+    )
     assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
