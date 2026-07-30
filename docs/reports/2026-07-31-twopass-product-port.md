@@ -24,7 +24,7 @@ are fitted offline on all three FOOTPASS matches, so there is no run-time fittin
 
 ## Threshold calibration (declared split, no peeking)
 
-Chosen on **tuning** sequences SNMOT-116/118/120/123 only; **held-out** SNMOT-124/125/126
+Chosen on **tuning** sequences SNMOT-116/118/120/123 only; **held-out** SNMOT-124/125/126/127
 scored once afterwards at the chosen value. All arms re-run only the associate stage over
 frozen upstream artifacts, so detections, tracklets, teams, calibration and features are
 byte-identical across every arm.
