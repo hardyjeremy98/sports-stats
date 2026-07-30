@@ -24,7 +24,6 @@ from matchlab_core.pcbas.denoiser import (  # noqa: E402
     SOS_ACTION,
     DSTDenoiser,
     FlatEncoderEmbedding,
-    SlotAttentionEncoderEmbedding,
     sinusoidal_positional_encoding,
 )
 from matchlab_core.pcbas.schema import N_CLASSES, N_SLOTS  # noqa: E402
@@ -109,31 +108,54 @@ def test_positional_encoding_distinguishes_frames():
 # --- the attention encoder --------------------------------------------------------
 
 
-def test_attention_encoder_parameter_count_is_independent_of_slot_count():
-    """The structural difference from the flat encoder, and why PAVE-style encoding
-    can generalise to a formation it never saw: one shared embedding is applied to
-    every slot, so nothing grows with the number of slots."""
-    small = SlotAttentionEncoderEmbedding(32, FRAMESPAN, n_slots=13)
-    large = SlotAttentionEncoderEmbedding(32, FRAMESPAN, n_slots=26)
-    exclude = "slot_embedding"
-    n = lambda m: sum(  # noqa: E731
-        p.numel() for k, p in m.named_parameters() if exclude not in k
-    )
-    assert n(small) == n(large)
-    # The flat encoder, by contrast, scales with slots.
-    assert FlatEncoderEmbedding(32, FRAMESPAN).linear.in_features > FRAMESPAN + 2
+def test_spatial_attention_lets_slots_see_each_other():
+    """If a slot's token ignored the other slots this would be a per-slot MLP, and
+    the whole point is that a pass has a receiver.
 
+    Asserted on the SPATIAL STAGE's output rather than the branch's, because the
+    branch mean-pools over slots: perturbing slot 1 moves that mean whether or not
+    any cross-slot mixing happened, so a branch-level assertion would pass on a
+    per-slot MLP. Slot 0's own token responding to slot 1 is the real property.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
 
-def test_attention_encoder_lets_slots_see_each_other():
-    """If a slot's output ignored the other slots this would be a per-slot MLP, and
-    the whole point is that a pass has a receiver."""
     torch.manual_seed(0)
-    enc = SlotAttentionEncoderEmbedding(32, FRAMESPAN).eval()
+    branch = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                      n_heads=2, n_layers=1).eval()
+    captured = []
+    branch.spatial.register_forward_hook(lambda _m, _i, o: captured.append(o.detach().clone()))
+
     a = torch.zeros(1, 1, ENCODER_FEATURE_DIM + FRAMESPAN + 2)
     b = a.clone()
     b[0, 0, FEATURES_PER_SLOT : 2 * FEATURES_PER_SLOT] = 5.0  # change slot 1 only
     with torch.no_grad():
-        assert not torch.allclose(enc(a), enc(b))
+        branch(a)
+        branch(b)
+    assert not torch.allclose(captured[0][:, 0], captured[1][:, 0])
+
+
+def test_flat_encoder_scales_with_slots_where_the_attention_branch_shares_weights():
+    """The structural contrast that motivated per-player attention: the flat encoder
+    dedicates a fixed span of its input to each slot, so it must learn each slot's
+    role separately. The attention's slot projection is shared across all of them.
+
+    Only `slot_proj` and the two encoder stacks are slot-independent -- `out_proj`
+    deliberately is not, because the concat step re-introduces `n_slots * 9` TAAD
+    logit channels.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
+
+    shared = lambda m: sum(  # noqa: E731
+        p.numel()
+        for k, p in m.named_parameters()
+        if k.startswith(("slot_proj", "spatial", "temporal"))
+    )
+    small = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                     n_heads=2, n_layers=1, n_slots=13)
+    large = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                     n_heads=2, n_layers=1, n_slots=26)
+    assert shared(small) == shared(large)
+    assert FlatEncoderEmbedding(32, FRAMESPAN).linear.in_features > FRAMESPAN + 2
 
 
 # --- masking ----------------------------------------------------------------------
@@ -260,3 +282,103 @@ def test_both_encoders_are_trainable_end_to_end(encoder):
     grads = [p.grad for p in model.parameters() if p.requires_grad]
     assert any(g is not None and g.abs().sum() > 0 for g in grads)
     assert all(g is None or torch.isfinite(g).all() for g in grads)
+
+
+# --- the PAVE per-player attention branch -----------------------------------------
+
+
+def test_attn_arm_reduces_to_flat_when_the_branch_is_zeroed():
+    """The ablation must be a pure ADDITION, not a substitution.
+
+    If this fails, an attn-vs-flat comparison is measuring two changes at once
+    and no result from it is attributable.
+    """
+    torch.manual_seed(0)
+    flat = _model(encoder="flat")
+    torch.manual_seed(0)
+    attn = _model(encoder="attn")
+    attn.attention_branch.out_proj.weight.data.zero_()
+    attn.attention_branch.out_proj.bias.data.zero_()
+    flat.eval()
+    attn.eval()
+
+    src = torch.randn(2, FRAMESPAN, ENCODER_FEATURE_DIM + FRAMESPAN + 2)
+    frames = torch.arange(1, FRAMESPAN + 1).expand(2, FRAMESPAN)
+    torch.testing.assert_close(
+        flat.encode(src, frames), attn.encode(src, frames), rtol=0, atol=0
+    )
+
+
+def test_attention_uses_game_state_channels_only_by_default():
+    """PAVE measured that EXCLUDING the TAAD logits from the attention wins.
+
+    The logits re-enter at the concat step, so they still reach the encoder --
+    they just do not drive the cross-player attention.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
+
+    torch.manual_seed(0)
+    branch = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                      n_heads=2, n_layers=1).eval()
+    assert branch.slot_proj.in_features == 5
+
+    src = torch.randn(1, FRAMESPAN, ENCODER_FEATURE_DIM + FRAMESPAN + 2)
+    out = branch(src)
+    assert out.shape == (1, FRAMESPAN, 32)
+
+
+def test_attention_orderings_differ():
+    """Spatial-first vs temporal-first is PAVE's only internal ablation of this
+    block (+1.87% macro-F1). If the two orderings are identical, our module is
+    not doing what theirs does.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
+
+    src = torch.randn(1, FRAMESPAN, ENCODER_FEATURE_DIM + FRAMESPAN + 2)
+    outs = {}
+    for order in ("spatial_first", "temporal_first", "parallel"):
+        torch.manual_seed(0)
+        branch = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                          n_heads=2, n_layers=1, order=order).eval()
+        outs[order] = branch(src)
+    assert not torch.allclose(outs["spatial_first"], outs["temporal_first"])
+    assert not torch.allclose(outs["spatial_first"], outs["parallel"])
+
+
+def test_absent_slots_reach_the_projection_unchanged():
+    """ABSENT_FILL = -15.0 IS the signal -- deliberately out of range so the model
+    can learn 'absent', where 0 is an ordinary normalised coordinate. The reshape
+    into per-slot tokens must not silently zero it.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
+
+    branch = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                      n_heads=2, n_layers=1).eval()
+    src = torch.zeros(1, FRAMESPAN, ENCODER_FEATURE_DIM + FRAMESPAN + 2)
+    src[..., :ENCODER_FEATURE_DIM] = ABSENT_FILL
+    captured = {}
+
+    # A forward hook that RETURNS a value replaces the module's output, and
+    # `dict.setdefault` returns one -- as a lambda this silently substituted
+    # slot_proj's 5-wide input for its 8-wide output. Must return None.
+    def _capture(_module, inputs, _output) -> None:
+        captured.setdefault("x", inputs[0])
+
+    branch.slot_proj.register_forward_hook(_capture)
+    branch(src)
+    assert torch.equal(
+        captured["x"], torch.full_like(captured["x"], ABSENT_FILL)
+    )
+
+
+def test_temporal_attention_uses_window_local_one_based_frames():
+    """The convention whose violation cost 3.4x. `build_tokens` encodes window
+    frame f as f+1, so the positional encoding here must be 1-based and
+    window-local -- never absolute video frames.
+    """
+    from matchlab_core.pcbas.denoiser import PerPlayerAttentionBranch
+
+    branch = PerPlayerAttentionBranch(hidden_dim=32, framespan=FRAMESPAN, d_p=8,
+                                      n_heads=2, n_layers=1)
+    frames = branch.temporal_frames(4, torch.device("cpu"))
+    assert frames.tolist() == [1, 2, 3, 4]

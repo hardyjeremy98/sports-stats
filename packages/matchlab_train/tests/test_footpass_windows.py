@@ -166,7 +166,7 @@ def test_observability_flag_is_the_fifth_channel():
 
 
 def test_encoder_features_are_slot_major():
-    """SlotAttentionEncoderEmbedding reshapes to (T, 26, 14), so all 14 of a slot's
+    """PerPlayerAttentionBranch reshapes to (T, 26, 14), so all 14 of a slot's
     features must be contiguous. A frame-major layout would silently scramble them."""
     kin = np.zeros((5, N_SLOTS, 2), dtype=np.float32)
     log = np.zeros((N_CLASSES, N_SLOTS, 2), dtype=np.float32)

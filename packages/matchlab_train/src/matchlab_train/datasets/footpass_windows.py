@@ -138,8 +138,10 @@ def build_kinematics(rows: np.ndarray, frames: np.ndarray) -> np.ndarray:
 def encoder_features(kinematics: np.ndarray, logits: np.ndarray) -> np.ndarray:
     """`(5,26,T)` + `(9,26,T)` -> `(T, 364)`, slot-major within each frame.
 
-    Layout matters: `SlotAttentionEncoderEmbedding` reshapes this back to
-    `(T, 26, 14)`, so all 14 of a slot's features must be contiguous.
+    Layout matters: `PerPlayerAttentionBranch` reshapes this back to `(T, 26, 14)`
+    and then slices `[..., :5]` for the game-state channels, so all 14 of a slot's
+    features must be contiguous. A frame-major layout would hand the attention a
+    scrambled mix of slots while still producing the right shape.
     """
     if kinematics.shape[1:] != logits.shape[1:]:
         raise ValueError(

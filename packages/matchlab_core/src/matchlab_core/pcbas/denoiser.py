@@ -27,6 +27,14 @@ and the embedding Linear takes `364 + framespan + 2 = 1116` because the one-hot 
 index is concatenated on. Unobserved slots are filled with -15.0, not 0 -- a
 distinctive out-of-range value the model can learn to read as "absent", where 0 is a
 perfectly ordinary normalised coordinate.
+
+`encoder="attn"` ADDS `PerPlayerAttentionBranch` (PAVE section 3.1) to that flat
+embedding rather than replacing it. The addition is the point: zeroing the branch's
+output projection recovers the flat arm bitwise, so an attn-vs-flat comparison is one
+change rather than two, and a measured difference is attributable to the attention
+instead of to a substituted encoder. The branch attends over GAME-STATE channels only
+-- PAVE measured that excluding the TAAD logits from the attention beats including
+them -- and re-introduces the 234 logit channels at its concat step.
 """
 
 from __future__ import annotations
@@ -90,46 +98,106 @@ class FlatEncoderEmbedding(nn.Module):
         return self.linear(src)
 
 
-class SlotAttentionEncoderEmbedding(nn.Module):
-    """PAVE-style: embed each slot separately, then attend ACROSS slots per frame.
+AttentionOrder = Literal["spatial_first", "temporal_first", "parallel"]
 
-    The 2026 challenge winner's headline change was replacing the flat role-vector
-    encoding with per-player attention, so the two must be measurable against each
-    other rather than argued about. Structurally: this module's parameter count does
-    not grow with the number of slots, because one shared embedding is applied to
-    every slot -- which is also why it can generalise to a formation it never saw.
 
-    Slot identity enters through a learned per-slot embedding rather than through
-    position in a flat vector, so the model can share structure between the two
-    sides while still telling them apart.
+class PerPlayerAttentionBranch(nn.Module):
+    """PAVE's two-stage per-player attention, ADDED to the flat embedding.
+
+    Spatial: all 26 slots at a timestep attend to each other. Temporal: each
+    slot's representation attends across frames. Spatial-first beat
+    temporal-first by +1.87% macro-F1 -- more than the block itself was worth.
+
+    Two deliberate departures from the earlier `SlotAttentionEncoderEmbedding`
+    guess, both from the paper:
+
+    * Attention sees GAME-STATE channels only (x, y, vx, vy, observable). The
+      paper measured that excluding the TAAD logits beats including them. They
+      re-enter at the concat below, so nothing is discarded.
+    * This ADDS to the flat embedding rather than replacing it, so disabling it
+      recovers the flat arm bitwise and the ablation stays a pure addition.
+
+    The concat step reads "concatenated with the game-state logits per frame",
+    which names a quantity that does not exist -- game-state and TAAD logits are
+    different things, and the attention just excluded the latter. We read it as
+    re-introducing the 234 TAAD logit channels, the only reading under which the
+    branch carries information the flat projection does not already have.
     """
 
     def __init__(
         self,
         hidden_dim: int,
         framespan: int = FRAMESPAN,
+        d_p: int = 64,
         n_heads: int = 4,
+        n_layers: int = 1,
+        order: AttentionOrder = "spatial_first",
+        use_logits: bool = False,
         n_slots: int = N_SLOTS,
+        dropout: float = 0.1,
     ) -> None:
         super().__init__()
+        self.order = order
+        self.use_logits = use_logits
         self.n_slots = n_slots
-        self.slot_proj = nn.Linear(FEATURES_PER_SLOT, hidden_dim)
-        self.slot_embedding = nn.Parameter(torch.zeros(n_slots, hidden_dim))
-        nn.init.normal_(self.slot_embedding, std=0.02)
-        self.attn = nn.MultiheadAttention(hidden_dim, n_heads, batch_first=True)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.frame_proj = nn.Linear(framespan + 2, hidden_dim)
+        self.d_p = d_p
+        in_channels = FEATURES_PER_SLOT if use_logits else KINEMATIC_FEATURES
+        self.slot_proj = nn.Linear(in_channels, d_p)
+
+        def _stack() -> nn.TransformerEncoder:
+            layer = nn.TransformerEncoderLayer(
+                d_model=d_p,
+                nhead=n_heads,
+                dim_feedforward=d_p * 4,
+                dropout=dropout,
+                activation="gelu",
+                batch_first=True,
+                norm_first=True,
+            )
+            return nn.TransformerEncoder(layer, n_layers)
+
+        self.spatial = _stack()
+        self.temporal = _stack()
+        self.out_proj = nn.Linear(d_p + n_slots * N_CLASSES, hidden_dim)
+
+    def temporal_frames(self, t: int, device: torch.device) -> Tensor:
+        """Window-local, ONE-BASED frame indices, matching `build_tokens`.
+
+        Absolute video frames here would repeat the alignment bug that made the
+        first DST run score 0.035.
+        """
+        return torch.arange(1, t + 1, device=device)
+
+    def _spatial_pass(self, tokens: Tensor) -> Tensor:
+        b, t = tokens.shape[0], tokens.shape[1]
+        x = tokens.reshape(b * t, self.n_slots, self.d_p)
+        return self.spatial(x).reshape(b, t, self.n_slots, self.d_p)
+
+    def _temporal_pass(self, tokens: Tensor) -> Tensor:
+        b, t = tokens.shape[0], tokens.shape[1]
+        x = tokens.permute(0, 2, 1, 3).reshape(b * self.n_slots, t, self.d_p)
+        frames = self.temporal_frames(t, tokens.device).expand(b * self.n_slots, t)
+        x = self.temporal(x + sinusoidal_positional_encoding(frames, self.d_p))
+        return x.reshape(b, self.n_slots, t, self.d_p).permute(0, 2, 1, 3)
 
     def forward(self, src: Tensor) -> Tensor:
         b, t, _ = src.shape
         slots = src[..., :ENCODER_FEATURE_DIM].reshape(
             b, t, self.n_slots, FEATURES_PER_SLOT
         )
-        tokens = self.slot_proj(slots) + self.slot_embedding
-        tokens = tokens.reshape(b * t, self.n_slots, -1)
-        attended, _ = self.attn(tokens, tokens, tokens, need_weights=False)
-        pooled = self.norm(attended).mean(dim=1).reshape(b, t, -1)
-        return pooled + self.frame_proj(src[..., ENCODER_FEATURE_DIM:])
+        logits = slots[..., KINEMATIC_FEATURES:].reshape(b, t, -1)  # (B, T, 234)
+        feats = slots if self.use_logits else slots[..., :KINEMATIC_FEATURES]
+        tokens = self.slot_proj(feats)
+
+        if self.order == "spatial_first":
+            tokens = self._temporal_pass(self._spatial_pass(tokens))
+        elif self.order == "temporal_first":
+            tokens = self._spatial_pass(self._temporal_pass(tokens))
+        else:  # parallel -- PAVE's Model D
+            tokens = self._spatial_pass(tokens) + self._temporal_pass(tokens)
+
+        pooled = tokens.mean(dim=2)  # (B, T, d_p)
+        return self.out_proj(torch.cat([pooled, logits], dim=-1))
 
 
 class DSTDenoiser(nn.Module):
@@ -145,16 +213,16 @@ class DSTDenoiser(nn.Module):
         n_dec_layers: int = 6,
         dropout: float = 0.1,
         encoder: EncoderKind = "flat",
+        attn_order: AttentionOrder = "spatial_first",
+        attn_dim: int = 64,
+        attn_layers: int = 1,
+        attn_use_logits: bool = False,
     ) -> None:
         super().__init__()
         self.framespan = framespan
         self.hidden_dim = hidden_dim
         self.encoder_kind = encoder
-        self.encoder_embedding: nn.Module = (
-            FlatEncoderEmbedding(hidden_dim, framespan)
-            if encoder == "flat"
-            else SlotAttentionEncoderEmbedding(hidden_dim, framespan)
-        )
+        self.encoder_embedding = FlatEncoderEmbedding(hidden_dim, framespan)
         self.decoder_embedding = nn.Linear(OUTPUT_DIM + framespan + 2, hidden_dim)
         self.transformer = nn.Transformer(
             d_model=hidden_dim,
@@ -167,12 +235,34 @@ class DSTDenoiser(nn.Module):
         self.token_projection = nn.Linear(hidden_dim, OUTPUT_DIM)
         self.timestamp_projection = nn.Linear(hidden_dim, framespan + 2)
 
+        # Constructed LAST, deliberately. Every module above draws from the RNG, so
+        # building the branch earlier would shift the stream and give the attn arm a
+        # different flat embedding and a different transformer at the same seed --
+        # the ablation would then compare "a branch" against "a different random
+        # init plus a branch". Last means: at a fixed seed every shared parameter is
+        # identical between the two arms, and `test_attn_arm_reduces_to_flat_when_
+        # the_branch_is_zeroed` holds bitwise.
+        self.attention_branch = (
+            PerPlayerAttentionBranch(
+                hidden_dim,
+                framespan,
+                d_p=attn_dim,
+                n_layers=attn_layers,
+                order=attn_order,
+                use_logits=attn_use_logits,
+                dropout=dropout,
+            )
+            if encoder == "attn"
+            else None
+        )
+
     def encode(
         self, src: Tensor, src_frames: Tensor, src_key_padding_mask: Tensor | None = None
     ) -> Tensor:
-        emb = self.encoder_embedding(src) + sinusoidal_positional_encoding(
-            src_frames, self.hidden_dim
-        )
+        emb = self.encoder_embedding(src)
+        if self.attention_branch is not None:
+            emb = emb + self.attention_branch(src)
+        emb = emb + sinusoidal_positional_encoding(src_frames, self.hidden_dim)
         return self.transformer.encoder(emb, src_key_padding_mask=src_key_padding_mask)
 
     def forward(
