@@ -84,6 +84,40 @@ def link_endpoints(members_x, members_y, start) -> tuple[int, int]:
     return int(x), int(y)
 
 
+def members_disjoint(mx, my, start, end) -> bool:
+    """Do two threads' tracklets interleave without ever overlapping?
+
+    The physical constraint is that one player cannot be in two places at once,
+    which is a statement about the TRACKLETS. Testing it on the threads'
+    outer envelopes instead -- `x.last_end < y.first_start` -- is strictly
+    stronger, and wrongly: two threads of the same player routinely interleave
+    (x covers 0-10s and 100-110s, y covers 50-60s) with no tracklet overlapping
+    any other. The envelope test blocks that pair permanently.
+
+    It also gets worse as merging proceeds: every merge widens an envelope, so
+    agglomeration raises its own floor round by round.
+
+    Envelopes are checked first as a cheap sufficient condition -- disjoint
+    envelopes imply disjoint members -- so the interval scan only runs on the
+    pairs the envelope test would have rejected.
+    """
+    ax, bx = start[mx], end[mx]
+    ay, by = start[my], end[my]
+    if bx.max() < ay.min() or by.max() < ax.min():
+        return True
+    ox, oy = np.argsort(ax), np.argsort(ay)
+    i = j = 0
+    while i < len(ox) and j < len(oy):
+        p, q = ox[i], oy[j]
+        if ax[p] <= by[q] and ay[q] <= bx[p]:
+            return False
+        if bx[p] < by[q]:
+            i += 1
+        else:
+            j += 1
+    return True
+
+
 @dataclass(frozen=True)
 class Corruption:
     """How far to degrade GT fragments toward real tracker output.
@@ -365,7 +399,8 @@ def thread_pair_row(a: ThreadState, a_fp, b: ThreadState, b_fp):
 
 
 def agglomerate(
-    threads, t_fp, t_team, t_members, pid, start, cals, prior, w, *, min_score, rounds=8
+    threads, t_fp, t_team, t_members, pid, start, end, cals, prior, w, *,
+    min_score, rounds=8, gate="members"
 ):
     """Repeatedly merge the best-scoring compatible pair of THREADS.
 
@@ -388,8 +423,13 @@ def agglomerate(
         cands = []
         for ai, a in enumerate(live):
             for b in live[ai + 1 :]:
-                x, y = (a, b) if threads[a].last_end <= threads[b].first_start else (b, a)
-                if t_team[x] != t_team[y] or threads[x].last_end >= threads[y].first_start:
+                if t_team[a] != t_team[b]:
+                    continue
+                x, y = (a, b) if threads[a].last_end <= threads[b].last_end else (b, a)
+                if gate == "members":
+                    if not members_disjoint(t_members[x], t_members[y], start, end):
+                        continue
+                elif threads[x].last_end >= threads[y].first_start:
                     continue
                 cands.append((x, y))
         if not cands:
@@ -453,17 +493,22 @@ def oracle_pairs(frags, states, first_xy):
 
     grown: dict[int, ThreadState] = {}
     grown_fp: dict[int, object] = {}
-    rows, labels = [], []
+    rows, labels, episode = [], [], []
     for i in np.argsort(start):
         for p, st in grown.items():
             if p_team[p] != team[i] or st.last_end >= start[i]:
                 continue
             rows.append(raw_row(st, grown_fp[p], int(i), states, q_fp, q_proto, first_xy))
             labels.append(p == pid[i])
+            # One decision = one query fragment against its whole candidate
+            # field. Blocking by row count instead pooled 2-3 unrelated
+            # queries, each with its own positive, into one softmax.
+            episode.append(int(i))
         key = int(pid[i])
         grown[key] = grown[key].merged_with(states[i]) if key in grown else states[i]
         grown_fp[key] = grown[key].footprint()
-    return np.array(rows, dtype=float), np.array(labels, dtype=bool)
+    return (np.array(rows, dtype=float), np.array(labels, dtype=bool),
+            np.array(episode, dtype=np.int64))
 
 
 def fit_from(matches: list[str]):
@@ -481,15 +526,16 @@ def fit_from(matches: list[str]):
             w,
         )
 
-    rows, labels = [], []
+    rows, labels, episodes = [], [], []
     for m in matches:
         for key in (f"{m}_H1", f"{m}_H2"):
             frags, first_xy, last_xy, app = half_frames(key)
             states = initial_states(frags, first_xy, last_xy, app)
-            r, y = oracle_pairs(frags, states, first_xy)
+            r, y, ep = oracle_pairs(frags, states, first_xy)
             if len(r):
                 rows.append(r)
                 labels.append(y)
+                episodes.append(ep)
             # A FOOTPASS half is ~1.6M rows and the fragments hold slices of it.
             # Only the scored pairs are needed past this point, and holding four
             # halves at once is what makes this die under memory pressure.
@@ -497,6 +543,13 @@ def fit_from(matches: list[str]):
             gc.collect()
     r = np.concatenate(rows)
     y = np.concatenate(labels)
+    # Episode ids are per-half fragment indices, so offset each half before
+    # concatenating or two halves' query 7 would be pooled into one decision.
+    eps, off = [], 0
+    for e in episodes:
+        eps.append(e + off)
+        off += int(e.max()) + 1 if len(e) else 0
+    ep_index = np.concatenate(eps)
     cals = {}
     for j, name in enumerate(CHANNELS):
         col = r[:, j]
@@ -504,9 +557,11 @@ def fit_from(matches: list[str]):
         cals[name] = LLRCalibrator.fit(col[ok & y], col[ok & ~y], max_bins=200)
     prior = TransitionPrior.fit(r[:, 2], r[:, 3], r[:, 4], y)
     llr = channel_llrs(r, cals, prior)
-    # Weights are fitted per-decision here rather than per-field: a greedy
-    # thread assignment has no fixed candidate set to normalise over.
-    w = fit_fusion_weights(llr, np.arange(len(llr)) // 64, y)
+    # One episode = one query fragment against its whole candidate field, which
+    # is what the conditional logit expects. This was `arange(n) // 64`, a fixed
+    # block size that straddled 2-3 unrelated queries and normalised the softmax
+    # over several positives at once.
+    w = fit_fusion_weights(llr, ep_index, y)
     CACHE.mkdir(parents=True, exist_ok=True)
     fit_cache.write_bytes(
         pickle.dumps(({k: v.to_dict() for k, v in cals.items()}, prior.to_dict(), w))
@@ -543,6 +598,7 @@ def thread_half(
     corruption: Corruption | None = None,
     pass2: bool = False,
     pass2_score: float = 4.0,
+    gate: str = "members",
 ) -> dict:
     """Greedy sequential threading.
 
@@ -568,6 +624,7 @@ def thread_half(
     pid = np.array([f.player_id for f in frags])
     team = np.array([f.team for f in frags])
     start = np.array([f.start for f in frags])
+    end = np.array([f.end for f in frags])
 
     q_fp = [s.footprint() for s in states]
     q_proto = [s.prototype for s in states]
@@ -625,8 +682,8 @@ def thread_half(
     if pass2:
         (threads, t_fp, t_members, p2_correct, p2_wrong,
          p2_maj_correct, p2_maj_wrong) = agglomerate(
-            threads, t_fp, t_team, t_members, pid, start,
-            cals, prior, w, min_score=pass2_score,
+            threads, t_fp, t_team, t_members, pid, start, end,
+            cals, prior, w, min_score=pass2_score, gate=gate,
         )
 
     sizes = [len(m) for m in t_members]
@@ -665,6 +722,9 @@ def main() -> None:
     ap.add_argument("--max-gap-frames", type=int, default=2,
                     help="frames a player may be out of frame before the span is cut; "
                          "~30 (1.2s) approximates a real tracker's buffer")
+    ap.add_argument("--gate", choices=("envelope", "members"), default="members",
+                    help="pass-2 compatibility test: thread envelopes (legacy) or "
+                         "tracklet-interval disjointness (physically correct)")
     ap.add_argument("--pass2-score", type=float, nargs="+", default=[4.0],
                     help="threshold for thread-to-thread agglomeration in pass 2")
     ap.add_argument("--matches", nargs="+", default=list(MATCHES),
@@ -699,7 +759,8 @@ def main() -> None:
                         r = thread_half(key, cals, prior, w, min_score=ms,
                                         min_margin=args.min_margin, accumulate=acc,
                                         corruption=corr, pass2=p2,
-                                        pass2_score=p2s if p2 else 0.0)
+                                        pass2_score=p2s if p2 else 0.0,
+                                        gate=args.gate)
                         r["min_score"] = ms
                         r["accumulate"] = acc
                         r["pass2"] = p2
