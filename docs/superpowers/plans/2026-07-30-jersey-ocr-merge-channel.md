@@ -78,9 +78,8 @@ def test_confident_double_digit_puts_mass_on_that_number():
 def test_leading_zero_is_not_a_number_string():
     # "0" "7" is impossible: 7 is written "7", never "07".
     lp = crop_number_logprobs(_probs([{0: 1.0}, {7: 1.0}, {EOS: 1.0}]))
-    assert np.isneginf(lp).sum() == 0 or True  # no assertion on -inf placement
-    # Mass must not land on 7 via the two-digit route; the row-0 "0" forces the
-    # single-digit reading, whose EOS probability here is zero.
+    # Mass must not land on 7 via a two-digit route: numbers 10..99 are indexed
+    # by a leading digit of 1..9, so "07" has no slot at all.
     assert int(np.argmax(lp)) == 0
 
 
@@ -1483,7 +1482,7 @@ prevented. Top-10 impostor tail inspected by hand: <what they were>."
 
 Extend `JerseyChannel.run` with a `gate4` section that, for each clip:
 
-1. builds body affinities from the run's `frame_features.npz` (the oracle track stage writes it; reuse the same pairwise similarity call `reid_ablation.py` uses — do not write a second one),
+1. builds body affinities from the run's `frame_features.npz` (the oracle track stage writes it; reuse the same pairwise similarity call `reid_ablation.py` uses — do not write a second one). **Key every embedding by fragment id, never by array position, and assert the mapping before use:** an index-keyed embedding lookup has already silently scrambled 42% of the dominant channel on this codebase. Add an explicit check that every fragment id in `likelihoods` resolves to an embedding row whose recorded id matches, and fail loudly on any mismatch rather than scoring a misaligned pair,
 2. calibrates body with `LLRCalibrator.fit` on the training clips' labelled pairs, since body *is* a scalar similarity and does have the sample size for it,
 3. takes jersey LLRs from `pair_scores` at the fitted temperature — **not** through `LLRCalibrator`, per the Global Constraints,
 4. fits channel weights with `fit_fusion_weights` on the training clips,
