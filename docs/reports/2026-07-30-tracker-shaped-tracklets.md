@@ -1,5 +1,13 @@
 # Re-ID measured on tracker-shaped tracklets — the earlier headline was inflated
 
+> **ALL `max_gap_frames=30` FIGURES HERE ARE INVALID (found 2026-07-30).** Appearance
+> embeddings are cached by fragment index against the `max_gap_frames=2` fragmentation and
+> were read positionally by the g30 runs, so only **58.3%** of tracklets got an embedding from
+> the right player. The dominant channel ran on ~42% scrambled input. This is the likely
+> mechanism behind the 955 extra wrong merges described below, and it means the "transition
+> prior earns real weight (6x rise)" conclusion is probably the model compensating for a
+> broken body channel rather than a finding. See `2026-07-30-edge-metric.md`.
+>
 > **Superseded in part (2026-07-30):** the substrate change described here stands, but every
 > precision figure below was computed with the majority-label verdict, which double-charges
 > poisoned threads. See `2026-07-30-edge-metric.md` for the corrected numbers

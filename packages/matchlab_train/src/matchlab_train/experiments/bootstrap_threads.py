@@ -65,16 +65,23 @@ CHANNELS = ("body", "occupancy", "gap")
 MAX_GAP_FRAMES = 2
 
 
-def link_endpoints(members_x: list[int], members_y: list[int]) -> tuple[int, int]:
-    """The two tracklets a merge edge actually bridges.
+def link_endpoints(members_x, members_y, start) -> tuple[int, int]:
+    """The two tracklets a merge edge actually bridges: x's latest, y's earliest.
 
-    Members are chronological in both passes, so the edge runs from x's last
-    tracklet to y's first. Scoring against these rather than against a thread's
-    majority player keeps the verdict fixed to the link that was made: a thread
-    that has already absorbed the wrong player would otherwise start marking
-    correct continuations wrong, and wrong ones right.
+    Scoring against these rather than against a thread's majority player keeps
+    the verdict fixed to the link that was made. A thread that has already
+    absorbed the wrong player would otherwise start marking correct
+    continuations wrong, and wrong ones right -- charging one bad merge again at
+    every merge that follows it.
+
+    The facing ends are found by start time rather than by list position. Both
+    passes do happen to build `t_members` chronologically, but relying on that
+    would fail silently and invisibly if the pass-2 overlap gate were ever
+    relaxed: the verdict would quietly begin scoring the wrong pair.
     """
-    return members_x[-1], members_y[0]
+    x = min(members_x, key=lambda m: (-start[m], m))
+    y = min(members_y, key=lambda m: (start[m], m))
+    return int(x), int(y)
 
 
 @dataclass(frozen=True)
@@ -202,7 +209,32 @@ def half_frames(key: str):
     return frags, first_xy, last_xy, (load_appearance(key) or {})
 
 
+def check_appearance_alignment(frags, app) -> None:
+    """Fail loudly if the embedding cache was built for a different fragmentation.
+
+    `load_appearance` returns {fragment_index: embedding} from a file with no
+    record of the `max_gap_frames`/`min_frames` it was generated under, and
+    `initial_states` looks embeddings up POSITIONALLY. Changing the
+    fragmentation therefore silently hands each fragment some other span's
+    embedding -- which is exactly what happened on 2026-07-30: every
+    `max_gap_frames=30` run scored with 58.3% of embeddings belonging to the
+    wrong player, on the highest-weighted channel, and every published figure
+    had to be withdrawn. Nothing detected it because nothing checked.
+
+    A length comparison is enough to catch the whole class: the embedding file
+    enumerates 0..N-1 for its own N.
+    """
+    if app and len(app) != len(frags):
+        raise ValueError(
+            f"appearance cache holds {len(app)} embeddings but there are "
+            f"{len(frags)} fragments -- it was generated for a different "
+            f"fragmentation. Regenerate it for MAX_GAP_FRAMES={MAX_GAP_FRAMES} "
+            f"rather than indexing across the two."
+        )
+
+
 def initial_states(frags, first_xy, last_xy, app) -> list[ThreadState]:
+    check_appearance_alignment(frags, app)
     out = []
     for i, f in enumerate(frags):
         e = app.get(i)
@@ -260,7 +292,7 @@ def thread_pair_row(a: ThreadState, a_fp, b: ThreadState, b_fp):
 
 
 def agglomerate(
-    threads, t_fp, t_team, t_members, pid, cals, prior, w, *, min_score, rounds=8
+    threads, t_fp, t_team, t_members, pid, start, cals, prior, w, *, min_score, rounds=8
 ):
     """Repeatedly merge the best-scoring compatible pair of THREADS.
 
@@ -306,7 +338,7 @@ def agglomerate(
             # Scored while both sides are still intact. The verdict is on the
             # edge itself -- the facing ends of the two threads -- with the
             # majority rule kept alongside so the two can be compared.
-            a, b = link_endpoints(t_members[x], t_members[y])
+            a, b = link_endpoints(t_members[x], t_members[y], start)
             correct += pid[a] == pid[b]
             wrong += pid[a] != pid[b]
             mx = Counter(pid[t_members[x]]).most_common(1)[0][0]
@@ -494,7 +526,7 @@ def thread_half(
             runner = float(scores[o[1]]) if len(o) > 1 else -np.inf
 
         if best_k is not None and best_s >= min_score and (best_s - runner) >= min_margin:
-            a, b = link_endpoints(t_members[best_k], [int(i)])
+            a, b = link_endpoints(t_members[best_k], [int(i)], start)
             correct += pid[a] == pid[b]
             wrong += pid[a] != pid[b]
             majority = Counter(pid[t_members[best_k]]).most_common(1)[0][0]
@@ -520,7 +552,7 @@ def thread_half(
     if pass2:
         (threads, t_fp, t_members, p2_correct, p2_wrong,
          p2_maj_correct, p2_maj_wrong) = agglomerate(
-            threads, t_fp, t_team, t_members, pid,
+            threads, t_fp, t_team, t_members, pid, start,
             cals, prior, w, min_score=pass2_score,
         )
 
