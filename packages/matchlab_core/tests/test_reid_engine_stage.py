@@ -71,6 +71,19 @@ def _features(rows: list[tuple[int, int, list[float]]]) -> FrameFeatures:
     )
 
 
+def _pairwise(params: dict | None = None) -> dict:
+    """Pin the single-pass union-find engine.
+
+    `merge_strategy` defaults to "two-pass" (2026-07-31). Tests below that
+    exercise pairwise-only knobs -- the mutual-best rule, the similarity
+    margin, view prototypes, the reid_detail working, and the motion
+    feasibility VETO that two-pass deliberately replaces with a scored
+    transition channel -- select it explicitly rather than silently testing
+    whichever engine happens to be the default.
+    """
+    return {"merge_strategy": "pairwise", **(params or {})}
+
+
 def _run_stage(tmp_path, tracklets, teams, features: FrameFeatures | None, params=None):
     ctx = _FakeCtx(store=ArtifactStore(tmp_path / "run"))
     if features is not None:
@@ -109,7 +122,7 @@ def test_mutual_best_rule_reaches_the_merge_core(tmp_path):
     )
     ctx, entities = _run_stage(
         tmp_path, tracklets, teams, ff,
-        {"min_similarity": 0.9, "merge_decision_rule": "mutual-best"},
+        _pairwise({"min_similarity": 0.9, "merge_decision_rule": "mutual-best"}),
     )
     groups = sorted(sorted(e.tracklet_ids) for e in entities)
     assert groups == [[1, 2], [3]]
@@ -131,11 +144,11 @@ def test_merge_margin_bar_reaches_the_merge_core(tmp_path):
     )
     ctx, entities = _run_stage(
         tmp_path, tracklets, teams, ff,
-        {
+        _pairwise({
             "min_similarity": 0.9,
             "merge_decision_rule": "mutual-best",
             "merge_min_margin": 0.2,
-        },
+        }),
     )
     groups = sorted(sorted(e.tracklet_ids) for e in entities)
     assert groups == [[1], [2], [3]]
@@ -155,7 +168,7 @@ def test_reid_detail_artifact_shows_the_working(tmp_path):
     ff = _features(
         [(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05]), (3, 110, [0.9, 0.35])]
     )
-    ctx, _ = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.9})
+    ctx, _ = _run_stage(tmp_path, tracklets, teams, ff, _pairwise({"min_similarity": 0.9}))
 
     detail = ReidDetailReport.model_validate_json(
         ctx.store.path(ArtifactName.REID_DETAIL).read_text()
@@ -343,13 +356,13 @@ def test_representation_params_reach_the_prototype_builder(tmp_path):
     )
     _, multi = _run_stage(
         tmp_path / "multi", tracklets, teams, ff,
-        {"min_similarity": 0.9, "view_threshold": 0.5},
+        _pairwise({"min_similarity": 0.9, "view_threshold": 0.5}),
     )
     assert sorted(sorted(e.tracklet_ids) for e in multi) == [[1, 2]]
 
     _, capped = _run_stage(
         tmp_path / "capped", tracklets, teams, ff,
-        {"min_similarity": 0.9, "max_prototypes": 1},
+        _pairwise({"min_similarity": 0.9, "max_prototypes": 1}),
     )
     assert sorted(sorted(e.tracklet_ids) for e in capped) == [[1], [2]]
 
@@ -405,10 +418,54 @@ def test_motion_gate_active_in_stage(tmp_path):
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 35, [1.0, 0.0])])
     ctx, entities = _run_stage(
-        tmp_path, [t1, t2], teams, ff, {"max_speed_px_s": 500.0}
+        tmp_path, [t1, t2], teams, ff, _pairwise({"max_speed_px_s": 500.0})
     )
     assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
     report = AssociationReport.model_validate_json(
         ctx.store.path(ArtifactName.ASSOCIATION).read_text()
     )
     assert report.pairs[0].reason == AssociationRejectReason.MOTION_INFEASIBLE
+
+
+def test_two_pass_is_the_default_engine_and_produces_the_incumbent_artifacts(tmp_path):
+    """The 2026-07-31 default path, end to end through the stage.
+
+    Guards the wiring rather than the merge logic (covered in
+    test_reid_twopass.py): the shipped fusion model loads, evidence is built
+    from the pipeline's own artifacts, and association.json comes out in the
+    incumbent format so the Lab and the evaluator need no changes.
+    """
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.02])])
+
+    ctx, entities = _run_stage(tmp_path, tracklets, teams, ff)
+
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    assert report.impl == "reid-engine"
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1, 2]]
+    assert [p.decision for p in report.pairs] == ["merged"]
+
+
+def test_two_pass_abstains_on_dissimilar_appearance(tmp_path):
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [-1.0, 0.0])])
+
+    _, entities = _run_stage(tmp_path, tracklets, teams, ff)
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
+
+
+def test_two_pass_never_crosses_a_team_boundary(tmp_path):
+    """The hard constraint, through the stage, on identical appearance."""
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [
+        TeamAssignment(tracklet_id=1, team=Team.HOME, confidence=1.0),
+        TeamAssignment(tracklet_id=2, team=Team.AWAY, confidence=1.0),
+    ]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.0])])
+
+    _, entities = _run_stage(tmp_path, tracklets, teams, ff, {"pass1_min_score": -1e9})
+    assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]

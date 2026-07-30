@@ -31,6 +31,7 @@ from matchlab_core.reid.gates import (
     MotionFeasibilityGate,
     TeamConsistencyGate,
     TemporalOverlapGate,
+    _project,
 )
 from matchlab_core.reid.merge import merge_tracklets
 from matchlab_core.reid.motion import estimate_camera_motion
@@ -41,6 +42,11 @@ from matchlab_core.reid.representation import (
     pair_similarity_breakdown,
 )
 from matchlab_core.reid.tiers import assign_tiers
+from matchlab_core.reid.twopass import (
+    FusionModel,
+    TrackletEvidence,
+    merge_threads_two_pass,
+)
 from matchlab_core.schemas import (
     ArtifactName,
     AssociationEntitySummary,
@@ -109,6 +115,22 @@ class Params(BaseModel):
     merge_min_margin: float = 0.0
     # Frame-span overlap absorbed as tracker handoff jitter.
     overlap_tolerance_frames: int = 2
+    # Merge strategy. "two-pass" (default since 2026-07-31) accumulates
+    # tracklets into identity threads and then merges whole threads against
+    # each other, scoring four calibrated evidence channels -- appearance,
+    # pitch occupancy, elapsed time, and a bounded-diffusion transition prior.
+    # Measured on FOOTPASS it reaches 96.6% merge precision at 80.6% coverage
+    # against 97.3% / 58.7% for "pairwise", the single-pass union-find engine.
+    # Under two-pass the ONLY hard constraints are same-team and
+    # non-overlapping tracklets; motion feasibility becomes a scored channel
+    # rather than a veto, which is what the measurements support.
+    merge_strategy: str = "two-pass"
+    fusion_model: str = "configs/reid/fusion-footpass-v1.json"
+    pass1_min_score: float = 4.0
+    pass2_min_score: float | None = 2.0
+    # Pitch extent used to normalise calibrated positions into the occupancy
+    # grid. Homographies in this repo map to centimetres.
+    pitch_size_cm: tuple[float, float] = (10500.0, 6800.0)
     # Representation (SPO-54): view-prototype cap, the cosine threshold that
     # splits view clusters, the starved-tracklet frame cutoff, and the
     # per-part visibility floor for part-aware similarity.
@@ -157,6 +179,70 @@ class Params(BaseModel):
     tier_auto_min_margin: float = 0.5
 
 
+def _tracklet_evidence(
+    tracklets: list[Tracklet],
+    *,
+    features: FrameFeatures | None,
+    team_by_tid: dict,
+    calibration: dict[int, np.ndarray],
+    pitch_size_cm: tuple[float, float],
+) -> list[TrackletEvidence]:
+    """Reduce pipeline artifacts to the per-tracklet inputs merging needs.
+
+    Every field is optional by design (ADR 003). A tracklet with no embeddings,
+    or one whose frames are never covered by a confident homography, still
+    participates -- its silent channels simply contribute nothing rather than
+    ruling it out.
+    """
+    mean_emb: dict[int, np.ndarray] = {}
+    if features is not None:
+        for tid in np.unique(features.tracklet_ids):
+            embs = features.embeddings[features.tracklet_ids == tid].astype(np.float64)
+            flat = embs.reshape(len(embs), -1)
+            # Embedding norm is the free quality proxy, so a weighted mean
+            # leans on the frames that were actually worth looking at.
+            q = np.linalg.norm(flat, axis=1)
+            if not np.any(q > 0):
+                continue
+            v = (flat * q[:, None]).sum(axis=0)
+            n = np.linalg.norm(v)
+            if n > 0:
+                mean_emb[int(tid)] = v / n
+
+    out: list[TrackletEvidence] = []
+    pw, ph = pitch_size_cm
+    for t in tracklets:
+        xs, ys = [], []
+        first_xy = last_xy = None
+        for fr in t.frames:
+            h = calibration.get(fr.frame_idx)
+            if h is None:
+                continue
+            px, py = _project(h, (fr.box.bottom_center.x, fr.box.bottom_center.y))
+            if not (np.isfinite(px) and np.isfinite(py)):
+                continue
+            xs.append(px / pw)
+            ys.append(py / ph)
+            if first_xy is None:
+                first_xy = np.array([px, py], dtype=np.float64)
+            last_xy = np.array([px, py], dtype=np.float64)
+        out.append(
+            TrackletEvidence(
+                tracklet_id=t.tracklet_id,
+                start=t.start_frame,
+                end=t.end_frame,
+                team=None if team_by_tid.get(t.tracklet_id) is None
+                else int(team_by_tid[t.tracklet_id] == Team.HOME),
+                xs=np.asarray(xs) if xs else None,
+                ys=np.asarray(ys) if ys else None,
+                embedding=mean_emb.get(t.tracklet_id),
+                entry_xy=first_xy,
+                exit_xy=last_xy,
+            )
+        )
+    return out
+
+
 @register(StageKind.ASSOCIATE, "reid-engine")
 class ReidEngineAssociator(Associator):
     def __init__(self, **params):
@@ -203,6 +289,7 @@ class ReidEngineAssociator(Associator):
                 ta.cls == DetectionClass.REFEREE or tb.cls == DetectionClass.REFEREE
             )
 
+        idx_pre = {t.tracklet_id: t for t in tracklets}
         roster, anchors, anchor_calibration = self._collect_anchors(ctx, tracklets)
         anchor_by_tid = {a.tracklet_id: a.candidate for a in anchors}
 
@@ -220,33 +307,56 @@ class ReidEngineAssociator(Associator):
                 ):
                     calibration[row.frame_idx] = np.asarray(row.homography)
 
-        result = merge_tracklets(
-            tracklets,
-            gates=[
-                TemporalOverlapGate(p.overlap_tolerance_frames),
-                TeamConsistencyGate(
-                    team_by_tid,
-                    team_conf_by_tid,
-                    min_confidence=p.team_min_confidence,
-                ),
-                MotionFeasibilityGate(
-                    fps=ctx.video.fps,
-                    max_speed_px_s=p.max_speed_px_s,
-                    max_speed_cm_s=p.max_speed_cm_s,
-                    soft_gap_s=p.soft_gap_s,
-                    camera_motion=camera_motion,
+        if p.merge_strategy == "two-pass":
+            features_obj = (
+                FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
+                if ctx.store.exists(ArtifactName.FRAME_FEATURES)
+                else None
+            )
+            result = merge_threads_two_pass(
+                _tracklet_evidence(
+                    tracklets,
+                    features=features_obj,
+                    team_by_tid=team_by_tid,
                     calibration=calibration,
+                    pitch_size_cm=tuple(p.pitch_size_cm),
                 ),
-                AnchorConflictGate(anchor_by_tid),
-            ],
-            similarity=similarity,
-            min_similarity=p.min_similarity,
-            overlap_tolerance_frames=p.overlap_tolerance_frames,
-            pair_filter=eligible,
-            anchor_by_tid=anchor_by_tid,
-            decision_rule=p.merge_decision_rule,
-            min_margin=p.merge_min_margin,
-        )
+                model=FusionModel.load(p.fusion_model),
+                min_score=p.pass1_min_score,
+                pass2_score=p.pass2_min_score,
+                min_margin=p.merge_min_margin,
+                pair_filter=lambda a, b: eligible(idx_pre[a.tracklet_id],
+                                                  idx_pre[b.tracklet_id]),
+                anchor_by_tid=anchor_by_tid,
+            )
+        else:
+            result = merge_tracklets(
+            tracklets,
+                gates=[
+                    TemporalOverlapGate(p.overlap_tolerance_frames),
+                    TeamConsistencyGate(
+                        team_by_tid,
+                        team_conf_by_tid,
+                        min_confidence=p.team_min_confidence,
+                    ),
+                    MotionFeasibilityGate(
+                        fps=ctx.video.fps,
+                        max_speed_px_s=p.max_speed_px_s,
+                        max_speed_cm_s=p.max_speed_cm_s,
+                        soft_gap_s=p.soft_gap_s,
+                        camera_motion=camera_motion,
+                        calibration=calibration,
+                    ),
+                    AnchorConflictGate(anchor_by_tid),
+                ],
+                similarity=similarity,
+                min_similarity=p.min_similarity,
+                overlap_tolerance_frames=p.overlap_tolerance_frames,
+                pair_filter=eligible,
+                anchor_by_tid=anchor_by_tid,
+                decision_rule=p.merge_decision_rule,
+                min_margin=p.merge_min_margin,
+            )
 
         idx = {t.tracklet_id: t for t in tracklets}
         groups = sorted(result.groups)  # deterministic entity numbering
