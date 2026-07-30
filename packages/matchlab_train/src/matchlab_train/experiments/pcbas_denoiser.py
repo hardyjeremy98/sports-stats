@@ -66,6 +66,13 @@ class Params(BaseModel):
     n_layers: int = 6
     dropout: float = 0.1
     encoder: str = "flat"  # "flat" (reference) or "attn" (PAVE-style)
+    # PAVE's per-player attention, live only when encoder == "attn".
+    # "spatial_first" is theirs (+1.87% macro-F1 over "temporal_first");
+    # "parallel" is their Model D. attn_use_logits=False is the measured winner.
+    attn_order: str = "spatial_first"
+    attn_dim: int = 64
+    attn_layers: int = 1
+    attn_use_logits: bool = False
 
     epochs: int = 15
     batch_size: int = 8
@@ -175,6 +182,10 @@ class PCBASDenoiserExperiment(Experiment):
             n_dec_layers=p.n_layers,
             dropout=p.dropout,
             encoder=p.encoder,  # type: ignore[arg-type]
+            attn_order=p.attn_order,  # type: ignore[arg-type]
+            attn_dim=p.attn_dim,
+            attn_layers=p.attn_layers,
+            attn_use_logits=p.attn_use_logits,
         ).to(device)
         # The reference DOES apply weight decay here (1e-4 on every non-bias
         # parameter); an earlier comment here claimed the opposite.

@@ -52,7 +52,8 @@ def test_denoiser_hyperparameters_match_the_reference():
     assert (p.lr, p.warmup_steps, p.epochs) == (2.5e-4, 200, 15)
     assert (p.hidden_dim, p.n_heads, p.n_layers, p.dropout) == (512, 8, 6, 0.1)
     assert p.framespan == 750
-    assert p.encoder == "flat"  # reference default; "attn" is the PAVE arm
+    # `encoder` and the attention params are asserted by
+    # test_attention_defaults_match_the_paper.
 
 
 def test_optimizer_applies_the_reference_weight_decay():
@@ -185,3 +186,26 @@ def test_collate_one_hot_encodes_the_same_frames_as_the_positional_encoding():
     one_hot = src[0, :, ENCODER_FEATURE_DIM:]
     assert np.array_equal(one_hot.argmax(-1).numpy(), src_frames[0].numpy())
     assert one_hot[0].argmax() == 1  # NOT 0
+
+
+def test_attention_defaults_match_the_paper():
+    from matchlab_train.experiments.pcbas_denoiser import Params
+
+    p = Params()
+    assert p.encoder == "flat"          # control
+    assert p.attn_order == "spatial_first"
+    assert p.attn_dim == 64             # PAVE Model A
+    assert p.attn_layers == 1
+    assert p.attn_use_logits is False   # game-state channels only
+
+
+def test_dst_lr_decay_stays_disabled():
+    """Copying PAVE's epoch 3/6/8 decay annealed us to 2.5e-7 before convergence
+    and flatlined the run: micro-F1 0.048 vs 0.119. Their epoch 3 is 6,000
+    optimiser steps in; ours is 600. Do not re-run this hypothesis.
+    """
+    from matchlab_train.experiments.pcbas_denoiser import Params
+
+    p = Params()
+    assert p.lr_decay == 1.0
+    assert p.lr_decay_epochs == ()

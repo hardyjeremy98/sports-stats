@@ -1,6 +1,17 @@
 # Stage 2: DST sequence denoiser. BLOCKED until stage-1 logits exist for TRAIN,
 # which means running pcbas-infer-logits over all 96 TRAIN halves first.
-# Set `encoder: attn` for the PAVE-style arm.
+#
+# Arms (spec section 5):
+#   B0  encoder: flat                          -- rebaseline, run TWICE at different
+#                                                 seeds to measure the noise floor
+#   B1  encoder: attn                          -- PAVE, spatial-first, game-state only
+#   B2  encoder: attn, attn_order: temporal_first
+#
+# B1's gain must EXCEED the B0 seed spread. PAVE's attention delta is +0.008
+# macro-F1 and its ordering effect +0.018; we have never measured our own
+# run-to-run variance, and below it no result here means anything.
+#
+# Keep checkpoint_dir distinct per arm or the next run overwrites the last.
 name: pcbas-denoiser
 task: pcbas-denoiser
 description: DST encoder-decoder over (9,26,T) logits -> ordered event list.
