@@ -1,0 +1,78 @@
+{
+  "pairwise": {
+    "rows": [
+      {
+        "seq": "SNMOT-124",
+        "role": "held_out",
+        "entities": 27,
+        "gt_tracks": 24,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8413,
+        "idf1_gain": 0.0522
+      },
+      {
+        "seq": "SNMOT-125",
+        "role": "held_out",
+        "entities": 25,
+        "gt_tracks": 25,
+        "pairs": 8,
+        "correct": 8,
+        "idf1": 0.8127,
+        "idf1_gain": 0.1228
+      },
+      {
+        "seq": "SNMOT-126",
+        "role": "held_out",
+        "entities": 23,
+        "gt_tracks": 24,
+        "pairs": 3,
+        "correct": 1,
+        "idf1": 0.891,
+        "idf1_gain": -0.0017
+      }
+    ],
+    "pairs": 18,
+    "correct": 15,
+    "precision": 0.8333333333333334,
+    "mean_idf1": 0.8483333333333333
+  },
+  "two-pass@2.0": {
+    "rows": [
+      {
+        "seq": "SNMOT-124",
+        "role": "held_out",
+        "entities": 29,
+        "gt_tracks": 24,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.8336,
+        "idf1_gain": 0.0445
+      },
+      {
+        "seq": "SNMOT-125",
+        "role": "held_out",
+        "entities": 26,
+        "gt_tracks": 25,
+        "pairs": 7,
+        "correct": 7,
+        "idf1": 0.8137,
+        "idf1_gain": 0.1238
+      },
+      {
+        "seq": "SNMOT-126",
+        "role": "held_out",
+        "entities": 25,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 0,
+        "idf1": 0.8927,
+        "idf1_gain": 0.0
+      }
+    ],
+    "pairs": 13,
+    "correct": 12,
+    "precision": 0.9230769230769231,
+    "mean_idf1": 0.8466666666666667
+  }
+}

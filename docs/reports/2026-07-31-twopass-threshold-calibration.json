@@ -1,0 +1,492 @@
+[
+  {
+    "threshold": "pairwise",
+    "pairs": 18,
+    "correct": 15,
+    "precision": 0.8333333333333334,
+    "mean_idf1": 0.910425,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 23,
+        "gt_tracks": 23,
+        "pairs": 2,
+        "correct": 1,
+        "idf1": 0.9723,
+        "idf1_gain": 0.0032
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 8.0,
+    "pairs": 11,
+    "correct": 11,
+    "precision": 1.0,
+    "mean_idf1": 0.9017999999999999,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 28,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.7893,
+        "idf1_gain": 0.0514
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 29,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.92,
+        "idf1_gain": 0.0447
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 6.0,
+    "pairs": 11,
+    "correct": 11,
+    "precision": 1.0,
+    "mean_idf1": 0.9017999999999999,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 28,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.7893,
+        "idf1_gain": 0.0514
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 29,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.92,
+        "idf1_gain": 0.0447
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 4.0,
+    "pairs": 11,
+    "correct": 11,
+    "precision": 1.0,
+    "mean_idf1": 0.9017999999999999,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 28,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.7893,
+        "idf1_gain": 0.0514
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 29,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.92,
+        "idf1_gain": 0.0447
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 3.0,
+    "pairs": 12,
+    "correct": 12,
+    "precision": 1.0,
+    "mean_idf1": 0.9057,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 28,
+        "gt_tracks": 26,
+        "pairs": 5,
+        "correct": 5,
+        "idf1": 0.7893,
+        "idf1_gain": 0.0514
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 28,
+        "gt_tracks": 26,
+        "pairs": 6,
+        "correct": 6,
+        "idf1": 0.9356,
+        "idf1_gain": 0.0603
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 2.0,
+    "pairs": 15,
+    "correct": 14,
+    "precision": 0.9333333333333333,
+    "mean_idf1": 0.909625,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 27,
+        "gt_tracks": 26,
+        "pairs": 6,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 1.0,
+    "pairs": 16,
+    "correct": 14,
+    "precision": 0.875,
+    "mean_idf1": 0.909625,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": 0.0,
+    "pairs": 16,
+    "correct": 14,
+    "precision": 0.875,
+    "mean_idf1": 0.909625,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": -1.0,
+    "pairs": 16,
+    "correct": 14,
+    "precision": 0.875,
+    "mean_idf1": 0.909625,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  },
+  {
+    "threshold": -2.0,
+    "pairs": 16,
+    "correct": 14,
+    "precision": 0.875,
+    "mean_idf1": 0.909625,
+    "per_seq": [
+      {
+        "seq": "SNMOT-116",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 7,
+        "correct": 6,
+        "idf1": 0.8024,
+        "idf1_gain": 0.0645
+      },
+      {
+        "seq": "SNMOT-118",
+        "role": "tuning",
+        "entities": 25,
+        "gt_tracks": 23,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9691,
+        "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-120",
+        "role": "tuning",
+        "entities": 26,
+        "gt_tracks": 26,
+        "pairs": 8,
+        "correct": 7,
+        "idf1": 0.9382,
+        "idf1_gain": 0.0629
+      },
+      {
+        "seq": "SNMOT-123",
+        "role": "tuning",
+        "entities": 21,
+        "gt_tracks": 24,
+        "pairs": 1,
+        "correct": 1,
+        "idf1": 0.9288,
+        "idf1_gain": 0.0173
+      }
+    ]
+  }
+]
