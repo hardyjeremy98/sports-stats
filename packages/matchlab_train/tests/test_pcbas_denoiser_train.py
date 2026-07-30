@@ -157,7 +157,10 @@ def test_every_shipped_pcbas_config_parses_and_resolves():
 
     root = Path(__file__).resolve().parents[1] / "src/matchlab_train/experiments"
     configs = sorted(root.glob("pcbas_*.yaml"))
-    assert len(configs) == 4
+    # action_head (Phase 0 control), action_head_pave (arms A1/A2), denoiser,
+    # denoise_infer, score. The count is asserted so a config added without a task
+    # name cannot slip through the glob unchecked.
+    assert len(configs) == 5
     for path in configs:
         cfg = ExperimentConfig.from_yaml(path)
         assert cfg.task in available(), f"{path.name} -> unknown task {cfg.task}"

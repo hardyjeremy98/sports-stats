@@ -1,0 +1,31 @@
+# PAVE stage-1 arms. Run A1 first; A2 only if A1 beats the Phase 0 control.
+#   A1: temporal transformer alone.
+#   A2: A1 + cosine anneal, warmup 100, tracklets 4 -> 6 at epoch 16.
+# Switch arms by editing the marked block. Keep checkpoint_dir distinct per arm
+# or the next run silently overwrites the previous arm's checkpoints.
+name: pcbas-action-head-pave-a1
+task: pcbas-action-head
+description: TAAD + PAVE temporal transformer (arm A1).
+output_dir: data/experiments
+seed: 345
+params:
+  h5_path: data/footpass/tactical/train_tactical_data.h5
+  video_root: data/footpass/videos_352x640
+  val_h5_path: data/footpass/tactical/val_tactical_data.h5
+  val_video_root: data/footpass/videos_352x640
+  anchors_cache: data/footpass/anchors_train.json
+  val_anchors_cache: data/footpass/anchors_val.json
+  checkpoint_dir: data/weights/pcbas-pave-a1
+  epochs: 20
+  max_samples_per_class: 500
+  max_val_samples_per_class: 40
+  val_every: 2
+  num_workers: 6
+  max_hours: null
+  # --- ARM BLOCK ---
+  temporal: transformer
+  # A2 additionally sets:
+  #   anneal: cosine
+  #   warmup_steps: 100
+  #   tracklet_ramp_epoch: 16
+  # --- END ARM BLOCK ---

@@ -6,9 +6,12 @@ every epoch**, 20 epochs, AdamW with lr 5e-5 on the backbone / 1e-3 on the head,
 weight decay 1e-4 on weights and 0 on norms/biases, 50-step linear warmup, AMP fp16.
 
 **Recorded deviation -- batch size.** The reference uses batch 6 with 8 accumulation
-steps (effective 48). This machine is a 16 GiB RTX 4060 Ti sharing ~3.7 GiB with the
-desktop, and a single (1,3,50,352,640) clip peaks at 6.2 GiB; batch 2 OOMs. So the
-micro-batch is 1 and `accum_steps` rises to keep the effective batch identical.
+steps (effective 48). The 0.3274 result was measured on a 16 GiB RTX 4060 Ti sharing
+~3.7 GiB with the desktop, where a single (1,3,50,352,640) clip peaks at 6.2 GiB and
+batch 2 OOMs. So the micro-batch is 1 and `accum_steps` rises to keep the effective
+batch identical. From 2026-07-30 this runs on a 16 GiB RTX 5070 Ti; the micro-batch
+stays 1 there deliberately, because raising it would change BatchNorm statistics and
+the architecture in one move and the control would stop being a control.
 The only real consequence is BatchNorm statistics, which are now computed over one
 clip -- still 50x44x80 spatial-temporal samples per channel for the 3D norms and
 M*T = 250 for the 1D norm, so the estimates stay well conditioned.
@@ -22,6 +25,7 @@ balance is the SAMPLER's job, not the loss's -- see `class_weights`.
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -70,6 +74,14 @@ class Params(BaseModel):
     lr_decay: float = 0.1
     lr_decay_every: int = 10
     freeze_backbone_epochs: int = 2
+    # "conv" (control) or "transformer" (PAVE stage 1, spec section 4.1).
+    temporal: str = "conv"
+    # "step" (control: x0.1 at epoch 10, BOTH groups) or "cosine" (PAVE: cosine
+    # for the head, X3D held at a fixed rate after warmup).
+    anneal: str = "step"
+    # PAVE raises the distractor count at epoch 16. None = never (control).
+    tracklet_ramp_epoch: int | None = None
+    tracklet_ramp_to: int = 6
     background_weight: float = 0.05
     action_weight: float = 0.95
 
@@ -90,17 +102,38 @@ class Params(BaseModel):
     max_hours: float | None = None
 
 
-def lr_scale(epoch: int, step: int, params: Params) -> float:
-    """Composed warmup and step decay, as a multiple of the base learning rate.
+def lr_scale(epoch: int, step: int, params: Params, group: str = "head") -> float:
+    """Warmup composed with the chosen anneal, as a multiple of the base rate.
 
-    Warmup ramps over the first `warmup_steps` optimiser steps; on top of that the
-    rate drops by `lr_decay` for each completed `lr_decay_every` epochs, matching the
-    reference's `epoch % 10 == 0 and epoch > 5` guard (which fires at epoch 10 and
-    again at 20, the latter having no effect on a 20-epoch run).
+    Warmup ramps over the first `warmup_steps` optimiser steps. On top of that,
+    `anneal="step"` (the control) drops the rate by `lr_decay` for each completed
+    `lr_decay_every` epochs, matching the reference's `epoch % 10 == 0 and epoch > 5`
+    guard (which fires at epoch 10 and again at 20, the latter having no effect on a
+    20-epoch run).
+
+    `group` exists because PAVE anneals the head but holds X3D at a fixed rate
+    after warmup, where our control decays both. Pretrained backbone features and
+    a randomly-initialised head do not want the same schedule.
     """
     warm = min(1.0, (step + 1) / max(params.warmup_steps, 1))
+    if params.anneal == "cosine":
+        if group == "backbone":
+            return warm
+        progress = min(1.0, max(0, epoch - 1) / max(params.epochs - 1, 1))
+        return warm * 0.5 * (1.0 + math.cos(math.pi * progress))
     decays = max(0, (epoch - 1) // params.lr_decay_every)
     return warm * (params.lr_decay**decays)
+
+
+def tracklets_for_epoch(epoch: int, params: Params) -> int:
+    """Distractor count, which PAVE raises from 4 to 6 at epoch 16.
+
+    More distractors per clip is a harder attribution problem, deferred until the
+    model can already spot. Costs ROI pooling only -- the backbone pass is shared.
+    """
+    if params.tracklet_ramp_epoch is not None and epoch >= params.tracklet_ramp_epoch:
+        return params.tracklet_ramp_to
+    return params.nb_tracklets
 
 
 def set_backbone_trainable(model, trainable: bool) -> None:
@@ -249,7 +282,7 @@ class PCBASActionHeadExperiment(Experiment):
         )
 
         device = torch.device(p.device if torch.cuda.is_available() else "cpu")
-        model = ActionHead().to(device)
+        model = ActionHead(temporal=p.temporal).to(device)
         opt = torch.optim.AdamW(_param_groups(model, p))
         scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
         weights = class_weights(p.background_weight, p.action_weight).to(device)
@@ -266,6 +299,10 @@ class PCBASActionHeadExperiment(Experiment):
             set_backbone_trainable(model, not frozen)
             if frozen:
                 print(f"  epoch {epoch}: X3D backbone FROZEN", flush=True)
+            wanted = tracklets_for_epoch(epoch, p)
+            if wanted != train_ds.nb_tracklets:
+                print(f"  epoch {epoch}: tracklets {train_ds.nb_tracklets} -> {wanted}", flush=True)
+                train_ds.nb_tracklets = wanted
             if epoch > 1:
                 train_ds.resample()
             loader = DataLoader(
@@ -296,10 +333,12 @@ class PCBASActionHeadExperiment(Experiment):
                 n_batches += 1
 
                 if (i + 1) % p.accum_steps == 0:
-                    scale = lr_scale(epoch, step, p)
                     for g in opt.param_groups:
-                        base = p.lr_backbone if g["name"].startswith("backbone") else p.lr_head
-                        g["lr"] = base * scale
+                        backbone = g["name"].startswith("backbone")
+                        base = p.lr_backbone if backbone else p.lr_head
+                        g["lr"] = base * lr_scale(
+                            epoch, step, p, "backbone" if backbone else "head"
+                        )
                     scaler.step(opt)
                     scaler.update()
                     opt.zero_grad(set_to_none=True)
@@ -369,6 +408,7 @@ class PCBASActionHeadExperiment(Experiment):
             "select_best_on": p.select_best_on,
             "checkpoint": str(ckpt_dir / "action_head_best.pt"),
             "train_anchor_histogram": hist,
+            "tracklets_final": train_ds.nb_tracklets,
             "hours": (time.time() - started) / 3600,
         }
         self.write_result(workdir, result)

@@ -144,3 +144,47 @@ def test_every_epoch_is_checkpointed():
 
     source = inspect.getsource(PCBASActionHeadExperiment.run)
     assert 'f"action_head_epoch{epoch}.pt"' in source
+
+
+def test_defaults_are_the_control_arm():
+    from matchlab_train.experiments.pcbas_action_head import Params
+
+    p = Params()
+    assert p.temporal == "conv"
+    assert p.anneal == "step"
+    assert p.tracklet_ramp_epoch is None
+    assert p.batch_size == 1 and p.accum_steps == 48
+
+
+def test_cosine_anneal_leaves_the_backbone_flat():
+    """PAVE cosine-anneals every layer EXCEPT X3D, which holds a fixed rate.
+
+    Our current schedule steps both groups x0.1 at epoch 10. Annealing the
+    backbone too is the thing this arm changes.
+    """
+    from matchlab_train.experiments.pcbas_action_head import Params, lr_scale
+
+    p = Params(anneal="cosine", epochs=20, warmup_steps=1)
+    head_early = lr_scale(2, 100, p, "head")
+    head_late = lr_scale(19, 100, p, "head")
+    assert head_late < head_early
+    assert lr_scale(2, 100, p, "backbone") == lr_scale(19, 100, p, "backbone") == 1.0
+
+
+def test_step_anneal_is_unchanged_for_both_groups():
+    from matchlab_train.experiments.pcbas_action_head import Params, lr_scale
+
+    p = Params(anneal="step", lr_decay=0.1, lr_decay_every=10, warmup_steps=1)
+    for group in ("head", "backbone"):
+        assert lr_scale(1, 100, p, group) == 1.0
+        assert lr_scale(11, 100, p, group) == pytest.approx(0.1)
+
+
+def test_tracklet_ramp_takes_effect_at_its_epoch():
+    from matchlab_train.experiments.pcbas_action_head import Params, tracklets_for_epoch
+
+    p = Params(nb_tracklets=4, tracklet_ramp_epoch=16, tracklet_ramp_to=6)
+    assert tracklets_for_epoch(15, p) == 4
+    assert tracklets_for_epoch(16, p) == 6
+    assert tracklets_for_epoch(20, p) == 6
+    assert tracklets_for_epoch(20, Params(nb_tracklets=4)) == 4

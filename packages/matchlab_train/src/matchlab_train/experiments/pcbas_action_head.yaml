@@ -27,4 +27,8 @@ params:
   max_val_samples_per_class: 40
   val_every: 2
   num_workers: 6
-  max_hours: 5.0
+  # Phase 0 control: the SAME recipe that scored micro-F1 0.3274 at 12 of 20
+  # epochs, now run to completion. How much of the 0.3274 -> 0.4100 gap was
+  # simply the truncated schedule is currently unknown, and every PAVE arm is
+  # measured against this number, not against the truncated one.
+  max_hours: null
