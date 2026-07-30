@@ -3,9 +3,26 @@
 The recogniser is the ONLY stage of the reference jersey pipeline this repo
 did not already have. Its main-subject filter is replaced by `crops.py`, which
 gates on measured per-frame box overlap rather than inferring contaminants
-statistically from a bag of images; its ViTPose localiser is replaced by
-`pose/rtmpose.py`; and its confidence-weighted vote is replaced by the
-calibrated evidence layer in `reid/jersey.py`.
+statistically from a bag of images; its ViTPose localiser is replaced by a
+fixed vertical band (`number_band`, below); and its confidence-weighted vote
+is replaced by the calibrated evidence layer in `reid/jersey.py`.
+
+LOCALISATION -- `number_band` replaced an RTMPose torso crop. Measured on a
+300-tracklet vertical-band sweep (task-4b jersey-ocr merge-channel report):
+the whole player crop resized to 128x32 destroyed the digits (0.0800
+tracklet accuracy); a fixed band at y in [0.12, 0.50] of the crop height
+scored best (0.2533); and the RTMPose torso crop scored WORSE than every band
+in the sweep (0.137) because RTMPose keypoints are unreliable on the ~120x51
+px player crops this pipeline actually has. Pose is not a fallback option
+here -- it is measured actively harmful, so it has been deleted rather than
+left as a dead code path that invites its own return.
+
+LEGIBILITY -- crops are gated by `ocr/legibility.py`'s `LegibilityClassifier`
+before being read, not by pose reliability. Measured at 450 tracklets (band +
+vote): reading every crop gave 73 correct / 377 wrong; gating at
+legibility >= 0.9 gave 235 correct / 29 wrong -- a 13x fall in wrong reads.
+A crop can have a perfectly good band crop and still be illegible (blur,
+occlusion, angle), which is exactly what this gate is for.
 
 The checkpoint was fine-tuned on hockey and SoccerNet data, so any accuracy
 figure measured on SoccerNet-derived footage is train-adjacent and optimistic.
@@ -43,15 +60,16 @@ from dataclasses import dataclass
 import numpy as np
 
 from matchlab_core.crops import ScoredCrop
-from matchlab_core.pose.rtmpose import DetectionPose, RTMPoseEstimator
+from matchlab_core.ocr.legibility import LegibilityClassifier
 from matchlab_core.provenance import LicenseAxes, ModelProvenance
 from matchlab_core.reid.jersey import DIGITS, EOS
-from matchlab_core.schemas.geometry import Box
 
-# COCO-17 keypoints bounding the region a number is printed on.
-_TORSO_KEYPOINTS = (5, 6, 11, 12)  # L/R shoulder, L/R hip
-_MIN_TORSO_PX = 4.0                # below this the region cannot hold a digit
 _DEFAULT_CKPT = "data/weights/parseq-jersey.ckpt"
+
+# Vertical band a jersey number lives in, as a fraction of crop height.
+# Measured best on a 300-tracklet sweep -- see module docstring.
+NUMBER_BAND_LO = 0.12
+NUMBER_BAND_HI = 0.50
 
 
 @dataclass
@@ -63,36 +81,23 @@ class CropRead:
     frame_idx: int
 
 
-def torso_box(
-    pose: DetectionPose,
-    crop_shape: tuple[int, int],
-    *,
-    min_keypoint_score: float = 0.3,
-    pad_frac: float = 0.15,
-) -> Box | None:
-    """The shoulders-to-hips region, padded and clamped, or None.
+def number_band(
+    image: np.ndarray, lo: float = NUMBER_BAND_LO, hi: float = NUMBER_BAND_HI
+) -> np.ndarray:
+    """The fixed vertical band of `image` a jersey number lives in.
 
-    Returning None is the honest outcome when the pose is unreliable: a guessed
-    region produces a confident read of the wrong pixels, and this channel's
-    whole safety argument rests on unreadable meaning neutral rather than wrong.
+    Replaces an RTMPose torso localisation, measured worse than this fixed
+    band (0.137 vs. 0.2533 tracklet accuracy on a 300-tracklet sweep) because
+    RTMPose keypoints are unreliable on the small (~120x51 px) player crops
+    this pipeline has -- see the module docstring. A degenerate (zero-height)
+    input returns the original image unchanged rather than an empty slice, so
+    a malformed crop upstream fails downstream (empty read) instead of
+    silently vanishing here.
     """
-    pts = [pose.keypoints[i] for i in _TORSO_KEYPOINTS]
-    good = [(x, y) for x, y, s in pts if s >= min_keypoint_score]
-    if len(good) < 3:
-        return None
-    xs = [p[0] for p in good]
-    ys = [p[1] for p in good]
-    w, h = max(xs) - min(xs), max(ys) - min(ys)
-    if w < _MIN_TORSO_PX or h < _MIN_TORSO_PX:
-        return None
-    px, py = pad_frac * w, pad_frac * h
-    height, width = crop_shape
-    return Box(
-        x1=max(0.0, min(xs) - px),
-        y1=max(0.0, min(ys) - py),
-        x2=min(float(width), max(xs) + px),
-        y2=min(float(height), max(ys) + py),
-    )
+    h = image.shape[0]
+    if h <= 0:
+        return image
+    return image[int(lo * h):int(hi * h), :]
 
 
 def _resolve_digit_and_eos_columns(itos: list[str], eos_col: int) -> tuple[list[int], int]:
@@ -153,13 +158,13 @@ def _add_lightning_prefix(state_dict: dict) -> dict:
 class JerseyReader:
     """Quality-gated crops in, per-crop character distributions out."""
 
-    def __init__(self, checkpoint: str = _DEFAULT_CKPT, min_keypoint_score: float = 0.3):
+    def __init__(self, checkpoint: str = _DEFAULT_CKPT, min_legibility: float = 0.9):
         self.checkpoint = checkpoint
-        self.min_keypoint_score = min_keypoint_score
+        self.min_legibility = min_legibility
         self._model = None
         self._digit_cols: list[int] | None = None
         self._eos_col: int | None = None
-        self._pose = RTMPoseEstimator()
+        self._legibility = LegibilityClassifier()
 
     def prepare(self, device: str = "cpu") -> None:
         try:
@@ -189,7 +194,7 @@ class JerseyReader:
         self._digit_cols, self._eos_col = _resolve_digit_and_eos_columns(itos, tok.eos_id)
         self._model = model
         self._device = device
-        self._pose.prepare(device=device)
+        self._legibility.prepare(device=device)
 
     def provenance(self) -> ModelProvenance:
         return ModelProvenance(
@@ -209,30 +214,28 @@ class JerseyReader:
         )
 
     def read(self, crops: list[ScoredCrop]) -> list[CropRead]:
-        """One `CropRead` per crop whose torso was locatable. Crops without a
-        usable torso are ABSENT from the result, not present with zero
-        confidence -- missing evidence, not evidence of absence."""
+        """One `CropRead` per crop whose legibility score cleared
+        `min_legibility`. Crops below the gate are ABSENT from the result, not
+        present with zero confidence -- missing evidence, not evidence of
+        absence (ADR 001/003). If every crop is gated out, this returns an
+        empty list -- the abstention path, not an error."""
         if self._model is None:
             raise RuntimeError("JerseyReader.read called before prepare()")
+        if not crops:
+            return []
+        bands = [number_band(crop.image) for crop in crops]
+        scores = self._legibility.score(bands)
         out: list[CropRead] = []
-        for crop in crops:
-            h, w = crop.image.shape[:2]
-            poses = self._pose.estimate(
-                crop.image, [Box(x1=0.0, y1=0.0, x2=float(w), y2=float(h))]
-            )
-            if not poses:
+        for crop, band, score in zip(crops, bands, scores):
+            if score < self.min_legibility:
                 continue
-            box = torso_box(poses[0], (h, w), min_keypoint_score=self.min_keypoint_score)
-            if box is None:
+            if band.size == 0:
                 continue
-            patch = crop.image[int(box.y1):int(box.y2), int(box.x1):int(box.x2)]
-            if patch.size == 0:
-                continue
-            probs = self._char_probs(patch)
+            probs = self._char_probs(band)
             out.append(
                 CropRead(
                     char_probs=probs,
-                    legibility=float(crop.quality),
+                    legibility=float(score),
                     frame_idx=crop.frame_idx,
                 )
             )

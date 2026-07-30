@@ -1,52 +1,24 @@
 import numpy as np
 import pytest
-from matchlab_core.ocr.parseq import CropRead, JerseyReader, torso_box
-from matchlab_core.pose.rtmpose import DetectionPose
-
-# COCO-17 indices used by torso_box.
-L_SHOULDER, R_SHOULDER, L_HIP, R_HIP = 5, 6, 11, 12
+from matchlab_core.ocr.parseq import CropRead, JerseyReader, number_band
 
 
-def _pose(**kv: tuple[float, float, float]) -> DetectionPose:
-    kpts = [(0.0, 0.0, 0.0)] * 17
-    idx = {"ls": L_SHOULDER, "rs": R_SHOULDER, "lh": L_HIP, "rh": R_HIP}
-    for name, value in kv.items():
-        kpts[idx[name]] = value
-    return DetectionPose(keypoints=kpts)
+def test_number_band_slices_the_named_fraction():
+    image = np.zeros((100, 40, 3), dtype=np.uint8)
+    band = number_band(image, lo=0.12, hi=0.50)
+    assert band.shape == (38, 40, 3)  # rows 12..49
 
 
-def test_torso_box_spans_shoulders_and_hips():
-    pose = _pose(ls=(30.0, 40.0, 0.9), rs=(70.0, 40.0, 0.9),
-                 lh=(35.0, 100.0, 0.9), rh=(65.0, 100.0, 0.9))
-    box = torso_box(pose, (200, 100), pad_frac=0.0)
-    assert box is not None
-    assert box.x1 == pytest.approx(30.0)
-    assert box.x2 == pytest.approx(70.0)
-    assert box.y1 == pytest.approx(40.0)
-    assert box.y2 == pytest.approx(100.0)
+def test_number_band_defaults_match_the_measured_sweep():
+    image = np.zeros((200, 60, 3), dtype=np.uint8)
+    band = number_band(image)
+    assert band.shape == (int(0.50 * 200) - int(0.12 * 200), 60, 3)
 
 
-def test_torso_box_is_clamped_to_the_crop():
-    pose = _pose(ls=(-50.0, -20.0, 0.9), rs=(500.0, -20.0, 0.9),
-                 lh=(-50.0, 400.0, 0.9), rh=(500.0, 400.0, 0.9))
-    box = torso_box(pose, (200, 100), pad_frac=0.5)
-    assert box is not None
-    assert box.x1 >= 0.0 and box.y1 >= 0.0
-    assert box.x2 <= 100.0 and box.y2 <= 200.0
-
-
-def test_low_confidence_keypoints_abstain():
-    """No torso means no read -- never a guessed region."""
-    pose = _pose(ls=(30.0, 40.0, 0.05), rs=(70.0, 40.0, 0.05),
-                 lh=(35.0, 100.0, 0.05), rh=(65.0, 100.0, 0.05))
-    assert torso_box(pose, (200, 100)) is None
-
-
-def test_degenerate_torso_abstains():
-    """All four keypoints collapsed onto a point is not a readable region."""
-    pose = _pose(ls=(50.0, 50.0, 0.9), rs=(50.0, 50.0, 0.9),
-                 lh=(50.0, 50.0, 0.9), rh=(50.0, 50.0, 0.9))
-    assert torso_box(pose, (200, 100), pad_frac=0.0) is None
+def test_number_band_degenerate_zero_height_returns_original():
+    image = np.zeros((0, 40, 3), dtype=np.uint8)
+    band = number_band(image)
+    assert band.shape == image.shape
 
 
 def test_read_before_prepare_is_loud():
@@ -65,6 +37,47 @@ def test_provenance_records_the_noncommercial_finetune():
     assert prov.license.code == "Apache-2.0"
     assert "NonCommercial" in prov.license.weights
     assert "hockey" in prov.lineage.lower()
+
+
+class _FakeLegibility:
+    def __init__(self, scores):
+        self._scores = scores
+
+    def score(self, crops):
+        return list(self._scores[: len(crops)])
+
+
+def _reader_with_fakes(scores, min_legibility=0.9):
+    reader = JerseyReader(min_legibility=min_legibility)
+    reader._model = object()  # bypass "prepare() not called" guard
+    reader._legibility = _FakeLegibility(scores)
+    reader._char_probs = lambda patch: np.full((3, 11), 1.0 / 11)  # stub
+    return reader
+
+
+class _Crop:
+    def __init__(self, frame_idx):
+        self.image = np.zeros((100, 40, 3), dtype=np.uint8)
+        self.frame_idx = frame_idx
+        self.quality = 0.5
+
+
+def test_crops_below_min_legibility_produce_no_read():
+    reader = _reader_with_fakes(scores=[0.2, 0.95])
+    reads = reader.read([_Crop(0), _Crop(1)])
+    assert len(reads) == 1
+    assert reads[0].frame_idx == 1
+
+
+def test_legibility_score_becomes_crop_read_legibility_not_crop_quality():
+    reader = _reader_with_fakes(scores=[0.97])
+    reads = reader.read([_Crop(0)])
+    assert reads[0].legibility == pytest.approx(0.97)
+
+
+def test_all_crops_gated_out_returns_empty_list_not_an_error():
+    reader = _reader_with_fakes(scores=[0.1, 0.2])
+    assert reader.read([_Crop(0), _Crop(1)]) == []
 
 
 class _FakeTokenizer:
