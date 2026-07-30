@@ -30,12 +30,22 @@
         "correct": 1,
         "idf1": 0.891,
         "idf1_gain": -0.0017
+      },
+      {
+        "seq": "SNMOT-127",
+        "role": "held_out",
+        "entities": 22,
+        "gt_tracks": 21,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9897,
+        "idf1_gain": 0.0
       }
     ],
     "pairs": 18,
     "correct": 15,
     "precision": 0.8333333333333334,
-    "mean_idf1": 0.8483333333333333
+    "mean_idf1": 0.883675
   },
   "two-pass@2.0": {
     "rows": [
@@ -68,11 +78,21 @@
         "correct": 0,
         "idf1": 0.8927,
         "idf1_gain": 0.0
+      },
+      {
+        "seq": "SNMOT-127",
+        "role": "held_out",
+        "entities": 22,
+        "gt_tracks": 21,
+        "pairs": 0,
+        "correct": 0,
+        "idf1": 0.9897,
+        "idf1_gain": 0.0
       }
     ],
     "pairs": 13,
     "correct": 12,
     "precision": 0.9230769230769231,
-    "mean_idf1": 0.8466666666666667
+    "mean_idf1": 0.882425
   }
 }

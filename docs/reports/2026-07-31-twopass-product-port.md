@@ -38,17 +38,22 @@ byte-identical across every arm.
 | **two-pass @ 2.0 (selected)** | 15 | 1 | 0.933 | 0.9096 |
 | two-pass @ <=1.0 | 16 | 2 | 0.875 | 0.9096 |
 
-**Held-out, scored once at 2.0 — replicates tuning:**
+**Held-out (SNMOT-124/125/126/127), scored once at 2.0 — replicates tuning:**
 
 | arm | merges | wrong | precision | mean IDF1 |
 |---|---|---|---|---|
-| pairwise | 18 | 3 | 0.833 | 0.8483 |
-| **two-pass @ 2.0** | 13 | 1 | **0.923** | 0.8467 |
+| pairwise | 18 | 3 | 0.833 | 0.8837 |
+| **two-pass @ 2.0** | 13 | 1 | **0.923** | 0.8824 |
+
+Per sequence: SNMOT-124 5p/5ok vs 7p/6ok; SNMOT-125 7p/7ok vs 8p/8ok; SNMOT-126 1p/0ok vs
+3p/1ok; SNMOT-127 both arms merge nothing (IDF1 0.9897 — the tracker already produced one
+tracklet per player, so there is no re-ID decision to make). SNMOT-127 was scored after the
+other three, at the same threshold; the threshold was not re-selected.
 
 ## The finding
 
 **Two-pass does not beat the incumbent on SNMOT. It ties it.** Mean IDF1 differs by 0.0016 on
-held-out and 0.0008 on tuning -- noise at n=3 and n=4. What it delivers at the same IDF1 is
+held-out and 0.0008 on tuning -- noise at n=4. What it delivers at the same IDF1 is
 **one wrong merge instead of three**, which is the trade the product's own invariant asks for:
 a silent player swap is worse than a temporarily unknown player.
 
@@ -79,7 +84,7 @@ exactly as predicted. The shipped default remains 4.0/2.0 because it was fitted,
 
 ## Limits
 
-- Validated on 3 held-out SNMOT sequences with oracle boxes. No phone footage, no long match.
+- Validated on 4 held-out SNMOT sequences with oracle boxes; on one of them (SNMOT-127) neither engine makes a single merge, so it carries no signal. No phone footage, no long match.
 - The fusion model is fitted on FOOTPASS with oracle pitch coordinates and oracle team labels.
 - The real test of accumulation needs footage with many tracklets per player. Nothing in the
   current benchmark set provides it.
