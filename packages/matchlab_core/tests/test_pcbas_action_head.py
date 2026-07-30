@@ -128,3 +128,72 @@ def test_feature_map_is_stride_8():
     m = ActionHead()
     feats = m.backbone_features(torch.zeros(1, 3, 4, 352, 640))
     assert feats.shape == (1, 192, 4, 44, 80)
+
+
+def test_temporal_transformer_shape():
+    from matchlab_core.pcbas.action_head import TemporalTransformer
+
+    block = TemporalTransformer(in_channels=8, d_model=16, out_channels=12,
+                                n_layers=1, n_heads=2, ff_dim=32, max_frames=10)
+    x = torch.randn(3, 8, 10)
+    mask = torch.ones(3, 10)
+    assert block(x, mask).shape == (3, 12, 10)
+
+
+def test_temporal_transformer_sees_the_whole_clip():
+    """The point of the change: a Conv1d(k=3) cannot, and this must.
+
+    Perturbing frame 0 has to alter the output at frame 9. Under the old 3-frame
+    receptive field it provably could not.
+    """
+    from matchlab_core.pcbas.action_head import TemporalTransformer
+
+    torch.manual_seed(0)
+    block = TemporalTransformer(in_channels=8, d_model=16, out_channels=12,
+                                n_layers=1, n_heads=2, ff_dim=32, max_frames=10).eval()
+    x = torch.randn(1, 8, 10)
+    mask = torch.ones(1, 10)
+    a = block(x, mask)
+    x2 = x.clone()
+    x2[0, :, 0] += 5.0
+    b = block(x2, mask)
+    assert not torch.allclose(a[0, :, 9], b[0, :, 9], atol=1e-6)
+
+
+def test_temporal_transformer_ignores_unobserved_frames():
+    """Pooled features are zeroed where the mask is 0 (~60% of cells).
+
+    Attention over those zeros would be attention over frames that were never
+    observed. Changing a masked frame's input must not change any output.
+    """
+    from matchlab_core.pcbas.action_head import TemporalTransformer
+
+    torch.manual_seed(0)
+    block = TemporalTransformer(in_channels=8, d_model=16, out_channels=12,
+                                n_layers=1, n_heads=2, ff_dim=32, max_frames=10).eval()
+    x = torch.randn(1, 8, 10)
+    mask = torch.ones(1, 10)
+    mask[0, 4:7] = 0.0
+    a = block(x, mask)
+    x2 = x.clone()
+    x2[0, :, 4:7] += 9.0
+    b = block(x2, mask)
+    torch.testing.assert_close(a, b)
+
+
+def test_temporal_transformer_survives_a_fully_absent_player():
+    """An all-masked sequence makes PyTorch attention return NaN.
+
+    A player observed in zero frames is ordinary -- players leave frame. The NaN
+    would propagate through the whole batch's gradient and present as an
+    unexplained training collapse, not as a masking bug.
+    """
+    from matchlab_core.pcbas.action_head import TemporalTransformer
+
+    block = TemporalTransformer(in_channels=8, d_model=16, out_channels=12,
+                                n_layers=1, n_heads=2, ff_dim=32, max_frames=10).eval()
+    x = torch.zeros(2, 8, 10)
+    mask = torch.ones(2, 10)
+    mask[1] = 0.0
+    out = block(x, mask)
+    assert torch.isfinite(out).all()

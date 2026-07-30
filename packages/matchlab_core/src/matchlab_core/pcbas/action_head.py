@@ -16,7 +16,8 @@ whose receptive field spans most of the frame.
       + upsample & concat with block 2 out    -> (B,192,T,44,80)   stride 8
     roi_align(4x2, scale 1/8) per player-frame
     x mask
-    Conv1d(192->512, k=3) + BN + GELU  (temporal)
+    Conv1d(192->512, k=3) + BN + GELU  (temporal="conv", the control)
+      or TemporalTransformer(192->256, L=4, ->512)  (temporal="transformer", PAVE)
     Linear(512, 9)
 
 Deviations from the reference, all deliberate:
@@ -31,12 +32,16 @@ Deviations from the reference, all deliberate:
 
 from __future__ import annotations
 
+from typing import Literal
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torchvision.ops import roi_align
 
 from matchlab_core.pcbas.schema import N_CLASSES
+
+TemporalKind = Literal["conv", "transformer"]
 
 FEATURE_CHANNELS = 192
 HIDDEN_CHANNELS = 512
@@ -93,10 +98,79 @@ def pool_player_features(
     return pooled * masks.unsqueeze(2)
 
 
+class TemporalTransformer(nn.Module):
+    """PAVE's stage-1 temporal stage: attention over the whole clip.
+
+    Replaces `Conv1d(192->512, k=3)`, whose receptive field is THREE FRAMES. An
+    action is defined by what surrounds it, and the measured symptom of that
+    narrow window is ours: more precise than the reference (0.357 vs 0.304) and
+    less than half as sensitive.
+
+    Cost is negligible -- this runs on ROI-pooled `(B*M, T, 192)` features, not
+    on video, so it is a rounding error beside the X3D pass.
+
+    Dropout 0.1 is OUR choice; the paper states stage-2 dropout but not stage-1.
+    """
+
+    def __init__(
+        self,
+        in_channels: int = FEATURE_CHANNELS,
+        d_model: int = 256,
+        out_channels: int = HIDDEN_CHANNELS,
+        n_layers: int = 4,
+        n_heads: int = 8,
+        ff_dim: int = 1024,
+        dropout: float = 0.1,
+        max_frames: int = 50,
+    ) -> None:
+        super().__init__()
+        self.input_proj = nn.Linear(in_channels, d_model)
+        self.positions = nn.Parameter(torch.zeros(max_frames, d_model))
+        nn.init.normal_(self.positions, std=0.02)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=n_heads,
+            dim_feedforward=ff_dim,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(layer, n_layers)
+        self.output_proj = nn.Linear(d_model, out_channels)
+
+    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+        """(N, C, T) pooled features + (N, T) observability -> (N, out, T)."""
+        t = x.shape[2]
+        observed = mask.bool()
+
+        # Unobserved frames are dropped as attention KEYS below, but a pre-norm
+        # residual would still carry their values through at their own position.
+        # `pool_player_features` already zeroes them, so this changes nothing in
+        # training -- it makes "an unobserved frame cannot influence any output"
+        # a property of this module rather than of its caller.
+        x = x * observed.unsqueeze(1).to(x.dtype)
+        h = self.input_proj(x.permute(0, 2, 1)) + self.positions[:t]
+
+        # A row with nothing observed would be an all-True key-padding mask, which
+        # makes attention return NaN. Those rows get an unmasked pass instead --
+        # their input is all zeros anyway, and the loss masks their cells out.
+        never_seen = ~observed.any(dim=1, keepdim=True)
+        pad = (~observed) & (~never_seen)
+
+        h = self.encoder(h, src_key_padding_mask=pad)
+        return self.output_proj(h).permute(0, 2, 1)
+
+
 class ActionHead(nn.Module):
     """(B,3,T,352,640) video + (B,M,T,5) ROIs + (B,M,T) masks -> (B, 9, M, T) logits."""
 
-    def __init__(self, n_classes: int = N_CLASSES, pretrained: bool = True) -> None:
+    def __init__(
+        self,
+        n_classes: int = N_CLASSES,
+        pretrained: bool = True,
+        temporal: TemporalKind = "conv",
+    ) -> None:
         super().__init__()
         x3d = torch.hub.load(
             "facebookresearch/pytorchvideo", "x3d_s", pretrained=pretrained
@@ -113,10 +187,14 @@ class ActionHead(nn.Module):
         self.merge_8_16 = nn.Conv3d(240, 192, (1, 3, 3), padding="same", bias=False)
         self.bn_8_16 = nn.BatchNorm3d(192)
 
-        self.temporal = nn.Conv1d(
-            FEATURE_CHANNELS, HIDDEN_CHANNELS, kernel_size=3, padding="same", bias=False
-        )
-        self.temporal_bn = nn.BatchNorm1d(HIDDEN_CHANNELS)
+        self.temporal_kind = temporal
+        if temporal == "conv":
+            self.temporal = nn.Conv1d(
+                FEATURE_CHANNELS, HIDDEN_CHANNELS, kernel_size=3, padding="same", bias=False
+            )
+            self.temporal_bn = nn.BatchNorm1d(HIDDEN_CHANNELS)
+        else:
+            self.temporal_transformer = TemporalTransformer()
         self.classifier = nn.Linear(HIDDEN_CHANNELS, n_classes)
 
     def backbone_features(self, video: Tensor) -> Tensor:
@@ -136,7 +214,13 @@ class ActionHead(nn.Module):
         features = self.backbone_features(video)
         pooled = pool_player_features(features, rois, masks)  # (B, M, C, T)
 
-        x = pooled.reshape(b * m, FEATURE_CHANNELS, -1)
-        x = F.gelu(self.temporal_bn(self.temporal(x)))  # (B*M, 512, T)
+        if self.temporal_kind == "conv":
+            x = pooled.reshape(b * m, FEATURE_CHANNELS, -1)
+            x = F.gelu(self.temporal_bn(self.temporal(x)))  # (B*M, 512, T)
+        else:
+            x = self.temporal_transformer(
+                pooled.reshape(b * m, FEATURE_CHANNELS, -1),
+                masks.reshape(b * m, -1),
+            )
         x = self.classifier(x.permute(0, 2, 1))  # (B*M, T, 9)
         return x.reshape(b, m, -1, x.shape[-1]).permute(0, 3, 1, 2)  # (B, 9, M, T)
