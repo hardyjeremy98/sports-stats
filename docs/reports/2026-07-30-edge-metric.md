@@ -1,5 +1,11 @@
 # Merge edges are now scored against the tracklet on the other end
 
+> **SUPERSEDED by `2026-07-31-repaired-headline.md`.** The appearance bug described
+> below has been repaired and everything re-measured: pass 1 is 97.45% precision at 69.38%
+> coverage. The verdict change described here is sound; its reported effect (+2.5 points) was
+> a property of the broken run and reverses on repaired data.
+
+
 > **ALL NUMBERS IN THIS REPORT ARE INVALID (found 2026-07-30, after publication).**
 > Appearance embeddings are cached per fragment INDEX in
 > `data/experiments/footpass-appearance/<key>/fragment_embeddings.pkl`, generated against

@@ -167,6 +167,38 @@ def corrupt_fragments(frags, embeddings: dict, c: Corruption):
 
 
 CACHE = Path("data/experiments/bootstrap-cache")
+# The fragmentation the appearance extractor was run at. `fragment_embeddings.pkl`
+# is keyed by position in THAT list, so any other setting must be remapped.
+APPEARANCE_GAP_FRAMES = 2
+
+
+def _base_fragments(key: str):
+    """Fragments at the fragmentation the appearance cache was built for."""
+    for name in (f"{key}-g{APPEARANCE_GAP_FRAMES}.pkl", f"{key}.pkl"):
+        p = CACHE / name
+        if p.exists():
+            return pickle.loads(p.read_bytes())[0]
+    return build_fragments(
+        load_half(VAL_H5, key),
+        max_gap_frames=APPEARANCE_GAP_FRAMES,
+        min_frames=50,
+        relative=True,
+    )
+
+
+def appearance_for(key: str, frags) -> dict:
+    """Embeddings indexed to `frags`, remapping across fragmentations if needed.
+
+    Reading the cache positionally at a different `max_gap_frames` is what
+    invalidated every figure published on 2026-07-30, so the mismatch is
+    repaired here rather than left to the caller to notice.
+    """
+    app = load_appearance(key) or {}
+    if not app or len(app) == len(frags):
+        return app
+    app = remap_appearance(frags, _base_fragments(key), app)
+    print(f"  remapped appearance for {key}: {len(app)}/{len(frags)} fragments")
+    return app
 
 
 def half_frames(key: str):
@@ -180,7 +212,7 @@ def half_frames(key: str):
     cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}.pkl"
     if cache.exists():
         frags, first_xy, last_xy = pickle.loads(cache.read_bytes())
-        return frags, first_xy, last_xy, (load_appearance(key) or {})
+        return frags, first_xy, last_xy, appearance_for(key, frags)
 
     half = load_half(VAL_H5, key)
     frags = build_fragments(
@@ -206,7 +238,42 @@ def half_frames(key: str):
 
     CACHE.mkdir(parents=True, exist_ok=True)
     cache.write_bytes(pickle.dumps((frags, first_xy, last_xy)))
-    return frags, first_xy, last_xy, (load_appearance(key) or {})
+    return frags, first_xy, last_xy, appearance_for(key, frags)
+
+
+def remap_appearance(frags, base_frags, base_app: dict) -> dict:
+    """Re-index positionally-keyed embeddings from one fragmentation onto another.
+
+    `fragment_embeddings.pkl` is keyed by position in the `max_gap_frames=2`
+    fragment list, so it cannot be used directly at any other setting. A coarser
+    span is by construction the union of consecutive finer spans of the SAME
+    player, so each coarse fragment's embedding is the frame-count-weighted mean
+    of the fine embeddings it contains -- exact re-indexing rather than an
+    approximation.
+
+    Containment is checked on player id as well as span. Two players occupy
+    overlapping frame ranges constantly, so matching on time alone would pool
+    strangers into one prototype.
+    """
+    by_player: dict[int, list] = {}
+    for j, g in enumerate(base_frags):
+        if j in base_app:
+            by_player.setdefault(int(g.player_id), []).append((g, base_app[j]))
+
+    out: dict[int, np.ndarray] = {}
+    for i, f in enumerate(frags):
+        acc, wt = None, 0.0
+        for g, emb in by_player.get(int(f.player_id), ()):
+            if g.start >= f.start and g.end <= f.end:
+                v = np.asarray(emb, dtype=float) * len(g.xs)
+                acc = v if acc is None else acc + v
+                wt += len(g.xs)
+        if acc is None or wt <= 0:
+            continue
+        mean = acc / wt
+        norm = float(np.linalg.norm(mean))
+        out[i] = mean / norm if norm > 1e-9 else mean
+    return out
 
 
 def check_appearance_alignment(frags, app) -> None:
@@ -221,15 +288,21 @@ def check_appearance_alignment(frags, app) -> None:
     wrong player, on the highest-weighted channel, and every published figure
     had to be withdrawn. Nothing detected it because nothing checked.
 
-    A length comparison is enough to catch the whole class: the embedding file
-    enumerates 0..N-1 for its own N.
+    The file enumerates 0..N-1 for its own N, so an out-of-range key proves it
+    was built for a different, longer fragment list. Note the converse is NOT an
+    error: after `remap_appearance` some fragments legitimately have no
+    embedding, and missing evidence is neutral rather than a fault (ADR 003).
+
+    This does not catch a same-length misalignment. The durable fix is to key
+    `fragment_embeddings.pkl` by (player_id, start, end) in the extractor, which
+    is not in this tree.
     """
-    if app and len(app) != len(frags):
+    if app and max(app) >= len(frags):
         raise ValueError(
-            f"appearance cache holds {len(app)} embeddings but there are "
+            f"appearance cache indexes fragment {max(app)} but there are only "
             f"{len(frags)} fragments -- it was generated for a different "
-            f"fragmentation. Regenerate it for MAX_GAP_FRAMES={MAX_GAP_FRAMES} "
-            f"rather than indexing across the two."
+            f"fragmentation. Remap it with remap_appearance() rather than "
+            f"indexing across the two (MAX_GAP_FRAMES={MAX_GAP_FRAMES})."
         )
 
 

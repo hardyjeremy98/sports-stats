@@ -1,5 +1,10 @@
 # Re-ID measured on tracker-shaped tracklets — the earlier headline was inflated
 
+> **SUPERSEDED by `2026-07-31-repaired-headline.md`.** Repaired, the tracker-shaped
+> substrate is NOT harder than the 80 ms one -- the apparent difficulty was entirely the
+> appearance indexing bug. The central claim of this report is withdrawn.
+
+
 > **ALL `max_gap_frames=30` FIGURES HERE ARE INVALID (found 2026-07-30).** Appearance
 > embeddings are cached by fragment index against the `max_gap_frames=2` fragmentation and
 > were read positionally by the g30 runs, so only **58.3%** of tracklets got an embedding from

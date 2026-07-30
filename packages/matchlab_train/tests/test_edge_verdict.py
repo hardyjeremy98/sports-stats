@@ -85,6 +85,56 @@ def test_misaligned_appearance_cache_is_rejected():
     frags = [object()] * 3
     check_appearance_alignment(frags, {})  # no embeddings at all is fine
     check_appearance_alignment(frags, {0: 1, 1: 2, 2: 3})
+    # Post-remap gaps are neutral, not a fault (ADR 003).
+    check_appearance_alignment(frags, {0: 1, 2: 3})
 
     with pytest.raises(ValueError, match="different fragmentation"):
         check_appearance_alignment(frags, {i: i for i in range(5)})
+
+
+class _Frag:
+    def __init__(self, player_id, start, end, n):
+        self.player_id, self.start, self.end = player_id, start, end
+        self.xs = np.zeros(n)
+
+
+def test_remap_pools_only_the_same_players_contained_spans():
+    """Coarse spans are unions of fine spans of ONE player.
+
+    Matching on time alone would pool strangers: players occupy overlapping
+    frame ranges constantly, so player identity is part of containment.
+    """
+    from matchlab_train.experiments.bootstrap_threads import remap_appearance
+
+    base = [
+        _Frag(7, 0, 99, 100),      # inside the coarse span, right player
+        _Frag(7, 200, 299, 100),   # inside, right player
+        _Frag(9, 0, 99, 100),      # inside, WRONG player
+        _Frag(7, 900, 999, 100),   # right player, outside the span
+    ]
+    base_app = {0: [1.0, 0.0], 1: [0.0, 1.0], 2: [-1.0, 0.0], 3: [0.0, -1.0]}
+    coarse = [_Frag(7, 0, 299, 300)]
+
+    out = remap_appearance(coarse, base, base_app)
+
+    # Equal frame counts, so the mean of (1,0) and (0,1), normalised.
+    assert np.allclose(out[0], [2 ** -0.5, 2 ** -0.5])
+
+
+def test_remap_weights_by_frame_count():
+    from matchlab_train.experiments.bootstrap_threads import remap_appearance
+
+    base = [_Frag(1, 0, 29, 30), _Frag(1, 50, 59, 10)]
+    base_app = {0: [1.0, 0.0], 1: [0.0, 1.0]}
+    out = remap_appearance([_Frag(1, 0, 59, 40)], base, base_app)
+
+    expected = np.array([30.0, 10.0]) / 40.0
+    assert np.allclose(out[0], expected / np.linalg.norm(expected))
+
+
+def test_remap_skips_fragments_with_no_source():
+    from matchlab_train.experiments.bootstrap_threads import remap_appearance
+
+    base = [_Frag(1, 0, 9, 10)]
+    out = remap_appearance([_Frag(2, 0, 9, 10)], base, {0: [1.0, 0.0]})
+    assert out == {}
