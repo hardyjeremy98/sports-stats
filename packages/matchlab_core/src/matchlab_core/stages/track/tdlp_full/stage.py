@@ -27,6 +27,7 @@ from matchlab_core.provenance import LicenseAxes, ModelProvenance
 from matchlab_core.registry import register
 from matchlab_core.schemas import FrameDetections, Tracklet
 from matchlab_core.schemas.run import ArtifactName, StageKind
+from matchlab_core.stages.track._assembly import assign_classes_by_overlap
 from matchlab_core.stages.track.tdlp_full import bridge
 
 
@@ -35,6 +36,12 @@ class Params(BaseModel):
     # resolved relative to it, so a non-default location only needs this set.
     # None → auto-resolve as a sibling of the lab repo (move/rename-resilient).
     external_root: str | None = None
+    # MOT has no class column, so the external tracker cannot return a
+    # detection's class. Recover it by matching tracklet boxes back to the input
+    # detections. False restores the pre-2026-07-30 behaviour, where every
+    # tracklet arrived as PLAYER and the referee exclusion / goalkeeper handling
+    # downstream were silently inert.
+    recover_detection_class: bool = True
     # Per-venv python interpreters (relative to external_root).
     camel_python: str = "CAMELTrack/.venv/bin/python"
     tdlp_python: str = "TDLP/.venv/bin/python"
@@ -269,6 +276,15 @@ class TdlpFullTracker(Tracker):
                 "reported success but wrote nothing — check the run's _tdlp_work."
             )
         tracklets = bridge.parse_tracker_output(mot_file, layout.local_to_source)
+        # MOT has no class column, so every tracklet returns as PLAYER whatever
+        # it was detected as. Recover it from the input detections, which do
+        # carry the class -- without this the referee exclusion in
+        # reid_engine.eligible() and the goalkeeper confidence discount in both
+        # team classifiers are dead code (SNMOT-118: 641 goalkeeper + 749
+        # referee detections in, 25 uniformly-`player` tracklets out, and a
+        # referee merged into a player's thread as that run's only wrong merge).
+        if params.recover_detection_class:
+            tracklets = assign_classes_by_overlap(tracklets, detections)
         prog(f"TDLP-full: {len(tracklets)} tracklets")
 
         # Persist the bridge's per-frame KPR embeddings + pose keypoints as the

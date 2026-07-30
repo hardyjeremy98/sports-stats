@@ -158,3 +158,58 @@ def assemble_tracklets(
         for tid, frames in sorted(frames_by_track.items())
         if len(frames) >= min_length
     ]
+
+
+def _iou(a: Box, b: Box) -> float:
+    ix1, iy1 = max(a.x1, b.x1), max(a.y1, b.y1)
+    ix2, iy2 = min(a.x2, b.x2), min(a.y2, b.y2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = (a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def assign_classes_by_overlap(
+    tracklets: list[Tracklet],
+    detections: list[FrameDetections],
+    *,
+    min_iou: float = 0.5,
+) -> list[Tracklet]:
+    """Recover each tracklet's detection class by matching its boxes back.
+
+    Trackers reached through the MOT exchange (`tdlp-full`) lose the class: MOT
+    has no class column, so every tracklet returns as PLAYER however it was
+    detected. On SNMOT-118 that turned 641 goalkeeper and 749 referee detections
+    into 25 uniformly-`player` tracklets, which silently disabled the referee
+    exclusion in `reid_engine.eligible()` and the goalkeeper confidence discount
+    in both team classifiers — and cost a referee merged into a player's thread,
+    that run's only wrong merge.
+
+    The in-repo trackers do not need this: they carry the source detection index
+    through `update()` and vote on it directly (see `SOURCE_INDEX_KEY` above).
+    Only the ones that round-trip through a format without a class column do.
+
+    Majority vote rather than first-match, because per-frame detector class is
+    noisy and one stray label should not flip a whole tracklet. A tracklet whose
+    frames match nothing keeps the class it arrived with: no evidence is a reason
+    to leave it alone, not to invent a label.
+    """
+    by_frame: dict[int, list] = {fd.frame_idx: fd.detections for fd in detections}
+    out: list[Tracklet] = []
+    for tl in tracklets:
+        votes: Counter = Counter()
+        for tf in tl.frames:
+            best, best_cls = min_iou, None
+            for det in by_frame.get(tf.frame_idx, ()):
+                score = _iou(tf.box, det.box)
+                if score >= best:
+                    best, best_cls = score, det.cls
+            if best_cls is not None:
+                votes[best_cls] += 1
+        if votes:
+            # Deterministic under ties: most_common alone is insertion-ordered.
+            top = max(votes.values())
+            cls = sorted(c for c, n in votes.items() if n == top)[0]
+            out.append(tl.model_copy(update={"cls": cls}))
+        else:
+            out.append(tl)
+    return out

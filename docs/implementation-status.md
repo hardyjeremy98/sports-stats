@@ -920,6 +920,27 @@ Measured local findings recorded by the repository guidance:
   impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
   `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
   No shipped default was changed.
+- **Goalkeepers and referees were never separated for re-ID: `tdlp-full` loses the detection
+  class (2026-07-30; report
+  [`2026-07-30-detection-class-recovery.json`](reports/2026-07-30-detection-class-recovery.json)).**
+  The stage hands detections to the external tracker as MOT and reads MOT back, and **MOT has no
+  class column**, so every tracklet returned as `player` however it was detected. On SNMOT-118:
+  641 goalkeeper and 749 referee detections in, 25 uniformly-`player` tracklets out. That
+  silently disabled `reid_engine.eligible()`'s referee exclusion and the goalkeeper confidence
+  discount in both team classifiers — **both were dead code in every shipped re-ID run** — and
+  cost a referee merged into a player's identity thread, that run's only wrong merge.
+  `_assembly.py::assign_classes_by_overlap` now recovers the class by matching tracklet boxes
+  back to the input detections and majority-voting (behind `recover_detection_class`, default
+  true). **Measured on 4 SNMOT clips: better on 2, unchanged on 2, worse on 0.** Where it fires
+  the win is clean — SNMOT-120 goes IDF1 0.924 → 0.938, entity purity 0.948 → 0.963, merge
+  precision 7/9 → 7/8 (one wrong merge removed, no correct merge lost). The two unchanged clips
+  already had merge precision 1.0, so there was nothing to prevent. Pooled over 3 clips
+  IDF1 +0.005. **The goalkeeper gate below contributed nothing on any clip** — a three-way split
+  on SNMOT-118 attributes the entire effect to class recovery. ⚠️ **All runs use ORACLE
+  detection.** The referee exclusion is a hard gate on a classifier output, exactly the pattern
+  the 2026-07-28 gate-vs-score work found dangerous; with a real detector a player misclassified
+  as a referee is silently dropped from re-ID with no report row. Unmeasured, and the main open
+  risk here.
 - **The team gate discarded the one signal that flags a goalkeeper (2026-07-30).** Both team
   classifiers halve a goalkeeper's confidence (`conf *= 0.5`, `stages/team/kit_color.py:95`,
   `siglip.py:128`) because a third kit is a nearest-cluster guess between two team clusters.

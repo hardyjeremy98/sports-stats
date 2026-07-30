@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+from matchlab_core.schemas.detections import DetectionClass
 from matchlab_core.schemas.geometry import Box
 from matchlab_core.stages.track.tdlp.loop import (
     FeatureSpec,
@@ -44,13 +45,16 @@ class _FakeProximityModel:
         return logits.unsqueeze(0), {}
 
 
-def _obj(x: float, y: float, conf: float = 0.95) -> dict:
+def _obj(x: float, y: float, conf: float = 0.95, cls=None) -> dict:
     # bbox feature = [x, y, w, h, conf] with normalized coords; box for output.
-    return {
+    d = {
         "bbox": [x, y, 0.05, 0.1, conf],
         "bbox_conf": conf,
         "box": Box(x1=x, y1=y, x2=x + 0.05, y2=y + 0.1),
     }
+    if cls is not None:
+        d["cls"] = cls
+    return d
 
 
 def _tracker(**kw) -> TDLPTracker:
@@ -112,6 +116,39 @@ def test_new_tracklet_requires_confidence_threshold():
     # ... but a high-confidence one does
     frames_hi = [(0, [_obj(0.5, 0.5, conf=0.95)])]
     assert len(_tracker().track_clip(frames_hi, min_length=1)) == 1
+
+
+def test_tracklet_class_is_the_majority_of_its_detections_not_hardcoded():
+    """The tracker used to stamp every tracklet `DetectionClass.PLAYER`,
+    discarding the detector's class entirely.
+
+    That silently disabled two things downstream. `reid_engine.eligible()`
+    excludes referees from merging by checking `cls == REFEREE` — dead code if
+    no tracklet is ever a referee. And both team classifiers halve a
+    goalkeeper's confidence by checking `cls == GOALKEEPER` — never triggered,
+    so keepers received full-confidence team labels and vetoed merges on a
+    coin-flip. Measured on SNMOT-118: detections carried 641 goalkeeper and 749
+    referee boxes, and all 25 output tracklets came out `player`.
+
+    `iou.py` and `_assembly.py` already vote by majority; this brings the
+    shipped tracker in line.
+    """
+    frames = [
+        (0, [_obj(0.20, 0.5, cls=DetectionClass.GOALKEEPER)]),
+        (1, [_obj(0.25, 0.5, cls=DetectionClass.GOALKEEPER)]),
+        (2, [_obj(0.30, 0.5, cls=DetectionClass.PLAYER)]),  # one dissenting frame
+    ]
+    tracklets = _tracker().track_clip(frames, min_length=1)
+    assert len(tracklets) == 1
+    assert tracklets[0].cls == DetectionClass.GOALKEEPER
+
+
+def test_tracklet_class_defaults_to_player_when_detections_carry_none():
+    """Older callers build object dicts without a class; they must keep working
+    and keep the previous behaviour rather than crash."""
+    frames = [(0, [_obj(0.2, 0.5)]), (1, [_obj(0.25, 0.5)])]
+    tracklets = _tracker().track_clip(frames, min_length=1)
+    assert tracklets[0].cls == DetectionClass.PLAYER
 
 
 def test_min_length_drops_short_tracks():

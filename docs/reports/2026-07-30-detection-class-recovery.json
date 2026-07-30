@@ -1,0 +1,47 @@
+{
+  "question": "Are goalkeepers and referees separated for the sake of re-ID, and does fixing it move the metrics?",
+  "finding": "They were not. `tdlp-full` hands detections to an external tracker as MOT and reads MOT back; MOT has no class column, so every tracklet returned as PLAYER however it was detected. That silently disabled the referee exclusion in reid_engine.eligible() and the goalkeeper confidence discount in both team classifiers.",
+  "evidence_of_the_defect": {
+    "SNMOT-118": {
+      "detections": {"player": 8739, "goalkeeper": 641, "referee": 749, "ball": 790},
+      "tracklets_before": {"player": 25},
+      "tracklets_after": {"player": 21, "goalkeeper": 1, "referee": 3},
+      "wrong_merge_before": "entity [10, 30] -> GT tracks {13, 14}, roles {player, referee} — the run's ONLY wrong merge",
+      "wrong_merge_after": "none; the surviving merge [25,27] -> GT track 23 is correct"
+    }
+  },
+  "fixes": [
+    "matchlab_core/stages/track/_assembly.py::assign_classes_by_overlap — recover a tracklet's class by matching its boxes back to the input detections and taking the majority. Wired into tdlp_full/stage.py behind `recover_detection_class` (default true).",
+    "matchlab_core/reid/gates.py::TeamConsistencyGate — takes per-tracklet team confidences and abstains below `team_min_confidence` (default 0.5), so a goalkeeper's halved-confidence guess no longer vetoes a merge.",
+    "matchlab_core/stages/track/tdlp/loop.py — the in-repo TDLP tracker hardcoded cls=PLAYER; now majority-votes like iou.py and _assembly.py. NOTE this path is not used by the reid config."
+  ],
+  "protocol": "oracle detect + tdlp-full track + kit-color team + pnlcalib calibrate + reid-engine associate, on SoccerNet SNMOT clips (30 s each). BEFORE arm sets recover_detection_class=false and team_min_confidence=0.0.",
+  "per_clip": {
+    "SNMOT-118": {"classes_after": {"player": 21, "goalkeeper": 1, "referee": 3},
+                  "idf1_entity": [0.972, 0.972], "entity_purity": [0.9797, 0.9923],
+                  "hota_entity": [0.9695, 0.9750], "merge_precision": [0.5, 1.0],
+                  "identity_coverage": [0.609, 0.583], "idsw_entity": [11, 12]},
+    "SNMOT-120": {"classes_after": {"player": 30, "goalkeeper": 1, "referee": 2},
+                  "idf1_entity": [0.924, 0.938], "entity_purity": [0.9482, 0.9627],
+                  "hota_entity": [0.9338, 0.9423], "merge_precision": [0.778, 0.875],
+                  "identity_coverage": [0.640, 0.615], "idsw_entity": [64, 64]},
+    "SNMOT-123": {"classes_after": {"player": 20, "goalkeeper": 1, "referee": 1},
+                  "note": "no metric changed; merge_precision was already 1.0 so there was no wrong merge to prevent"},
+    "SNMOT-125": {"classes_after": {"player": 28, "goalkeeper": 2, "referee": 3},
+                  "note": "no metric changed; merge_precision was already 1.0"}
+  },
+  "pooled_over_120_123_125": {
+    "idf1_entity": [0.8887, 0.8933], "hota_entity": [0.9007, 0.9036],
+    "entity_purity": [0.9056, 0.9104], "merge_precision": [0.9260, 0.9583],
+    "identity_coverage": [0.6990, 0.6907], "idsw_entity": [50.67, 50.67],
+    "win_loss": "better on 1/3 clips, worse on 0/3"
+  },
+  "attribution": "On SNMOT-118 the three-way split (baseline / +class recovery / +class recovery +goalkeeper gate) shows ALL of the effect comes from class recovery. The goalkeeper gate contributed nothing on any clip measured — it is correct but has not yet been shown to earn its place.",
+  "verdict": "Improved 2 of 4 clips, unchanged on 2, regressed on 0. Where it fires the win is clean: on SNMOT-120 one wrong merge removed with no correct merge lost (7/9 -> 7/8). Pooled effect is small (+0.005 IDF1) because two clips had no wrong merge to prevent.",
+  "caveats": [
+    "All runs use ORACLE detection, so class labels are perfect. The referee exclusion is a hard gate on a classifier output — the pattern the 2026-07-28 gate-vs-score work concluded is dangerous, since a hard constraint inherits the error rate of whatever estimates it. With a real detector, a player misclassified as a referee is silently dropped from re-ID with no report row. UNMEASURED and the main open risk.",
+    "30-second broadcast clips have a far denser referee presence per minute than a full match.",
+    "Clips were chosen for having goalkeepers and referees, which biases toward showing an effect (though every SNMOT clip contains both).",
+    "n=4 clips; merge_precision on SNMOT-118 is 1-of-1 vs 1-of-2 and is not a meaningful rate."
+  ]
+}

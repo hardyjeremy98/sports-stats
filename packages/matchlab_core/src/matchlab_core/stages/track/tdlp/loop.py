@@ -26,7 +26,7 @@ job and is left untouched.
 from __future__ import annotations
 
 import enum
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -353,8 +353,20 @@ class TDLPTracker:
                 )
                 for obs in frames_hist
             ]
+            # Majority class over the tracklet's own detections, matching
+            # iou.py and _assembly.py. This was hardcoded to PLAYER, which
+            # silently disabled the referee exclusion in reid_engine.eligible()
+            # and the goalkeeper confidence discount in both team classifiers --
+            # neither can fire if no tracklet is ever anything but a player.
+            votes = Counter(
+                obs.data["cls"] for obs in frames_hist if obs.data.get("cls") is not None
+            )
             out.append(
-                Tracklet(tracklet_id=next_out_id, cls=DetectionClass.PLAYER, frames=tl_frames)
+                Tracklet(
+                    tracklet_id=next_out_id,
+                    cls=votes.most_common(1)[0][0] if votes else DetectionClass.PLAYER,
+                    frames=tl_frames,
+                )
             )
             next_out_id += 1
         return out

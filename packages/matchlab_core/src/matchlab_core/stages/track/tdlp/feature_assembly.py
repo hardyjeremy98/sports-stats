@@ -70,6 +70,7 @@ def build_object_data(
     use_keypoints: bool = True,
     use_appearance: bool = True,
     appearance_dim: int = 384,
+    cls=None,
 ) -> dict:
     """Assemble one detection's ObjectData for the loop. Always carries the raw
     ``box`` (for TrackletFrame output) and ``bbox_conf`` (for gating)."""
@@ -78,6 +79,10 @@ def build_object_data(
         "bbox_conf": float(confidence),
         "box": box,
     }
+    if cls is not None:
+        # Carried through so the tracklet can take its detections' majority
+        # class; downstream referee exclusion and goalkeeper handling key on it.
+        data["cls"] = cls
     if use_keypoints:
         data["keypoints"] = flatten_keypoints(keypoints, width, height)
     if use_appearance:

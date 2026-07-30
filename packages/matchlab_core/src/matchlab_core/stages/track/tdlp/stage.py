@@ -188,6 +188,7 @@ class TdlpShippableTracker(Tracker):
                         use_keypoints=p.use_keypoints,
                         use_appearance=p.use_appearance,
                         appearance_dim=appearance_dim,
+                        cls=d.cls,
                     )
                 )
             frames.append((fd.frame_idx, objects_data))
