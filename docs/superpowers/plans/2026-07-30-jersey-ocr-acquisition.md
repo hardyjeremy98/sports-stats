@@ -82,13 +82,18 @@ import json; d = json.load(open('data/soccernet/jersey/test/groundtruth.json'))
 print(len(d), 'tracklets;', sum(v == -1 for v in d.values()), 'illegible')"
 ```
 
-### Correction this forces to the plan
+### Layout — verified against the artifact (2026-07-31)
 
-The real layout is `test/groundtruth.json` and `test/image/<tracklet_id>/`. **Task 4's loader in
-the plan assumes `test/test_gt.json` and `test/images/<id>/`** — both names are wrong. Task 4 must
-be amended to the real layout before it is implemented; its unit test uses `tmp_path` and would
-otherwise pass happily against a fixture that mirrors the wrong names, which is exactly the trap
-of testing your own assumption.
+The download arrives as an **unextracted `jersey-2023/test.zip`** (1.1 GB, 565,763 files), so it
+needs `unzip -o test.zip -d data/soccernet/jersey/`.
+
+Inside, the real layout is `test/images/<tracklet_id>/<id>_<n>.jpg` and `test/test_gt.json`,
+mapping tracklet id → number with `-1` for illegible. 1,211 tracklets, 355 illegible.
+
+**This is exactly what Task 4's loader in the plan already assumes — no amendment needed.** An
+earlier revision of this document claimed the layout was `groundtruth.json` + `image/` and that
+Task 4 was wrong. That claim came from the sn-jersey README, which does not match what the
+downloader actually delivers. Retracted: the plan was right and the README was wrong.
 
 ---
 

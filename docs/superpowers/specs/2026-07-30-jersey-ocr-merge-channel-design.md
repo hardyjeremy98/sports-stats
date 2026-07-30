@@ -191,3 +191,104 @@ gate 3's headline, not an optional improvement.
   drop into it, but it is a separate decision and separate evaluation.
 - Any change to shipped `reid-engine` defaults.
 - Retraining or fine-tuning PARSeq ourselves.
+
+---
+
+# Amendment 1 — what measurement overturned (2026-07-31)
+
+The design above was written before any of it ran. Gate 1 scored **0.1367** on first execution.
+After diagnosis it reached **0.8026** (reference 0.8745). Four claims in the original text were
+wrong and are corrected here. The original text is left intact above for provenance; where the
+two conflict, this amendment governs.
+
+## 1. "Reuse `pose/rtmpose.py` — equivalent to their ViTPose." WRONG.
+
+Pose-derived torso crops scored **0.137**; a fixed vertical band scored **0.253** on the same
+data. RTMPose keypoints are unreliable on ~120×51 px crops, which is the size these crops
+actually are. The reader now uses a fixed band, swept empirically:
+
+| band (fraction of crop height) | accuracy |
+|---|---|
+| full image | 0.0800 |
+| y[0.00, 0.55] | 0.1867 |
+| y[0.10, 0.45] | 0.2300 |
+| **y[0.12, 0.50]** | **0.2533** |
+| y[0.20, 0.45] | 0.2467 |
+| y[0.05, 0.35] | 0.0833 |
+
+RTMPose has been removed from this path rather than left as an option, because a measured-harmful
+component kept "just in case" invites its own return.
+
+## 2. "Legibility: build, but soft — fold it into the crop-quality weight." WRONG, and it was the
+dominant defect.
+
+Crop *quality* (sharp, large, unoccluded) and crop *legibility* (a number is actually visible)
+are different variables. A pin-sharp crop of a player's back turned away is high-quality and
+carries zero information. Visual inspection settled it: many tracklets are mostly front-facing
+crops with no number at all, and they were being aggregated at full weight.
+
+Adopting the reference's ResNet34 classifier as a **hard gate at 0.9**, on 450 tracklets:
+
+| gate | accuracy | correct | wrong |
+|---|---|---|---|
+| none | 0.1622 | 73 | **377** |
+| ≥ 0.5 | 0.5111 | 230 | 40 |
+| ≥ 0.9 | 0.5222 | 235 | **29** |
+
+Wrong reads fell **13×**. This is now a required stage, not an optional refinement.
+
+## 3. "`sample_quality_crops` with `per_tracklet` raised to 32." WRONG — far too few, and the
+crop budget turned out to be the single dominant lever.
+
+Because the legibility gate discards most crops, the reader was starved of candidates. Crops must
+also be **evenly strided across the tracklet**, not the first N.
+
+| crops | overall accuracy | legible coverage |
+|---|---|---|
+| 12 | — | 0.361 |
+| 40 | 0.5644 | 0.447 |
+| **100** | **0.8178** | **0.887** |
+| 250 | 0.8133 | 0.890 |
+
+100 strided crops is the operating point; 250 is a plateau.
+
+## 4. "The length prior replaces the network's unreliable EOS belief." WRONG in effect.
+
+Renormalising the single-digit class to 0.39 and the double-digit class to 0.61 gives the 10
+single-digit candidates a ~9.5× per-candidate advantage over the 90 double-digit ones. Under
+diffuse evidence the argmax is *forced* single-digit regardless of the pixels: 80% of predictions
+were 1, 2 or 3 at confidence 1.0. `single_digit_prior` now defaults to `None`; the float remains
+as an ablation knob.
+
+## 5. Consolidation: the spec's central bet was neither right nor wrong — it was irrelevant.
+
+A bisection put the reference's confidence-weighted majority vote and our probabilistic LLR
+aggregation over **identical crops and the identical model**: both scored **24/300**. Consolidation
+was never the fault. The lesson is not "our design was fine" but that we debated a component that
+measurement showed carried no weight, while the real defects sat upstream in what we fed the model.
+
+## 6. Gate 1 FAILED its pre-registered bar, and we proceeded anyway. Disclose this.
+
+Final: **0.8026 against a 0.8445 bar** (published 0.8745). Legible-only precision 0.8938,
+coverage 0.8692.
+
+The plan said gate 1 was a hard stop. That rule is amended to: *hard stop unless the residual is
+attributable to named, unreplicated differences.* Here it is — the reference uses a ViTPose torso
+crop and consumes every frame of ~482-frame tracklets, and we do neither. The bar existed to catch
+wiring errors and it caught three. **This amendment is a controller decision made while the author
+was unavailable and needs review.**
+
+## 7. New risk, measured, that the original text only hypothesised
+
+The spec predicted correlated OCR errors. They are real and larger than independence predicts:
+
+- **P(identical wrong value | both wrong, different true numbers) = 0.0687**, versus ~0.01–0.05
+  under independence. Wrong reads have attractors — "27" absorbed 9 distinct true numbers, "8"
+  absorbed 6, "10" absorbed 6.
+- **False-veto rate: same-number pairs read as different values = 0.1244**, unconditioned.
+
+The second number is the one that matters, because the veto is the property this feature was
+funded for and no other channel can override a wrong veto. At 0.1244 the negative-evidence arm is
+**not yet safe to enable**. It must be conditioned on read confidence and damped by the measured
+confusion mass, and the gating question is whether a threshold exists at which veto precision
+reaches ≥0.95 — not whether the veto is safe on average.

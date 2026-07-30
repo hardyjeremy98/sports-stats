@@ -1,0 +1,14 @@
+{
+  "created": "2026-07-31",
+  "dataset": "soccernet-jersey",
+  "notes": [
+    "SoccerNet jersey-number recognition (sn-jersey, Koshkina & Elder CVPRW 2024). Different shape from every other tier in this directory: this scores per-TRACKLET jersey-number classification (correct/wrong/abstained vs test_gt.json, see jersey_reader_gate.py), not box/track IDF1/HOTA or timed events.",
+    "GATE-1-ONLY tier: this data exists to reproduce the published 87.45% tracklet accuracy figure on the data it was published on, before matchlab_core.ocr.parseq.JerseyReader is trusted on SNMOT/SportsMOT crops for anything downstream. It is not a 'tuning' or 'held_out' role tier in the usual sense -- there is exactly one split (test) and it is never used for threshold calibration, only for the one-shot reproduction check.",
+    "Acquisition (already done for this repo, recorded here for provenance): the sn-jersey test split (github.com/SoccerNet/sn-jersey) is on disk at data/soccernet/jersey/test/, containing test_gt.json (tracklet id -> jersey number, -1 for illegible) and images/<tracklet_id>/<n>.jpg crops. 1,211 tracklets, 355 with GT -1 (illegible). Loaded via matchlab_train.datasets.soccernet_jersey.load_jersey_tracklets.",
+    "The PARSeq checkpoint (data/weights/parseq-jersey.ckpt) was fine-tuned on this same SoccerNet jersey data (plus McGill hockey data), so any accuracy measured here is a reproduction/wiring check, NOT an independent accuracy estimate -- train-adjacency is recorded in every gate-1 report.json and must never be dropped when the number is quoted elsewhere.",
+    "Licensing posture: research/non-commercial, same as soccernet.json and sportsmot.json -- provenance fact, not a capability gate (CLAUDE.md)."
+  ],
+  "sequences": [],
+  "source_split": "test",
+  "tier": "jersey"
+}

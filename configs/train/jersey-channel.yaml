@@ -1,0 +1,20 @@
+# Gate 3 (SPO jersey-ocr merge channel, task 5): does the jersey-OCR channel
+# improve re-identification on real match footage (SNMOT fragments), not just
+# the curated SoccerNet jersey reader benchmark (gate 1)? See
+# packages/matchlab_train/src/matchlab_train/experiments/jersey_channel.py.
+name: jersey-channel
+task: jersey-channel
+description: >
+  Pairwise jersey-LLR channel measured on GT-fragmented SNMOT clips: reader
+  precision/coverage on this substrate, ROC-AUC, zero-wrong merge frontier,
+  pairs-touched fraction, veto-precision-vs-threshold curve, and the
+  both-flat do-no-harm check.
+params:
+  clips_dir: data/videos/soccernet
+  max_clips: 32
+  base_config: configs/pipeline.baseline-observe.yaml
+  checkpoint: data/weights/parseq-jersey.ckpt
+  device: cuda
+  min_legibility: 0.9
+  per_tracklet_crops: 100
+output_dir: data/experiments
