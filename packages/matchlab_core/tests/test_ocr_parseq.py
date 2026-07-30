@@ -68,15 +68,14 @@ def test_provenance_records_the_noncommercial_finetune():
 
 
 class _FakeTokenizer:
-    def __init__(self, itos):
-        self.itos = itos
+    def __init__(self, itos, eos_id=0):
+        self._itos = itos
+        self.eos_id = eos_id
 
 
 class _FakeModel:
-    def __init__(self, itos, eos_idx=None):
-        self.tokenizer = _FakeTokenizer(itos)
-        if eos_idx is not None:
-            self.tokenizer.eos_idx = eos_idx
+    def __init__(self, itos, eos_id=0):
+        self.tokenizer = _FakeTokenizer(itos, eos_id=eos_id)
 
     def eval(self):
         return self
@@ -84,7 +83,7 @@ class _FakeModel:
     def to(self, device):
         return self
 
-    def load_state_dict(self, state):
+    def load_state_dict(self, state, strict=True):
         pass
 
 
@@ -112,3 +111,19 @@ def test_bad_tokenizer_mapping_raises_loudly(monkeypatch):
 
     with pytest.raises(RuntimeError, match="(?i)digit|tokenizer|mapping"):
         reader.prepare()
+
+
+def test_lightning_state_dict_gains_the_model_prefix():
+    """The checkpoint's `state_dict` keys are bare (`pos_queries`), but the
+    hub-loaded LightningModule's own state_dict keys are `model.*` (it wraps
+    the net as `self.model`) -- loading the checkpoint unprefixed matches
+    zero keys, so every bare key must gain the `model.` prefix."""
+    from matchlab_core.ocr.parseq import _add_lightning_prefix
+
+    raw = {"pos_queries": 1, "encoder.pos_embed": 2, "model.already_prefixed": 3}
+    prefixed = _add_lightning_prefix(raw)
+    assert prefixed == {
+        "model.pos_queries": 1,
+        "model.encoder.pos_embed": 2,
+        "model.already_prefixed": 3,
+    }

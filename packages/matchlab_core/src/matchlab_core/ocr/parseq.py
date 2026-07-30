@@ -19,13 +19,21 @@ TOKENIZER MAPPING -- the single worst failure mode in this module is a wrong
 digit/EOS column mapping: it produces confident, plausible-looking, wrong
 jersey readings, and every downstream measurement is then unattributable
 garbage. `prepare()` therefore never assumes a fixed tokenizer layout. It
-derives the digit columns and the EOS column by looking them up in the
-loaded tokenizer's index->character mapping at runtime, and refuses loudly
-(`RuntimeError`) if that mapping does not look as expected -- a missing
-digit, non-distinct digit columns, or an EOS column that collides with a
-digit column. No probe of the real fine-tuned checkpoint has been run yet
-(the checkpoint is not available in this environment); the runtime check
-below is what stands in for that probe's confirmation.
+derives the digit columns by looking each digit character up in the loaded
+tokenizer's `_itos` index->character mapping at runtime, reads the EOS column
+from the tokenizer's own `eos_id`, and refuses loudly (`RuntimeError`) if the
+mapping does not look as expected -- a missing digit, a digit character
+appearing more than once, or an EOS column that collides with a digit column.
+
+Confirmed against the real fine-tuned checkpoint by probe (2026-07-31, see
+`.superpowers/sdd/2026-07-30-jersey-ocr-merge-channel/parseq-probe-output.md`):
+`tok._itos[:14] == ['[E]', '0', '1', ..., '9', 'a', 'b', 'c']`, EOS column 0,
+digit columns 1..10, forward output (1, 26, 95). One correction to the
+probe's own stated conclusion, made empirically against the real checkpoint
+in fix round 1: the checkpoint's `state_dict` keys are BARE (`pos_queries`),
+while the hub-loaded `PARSeq` LightningModule's own state_dict keys are
+`model.*` (it wraps the net as `self.model`) -- so the checkpoint's keys
+must GAIN a `model.` prefix before `load_state_dict`, not lose one.
 """
 
 from __future__ import annotations
@@ -87,44 +95,59 @@ def torso_box(
     )
 
 
-def _resolve_digit_and_eos_columns(itos: list[str]) -> tuple[list[int], int]:
-    """Derive digit columns 0..9 and the EOS column from a tokenizer's
-    index->character mapping, failing loudly rather than assuming a layout.
+def _resolve_digit_and_eos_columns(itos: list[str], eos_col: int) -> tuple[list[int], int]:
+    """Derive digit columns 0..9 from a tokenizer's index->character mapping
+    (`_itos`), failing loudly rather than assuming a layout. `eos_col` is
+    read from the tokenizer itself (`eos_id`), not inferred.
 
     Raises `RuntimeError` naming what was found vs. what was expected when:
-    a digit is missing from the mapping, the ten digit columns are not
-    distinct, or the resolved EOS column collides with a digit column.
+    a digit character is missing from the mapping, a digit character appears
+    more than once in the mapping (so "the digit column" is ambiguous), or
+    the given EOS column collides with a resolved digit column.
     """
     missing = [str(d) for d in range(DIGITS) if str(d) not in itos]
     if missing:
         raise RuntimeError(
             f"PARSeq tokenizer mapping is missing digit character(s) {missing} "
-            f"-- expected '0'..'9' each to appear once in itos, got: {itos!r}."
+            f"-- expected '0'..'9' each to appear in itos, got: {itos!r}."
+        )
+    duplicated = [str(d) for d in range(DIGITS) if itos.count(str(d)) > 1]
+    if duplicated:
+        raise RuntimeError(
+            f"PARSeq tokenizer mapping has duplicate digit character(s) "
+            f"{duplicated} in itos -- a digit's column is ambiguous: "
+            f"itos={itos!r}."
         )
     digit_cols = [itos.index(str(d)) for d in range(DIGITS)]
-    if len(set(digit_cols)) != DIGITS:
-        raise RuntimeError(
-            f"PARSeq tokenizer mapping does not give distinct digit columns: "
-            f"resolved columns {digit_cols} for digits 0..9 from itos={itos!r}."
-        )
-
-    # Prefer an explicit EOS token name from the tokenizer if it exposes one;
-    # PARSeq's stock tokenizer uses the literal "[E]" for end-of-sequence.
-    eos_col = None
-    for eos_name in ("[E]", "<eos>", "EOS", "[EOS]"):
-        if eos_name in itos:
-            eos_col = itos.index(eos_name)
-            break
-    if eos_col is None:
-        eos_col = 0  # PARSeq's documented convention reserves index 0 for EOS.
 
     if eos_col in digit_cols:
         raise RuntimeError(
-            f"PARSeq tokenizer mapping's EOS column ({eos_col}) collides with a "
+            f"PARSeq tokenizer's EOS column ({eos_col}) collides with a "
             f"digit column: resolved digit columns {digit_cols} from "
             f"itos={itos!r}. Refusing to guess an EOS index."
         )
     return digit_cols, eos_col
+
+
+def _add_lightning_prefix(state_dict: dict) -> dict:
+    """Add one leading `model.` to every key that doesn't already have it.
+
+    Named for the fix-round-1 probe's framing (a Lightning-wrapper prefix
+    mismatch), but the direction is the opposite of that probe's stated
+    conclusion. Empirically (verified against the real checkpoint, see the
+    fix-round-1 report): `torch.hub.load("baudm/parseq", "parseq", ...)`
+    returns `strhub.models.parseq.system.PARSeq`, a LightningModule whose
+    *own* state_dict keys are `model.*` (it wraps the actual net as
+    `self.model`), while `data/weights/parseq-jersey.ckpt`'s `state_dict`
+    keys are bare (`pos_queries`, not `model.pos_queries`) -- i.e. the
+    checkpoint holds `LightningModule.model.state_dict()`, not
+    `LightningModule.state_dict()`. So the checkpoint's keys must gain the
+    prefix to match what `model.load_state_dict` expects, not lose one.
+    """
+    return {
+        (key if key.startswith("model.") else f"model.{key}"): value
+        for key, value in state_dict.items()
+    }
 
 
 class JerseyReader:
@@ -144,16 +167,26 @@ class JerseyReader:
         except ImportError as exc:
             raise RuntimeError(
                 "The PARSeq jersey reader needs torch and the parseq hub repo "
-                "(Apache-2.0 code, CC BY-NC weights; neither is a declared "
-                "dependency): supply them per invocation with "
-                "`uv run --with torch --with timm ...`."
+                "(Apache-2.0 code, CC BY-NC weights; none are declared "
+                "dependencies): supply them per invocation with `uv run "
+                "--with torch --with timm --with pytorch_lightning --with nltk ...` "
+                "-- baudm/parseq's hubconf refuses to load without "
+                "pytorch_lightning and nltk present."
             ) from exc
         model = torch.hub.load("baudm/parseq", "parseq", pretrained=False, trust_repo=True)
-        state = torch.load(self.checkpoint, map_location="cpu")
-        model.load_state_dict(state.get("state_dict", state))
+        # weights_only=False: this is a full Lightning training checkpoint
+        # (optimizer states, callbacks, ...), not a bare weights-only file --
+        # torch>=2.6 defaults to weights_only=True and refuses to unpickle it.
+        # Trusted because the checkpoint is a locally-provisioned research
+        # artifact (data/weights/), never a network-fetched file.
+        state = torch.load(self.checkpoint, map_location="cpu", weights_only=False)
+        raw_state_dict = state.get("state_dict", state)
+        state_dict = _add_lightning_prefix(raw_state_dict)
+        model.load_state_dict(state_dict, strict=True)
         model.eval().to(device)
-        itos = list(model.tokenizer.itos)
-        self._digit_cols, self._eos_col = _resolve_digit_and_eos_columns(itos)
+        tok = model.tokenizer
+        itos = list(tok._itos)
+        self._digit_cols, self._eos_col = _resolve_digit_and_eos_columns(itos, tok.eos_id)
         self._model = model
         self._device = device
         self._pose.prepare(device=device)
