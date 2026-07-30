@@ -920,6 +920,21 @@ Measured local findings recorded by the repository guidance:
   impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
   `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
   No shipped default was changed.
+- **The team gate discarded the one signal that flags a goalkeeper (2026-07-30).** Both team
+  classifiers halve a goalkeeper's confidence (`conf *= 0.5`, `stages/team/kit_color.py:95`,
+  `siglip.py:128`) because a third kit is a nearest-cluster guess between two team clusters.
+  `TeamConsistencyGate` read only the LABEL, so a 0.25-confidence guess vetoed a merge exactly
+  as hard as a 0.99-confidence outfielder — which is the goalkeeper merged across teams in the
+  2026-07-26 smoke triage (SPO-75). The gate now takes per-tracklet confidences and abstains
+  below `team_min_confidence` (default 0.5), per ADR 003's "unusable evidence is neutral, never
+  a veto". **The threshold separates the populations exactly on real runs**: across 12 SNMOT
+  runs, all 27 goalkeeper assignments fall in [0.265, 0.495] and all 588 outfielder assignments
+  in [0.507, 0.990]. Replaying both gate versions over those runs' 20,107 candidate pairs: of
+  8,337 old vetoes, **758 now abstain, 100% of them goalkeeper pairs**. **Not validated end to
+  end** — no run on disk combines goalkeeper tracklets with the `reid-engine` associator (the
+  7 reid-engine runs have 0 goalkeepers; the 12 runs with goalkeepers use the incumbent
+  associator), so the downstream merge effect is unmeasured. Set `team_min_confidence: 0.0` to
+  restore the old behaviour.
 - **The calibrator was destroying more evidence than position added; accumulation and the
   combiner are the real levers (2026-07-28; FOOTPASS val, 3 matches × 2 halves, 3-fold match
   rotation; report

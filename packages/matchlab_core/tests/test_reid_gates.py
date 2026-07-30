@@ -55,6 +55,50 @@ def test_team_gate_vetoes_known_opponents_only():
     assert gate.check(a, e) is None
 
 
+def test_team_gate_abstains_when_the_classifier_says_it_is_guessing():
+    """A goalkeeper wears a third kit, so it is roughly equidistant from both
+    team clusters and the classifier halves its own confidence to say so
+    (`conf *= 0.5` in both kit_color.py and siglip.py). The gate used to read
+    only the LABEL, so a 0.25-confidence guess vetoed exactly as hard as a
+    0.99-confidence outfielder -- which is how a goalkeeper came to be merged
+    across teams in the 2026-07-26 smoke triage (SPO-75).
+
+    Abstention on weak evidence is ADR 003: missing or unusable evidence is
+    neutral, never a veto.
+    """
+    gate = TeamConsistencyGate(
+        {1: Team.HOME, 2: Team.AWAY},
+        confidence_by_tracklet={1: 0.97, 2: 0.24},
+        min_confidence=0.5,
+    )
+    keeper = _tracklet(2, 20, 30)
+    assert gate.check(_tracklet(1, 0, 10), keeper) is None
+
+
+def test_team_gate_still_vetoes_when_both_sides_are_confident():
+    """The fix must not disarm the gate -- two confidently-opposed outfielders
+    are still a cannot-link."""
+    gate = TeamConsistencyGate(
+        {1: Team.HOME, 2: Team.AWAY},
+        confidence_by_tracklet={1: 0.97, 2: 0.88},
+        min_confidence=0.5,
+    )
+    assert (
+        gate.check(_tracklet(1, 0, 10), _tracklet(2, 20, 30))
+        == AssociationRejectReason.TEAM_MISMATCH
+    )
+
+
+def test_team_gate_without_confidences_behaves_exactly_as_before():
+    """Callers that supply no confidences (and every existing test) must be
+    unaffected: absent confidence means 'not measured', not 'weak'."""
+    gate = TeamConsistencyGate({1: Team.HOME, 2: Team.AWAY}, min_confidence=0.5)
+    assert (
+        gate.check(_tracklet(1, 0, 10), _tracklet(2, 20, 30))
+        == AssociationRejectReason.TEAM_MISMATCH
+    )
+
+
 # --- motion feasibility: sharp short-gap bound -----------------------------
 
 

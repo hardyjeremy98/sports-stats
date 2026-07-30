@@ -45,19 +45,51 @@ class TemporalOverlapGate:
 
 
 class TeamConsistencyGate:
-    """Veto pairs whose team assignments are both known and different.
-    UNKNOWN (or missing) assignments are neutral evidence, never a veto —
-    abstention posture per ADR 003."""
+    """Veto pairs whose team assignments are both known, confident and different.
 
-    def __init__(self, team_by_tracklet: dict[int, Team]):
+    UNKNOWN (or missing) assignments are neutral evidence, never a veto —
+    abstention posture per ADR 003.
+
+    A LOW-CONFIDENCE assignment is neutral for the same reason. Goalkeepers wear
+    a third kit, so they sit roughly equidistant from both team clusters, and
+    both classifiers say so by halving their own confidence (`conf *= 0.5` in
+    `stages/team/kit_color.py` and `siglip.py`). That signal used to be computed
+    and then discarded here — the gate read only the label, so a 0.25-confidence
+    guess vetoed exactly as hard as a 0.99-confidence outfielder. A goalkeeper
+    merged across teams in the 2026-07-26 smoke triage (SPO-75) is that defect.
+
+    Because outfield confidence is bounded below at 0.5 in both classifiers
+    (`min(0.99, 0.5 + margin)` and `max(frac, 1 - frac)`) while a halved
+    goalkeeper score is bounded above by it, a threshold of 0.5 separates the
+    two populations exactly. It is a parameter rather than a constant so it can
+    be tuned or disabled (0.0 restores the old label-only behaviour).
+
+    Absent confidence means "not measured", not "weak", so callers that supply
+    none are unaffected.
+    """
+
+    def __init__(
+        self,
+        team_by_tracklet: dict[int, Team],
+        confidence_by_tracklet: dict[int, float] | None = None,
+        *,
+        min_confidence: float = 0.0,
+    ):
         self.team_by_tracklet = team_by_tracklet
+        self.confidence_by_tracklet = confidence_by_tracklet or {}
+        self.min_confidence = min_confidence
+
+    def _trusted(self, tracklet_id: int) -> bool:
+        conf = self.confidence_by_tracklet.get(tracklet_id)
+        return conf is None or conf >= self.min_confidence
 
     def check(self, first: Tracklet, second: Tracklet) -> AssociationRejectReason | None:
         ta = self.team_by_tracklet.get(first.tracklet_id, Team.UNKNOWN)
         tb = self.team_by_tracklet.get(second.tracklet_id, Team.UNKNOWN)
         known = (Team.HOME, Team.AWAY)
         if ta in known and tb in known and ta != tb:
-            return AssociationRejectReason.TEAM_MISMATCH
+            if self._trusted(first.tracklet_id) and self._trusted(second.tracklet_id):
+                return AssociationRejectReason.TEAM_MISMATCH
         return None
 
 

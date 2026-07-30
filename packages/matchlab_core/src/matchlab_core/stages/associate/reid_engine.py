@@ -128,6 +128,12 @@ class Params(BaseModel):
     gmc_downscale: int = 2
     # Calibration rows below this confidence are ignored (never a dependency).
     calibration_min_confidence: float = 0.5
+    # Team assignments below this confidence do not veto a merge. Both
+    # classifiers halve a goalkeeper's confidence because a third kit is a
+    # nearest-cluster guess, and outfield confidence is bounded below at 0.5, so
+    # this threshold separates the two populations exactly. 0.0 restores the old
+    # label-only behaviour.
+    team_min_confidence: float = 0.5
     # Anchor layer (SPO-56). "oracle-jersey" derives anchors from the video's
     # GT jersey identities (benchmark only; GT is consumed here and by the
     # roster builder, never as a perception input); "face" is the registered
@@ -161,6 +167,7 @@ class ReidEngineAssociator(Associator):
     ) -> list[PlayerEntity]:
         p = self.params
         team_by_tid = {t.tracklet_id: t.team for t in teams}
+        team_conf_by_tid = {t.tracklet_id: t.confidence for t in teams}
 
         reps: dict = {}
         if ctx.store.exists(ArtifactName.FRAME_FEATURES):
@@ -217,7 +224,11 @@ class ReidEngineAssociator(Associator):
             tracklets,
             gates=[
                 TemporalOverlapGate(p.overlap_tolerance_frames),
-                TeamConsistencyGate(team_by_tid),
+                TeamConsistencyGate(
+                    team_by_tid,
+                    team_conf_by_tid,
+                    min_confidence=p.team_min_confidence,
+                ),
                 MotionFeasibilityGate(
                     fps=ctx.video.fps,
                     max_speed_px_s=p.max_speed_px_s,
