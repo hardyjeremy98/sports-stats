@@ -18,13 +18,20 @@ bridges short absences with its motion buffer and only surrenders a track after 
 second, so the units re-ID is actually handed are much coarser, and the re-links it is asked to
 make are the ones the tracker could *not* close.
 
-Cutting at 80 ms therefore mixed a large population of trivially easy re-links — same position,
-same appearance, negligible gap — into the merge set. Rebuilding the fragments with a 1.2 s
-buffer folds those inside the tracklets and leaves only genuine re-identifications.
+Cutting at 80 ms therefore mixed trivially easy re-links — same position, same appearance,
+negligible gap — into the merge set. Rebuilding the fragments with a 1.2 s buffer folds those
+inside the tracklets and leaves only genuine re-identifications.
 
-The gap histogram alone understated the problem. Only 2.7% of required merges had sub-second
-gaps (median 8.08 s, p90 44.1 s), which looked reassuring — but the easy cases were not merely
-the sub-second ones, they were everything the buffer absorbs.
+**Correction (2026-07-30): "easy re-links were diluting the average" does not explain the drop
+and is withdrawn as the cause.** The 1.2 s buffer removes only **575 required merges — 4.4%**
+of 13,016. Even assuming every one of them was easy and would have been merged correctly,
+removing them takes precision from 96.63% to 96.44%, not to 88.31%. And wrong merges *rose*
+from 359 to 1,314: **955 new errors appeared**, which deleting easy cases cannot do.
+
+The coarser substrate did not merely remove easy wins, it created hard failures. The mechanism
+is not established. Untested suspects: bridged spans change the tracklets themselves (longer,
+fewer, spanning discontinuous observations), and the refit moved the weights substantially --
+the transition channel rose 6x.
 
 ## The correction
 

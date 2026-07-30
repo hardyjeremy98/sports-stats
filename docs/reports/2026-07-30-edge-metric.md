@@ -57,7 +57,8 @@ It remains tuned on the superseded 80 ms substrate and mis-tuned here; the sweep
 - GT observability spans, GT team gate, oracle pitch coordinates. Tracker-shaped in *units*
   (1.24 s buffer), not in error: no detection failures, no ID switches inside a tracklet, no
   team-classifier error.
-- `min_frames=25` drops every span under 1 s from both numerator and denominator. This is
-  95.1% over tracklets of at least 1 s.
+- `min_frames=50` drops every span under **2 s** from both numerator and denominator. This is
+  95.1% over tracklets of at least 2 s. (An earlier draft of this report said 1 s, reading the
+  function default rather than the call site.)
 - Calibrators and weights are fitted on other matches under oracle threading, so the fitting
   distribution is cleaner than the evaluation one. Read as optimistic.
