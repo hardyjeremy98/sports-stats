@@ -20,6 +20,7 @@ import numpy as np
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.reid.evidence import LLRCalibrator, fit_fusion_weights
 from matchlab_core.reid.frontier import merge_counts
+from matchlab_core.reid.frontier import sweep as frontier_sweep
 from matchlab_core.reid.jersey import (
     crop_number_logprobs,
     number_prior,
@@ -171,23 +172,33 @@ def main() -> None:
     print(f"[stage-b] fitted fusion weights (body, jersey): {fit_weights.tolist()}")
     fused_weighted = fuse_weighted(body_llr, jersey_llr, fit_weights)
 
-    # --- do-no-harm ---
-    checked_sum = assert_do_no_harm(body_llr, jersey_llr, fused_sum)
-    checked_w = assert_do_no_harm(
-        body_llr, jersey_llr, fused_weighted, body_scale=float(fit_weights[0])
-    )
-    print(f"[stage-b] do-no-harm OK on {checked_sum} (sum) / {checked_w} (weighted) zero-jersey pairs")
-
-    # --- held-out metrics ---
+    # --- held-out slices (do-no-harm and every downstream metric are scored
+    # on held-out ONLY -- the tuning half never contributes to a reported
+    # number) ---
     def held(d: dict) -> dict:
         return {(a, b): v for (a, b), v in d.items() if a[0] in held_clips}
 
     held_labels = {k: v for k, v in labels.items() if k[0] in held_clips}
+    held_body_llr = held(body_llr)
+    held_jersey_llr = held(jersey_llr)
+    held_fused_sum = held(fused_sum)
+    held_fused_weighted = held(fused_weighted)
+
+    # --- do-no-harm, held-out pairs only ---
+    checked_sum = assert_do_no_harm(held_body_llr, held_jersey_llr, held_fused_sum)
+    checked_w = assert_do_no_harm(
+        held_body_llr, held_jersey_llr, held_fused_weighted, body_scale=float(fit_weights[0])
+    )
+    print(
+        f"[stage-b] do-no-harm OK on {checked_sum} (sum) / {checked_w} (weighted) "
+        "held-out zero-jersey pairs"
+    )
+
     arms = {
-        "body_only": held(body_llr),
-        "jersey_only": held(jersey_llr),
-        "fused_sum": held(fused_sum),
-        "fused_weighted": held(fused_weighted),
+        "body_only": held_body_llr,
+        "jersey_only": held_jersey_llr,
+        "fused_sum": held_fused_sum,
+        "fused_weighted": held_fused_weighted,
     }
 
     def roc_auc(scores: dict) -> float | None:
@@ -212,60 +223,80 @@ def main() -> None:
         pos_rank_sum = sum(ranks[k] for k, yy in enumerate(y) if yy)
         return float((pos_rank_sum - len(pos) * (len(pos) + 1) / 2.0) / (len(pos) * len(neg)))
 
-    def threshold_table(scores: dict, n: int = 20) -> list[dict]:
-        vals = list(scores.values())
-        if not vals:
-            return []
-        lo, hi = min(vals), max(vals)
-        if lo == hi:
-            thresholds = [lo]
-        else:
-            thresholds = list(np.linspace(lo, hi, n))
-        return [
-            {
-                "threshold": float(t),
-                **{
-                    k: v
-                    for k, v in merge_counts(scores, held_labels, threshold=t).items()
-                    if k in ("correct", "wrong")
-                },
-            }
-            for t in thresholds
-        ]
+    def exact_curve(scores: dict) -> list[tuple[float, int, int]]:
+        """Exact prefix scan (`frontier.sweep(...).curve()`): the (score,
+        cumulative-correct, cumulative-wrong) triple at EVERY distinct
+        admitted score, not an interpolated grid. A linear grid of 20-200
+        points can straddle the exact point where `correct` increments --
+        measured to understate jersey-only's zero-wrong yield 14x (1 vs the
+        true 14) and fused's by 1 (49 vs the true 50); this is the fix."""
+        sw = frontier_sweep(scores, held_labels)
+        return sw.curve()
 
-    def matched_budget(scores: dict, budgets: list[int]) -> dict:
-        table = threshold_table(scores, n=200)
+    def exact_budget(curve: list[tuple[float, int, int]], budgets: list[int]) -> dict:
         out = {}
         for b in budgets:
-            afford = [r for r in table if r["wrong"] <= b]
-            out[str(b)] = max(afford, key=lambda r: r["correct"]) if afford else {"correct": 0, "wrong": 0}
+            best = {"correct": 0, "wrong": 0, "threshold": None}
+            for score, correct, wrong in curve:
+                if wrong <= b and correct > best["correct"]:
+                    best = {"correct": correct, "wrong": wrong, "threshold": float(score)}
+            out[str(b)] = best
         return out
 
+    def downsampled_table(curve: list[tuple[float, int, int]], n: int = 20) -> list[dict]:
+        """Display-only: n evenly-spaced EXACT points from the real curve
+        (not interpolated thresholds) so the report stays readable."""
+        if not curve:
+            return []
+        idxs = sorted(set(np.linspace(0, len(curve) - 1, min(n, len(curve))).astype(int).tolist()))
+        return [
+            {"threshold": float(curve[i][0]), "correct": curve[i][1], "wrong": curve[i][2]}
+            for i in idxs
+        ]
+
     report: dict = {"n_tune_clips": len(tune_clips), "n_held_clips": len(held_clips)}
+    curves = {}
     for name, scores in arms.items():
+        curve = exact_curve(scores)
+        curves[name] = curve
         report[name] = {
             "n_pairs": len(scores),
             "roc_auc": roc_auc(scores),
-            "threshold_table": threshold_table(scores),
-            "matched_wrong_budget": matched_budget(scores, [0, 5, 10, 20]),
+            "threshold_table": downsampled_table(curve),
+            "matched_wrong_budget": exact_budget(curve, [0, 5, 10, 20]),
         }
 
-    body_scores_held = arms["body_only"]
-    best_body_t = None
-    best_body_correct = -1
-    for row in report["body_only"]["threshold_table"]:
-        if row["wrong"] == 0 and row["correct"] > best_body_correct:
-            best_body_correct = row["correct"]
-            best_body_t = row["threshold"]
-    if best_body_t is None and report["body_only"]["threshold_table"]:
-        best_body_t = min(r["threshold"] for r in report["body_only"]["threshold_table"])
+    # --- veto impact: body's OWN exact zero-wrong frontier (falls back to
+    # its most permissive admitted score if body has no zero-wrong point) ---
+    body_curve = curves["body_only"]
+    zero_wrong = [c for c in body_curve if c[2] == 0]
+    if zero_wrong:
+        best_body_t = float(max(zero_wrong, key=lambda c: c[1])[0])
+    else:
+        best_body_t = float(min(c[0] for c in body_curve)) if body_curve else 0.0
 
     report["veto_impact_body_to_fused"] = veto_impact(
-        body_scores_held, held(fused_sum), held_labels, body_threshold=best_body_t or 0.0
+        arms["body_only"], arms["fused_sum"], held_labels, body_threshold=best_body_t
     )
     report["body_best_threshold_used_for_veto"] = best_body_t
+    report["body_has_zero_wrong_point"] = bool(zero_wrong)
+
+    # --- per-clip spread of fused's zero-wrong merges: which clips actually
+    # contribute correct merges at the winning threshold, not just a pooled
+    # count (a headline concentrated in 1-2 clips would be a weaker result) ---
+    fused_zero_wrong_threshold = report["fused_sum"]["matched_wrong_budget"]["0"]["threshold"]
+    per_clip_merges: dict[str, int] = defaultdict(int)
+    if fused_zero_wrong_threshold is not None:
+        mc = merge_counts(arms["fused_sum"], held_labels, threshold=fused_zero_wrong_threshold)
+        for a, b in mc["merged"]:
+            if held_labels.get(a) == held_labels.get(b):
+                per_clip_merges[a[0]] += 1
+    report["fused_sum_zero_wrong_per_clip"] = dict(sorted(per_clip_merges.items()))
+    report["fused_sum_zero_wrong_clips_represented"] = f"{len(per_clip_merges)}/{len(held_clips)}"
+    report["fused_sum_zero_wrong_max_in_one_clip"] = max(per_clip_merges.values(), default=0)
 
     report["do_no_harm"] = {
+        "note": "checked on HELD-OUT pairs only (16 held clips), not the full 32-clip pool",
         "checked_pairs_sum_arm": checked_sum,
         "checked_pairs_weighted_arm": checked_w,
     }
@@ -275,9 +306,14 @@ def main() -> None:
     OUT_PATH.write_text(json.dumps(report, indent=2))
     print(f"[stage-b] wrote {OUT_PATH}")
 
-    print("=== HEADLINE (held-out, ROC-AUC) ===")
+    print("=== HEADLINE (held-out, ROC-AUC and exact zero-wrong yield) ===")
     for name in arms:
-        print(f"  {name}: AUC={report[name]['roc_auc']}")
+        zw = report[name]["matched_wrong_budget"]["0"]["correct"]
+        print(f"  {name}: AUC={report[name]['roc_auc']}, correct@wrong=0: {zw}")
+    print(
+        f"[stage-b] fused_sum zero-wrong spread: {report['fused_sum_zero_wrong_clips_represented']} "
+        f"clips, max {report['fused_sum_zero_wrong_max_in_one_clip']} in one clip"
+    )
 
 
 if __name__ == "__main__":
