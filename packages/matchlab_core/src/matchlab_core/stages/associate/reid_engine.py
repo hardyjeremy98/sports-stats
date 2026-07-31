@@ -263,11 +263,15 @@ class Params(BaseModel):
     # near-saturated body match clears the merge line by up to
     # 12.20 - 4.0 = 8.20 nats of margin. Capping jersey's swing at
     # 1.0 * 6.0 = 6.0 nats keeps it strictly below that margin (with ~2.2 nats
-    # of headroom), so jersey evidence can tip a marginal pair (near the 4.0 /
-    # 2.0 thresholds) but can never by itself drag a near-saturated body match
-    # below the line -- the same no-absolute-veto invariant as the pairwise
-    # channel, derived from this path's own thresholds instead of borrowing
-    # the similarity-band number.
+    # of headroom).
+    #
+    # THIS GUARANTEE IS TAIL-ONLY. It protects a near-saturated (~12.2 nat)
+    # body-alone match from being vetoed outright -- it says nothing about
+    # pairs sitting in the realistic 4.0-10.2 nat range above the merge line,
+    # where a full +-6-nat jersey swing CAN flip the decision either way.
+    # That is jersey's actual purpose (tip a marginal or moderately-confident
+    # pair), not a bug; don't read "bounded-influence" as "safe across the
+    # whole range" when reasoning about this weight elsewhere.
     jersey_weight_twopass: float = 1.0
 
 

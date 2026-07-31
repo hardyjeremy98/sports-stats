@@ -209,7 +209,12 @@ def _pool_jersey(a: np.ndarray | None, b: np.ndarray | None) -> np.ndarray | Non
     prod = a * b
     s = float(prod.sum())
     if s <= 0.0:
-        return a  # degenerate (hard contradiction already saturated elsewhere)
+        # Zero-support product (e.g. two disjoint one-hot reads): keep `a`
+        # rather than raise or flatten. This silently drops `b`'s reading
+        # rather than surfacing the contradiction -- acceptable because a
+        # confident hard contradiction is *also* visible in pair_llr's own
+        # saturated negative output wherever this pooled belief is compared.
+        return a
     return prod / s
 
 

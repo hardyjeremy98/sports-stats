@@ -5,12 +5,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from matchlab_core.reid.evidence import LLRCalibrator
+from matchlab_core.reid.jersey import N_NUMBERS, uniform_prior
 from matchlab_core.reid.twopass import (
     FusionModel,
     TrackletEvidence,
+    _pool_jersey,
     members_disjoint,
     merge_threads_two_pass,
 )
+
+
+def _peaked(n: int, mass: float = 0.999) -> np.ndarray:
+    v = np.full(N_NUMBERS, (1.0 - mass) / (N_NUMBERS - 1))
+    v[n] = mass
+    return v
 
 START = np.array([0, 50, 100, 150, 200, 60])
 END = np.array([10, 60, 110, 160, 210, 105])
@@ -173,3 +181,98 @@ def test_model_round_trips_through_json():
 
 def test_empty_input():
     assert merge_threads_two_pass([], model=_model(), min_score=0.0).groups == []
+
+
+# --- _pool_jersey (jersey-evidence accumulation, fix round 1) -----------------
+
+
+def test_pool_jersey_uniform_times_peaked_is_peaked():
+    """A flat (abstaining) side is neutral: pooling with it must not reshape
+    the other side's belief -- same do-no-harm convention as `pair_llr`."""
+    peaked = _peaked(7)
+    pooled = _pool_jersey(uniform_prior(), peaked)
+    assert np.allclose(pooled, peaked, atol=1e-9)
+    assert pooled.sum() == pytest.approx(1.0)
+
+
+def test_pool_jersey_none_handling():
+    peaked = _peaked(7)
+    assert _pool_jersey(None, peaked) is peaked
+    assert _pool_jersey(peaked, None) is peaked
+    assert _pool_jersey(None, None) is None
+
+
+def test_pool_jersey_degenerate_contradiction_keeps_a():
+    """Two disjoint one-hot reads have zero product support (the s<=0 branch).
+
+    Documents the actual fallback: `a` (the accumulated side) is kept and
+    `b`'s reading is silently dropped rather than raising -- see the
+    comment on `_pool_jersey` for why that's acceptable (the contradiction
+    is still visible wherever this pooled belief is later compared via
+    `pair_llr`, which saturates to a strong negative rather than staying
+    silent)."""
+    one_hot_a = np.zeros(N_NUMBERS)
+    one_hot_a[3] = 1.0
+    one_hot_b = np.zeros(N_NUMBERS)
+    one_hot_b[9] = 1.0
+    assert _pool_jersey(one_hot_a, one_hot_b) is one_hot_a
+
+
+def test_pool_jersey_agreeing_reads_sharpen_the_pooled_belief():
+    """Two independent agreeing reads should concentrate MORE mass on the
+    shared number than either read alone -- this is what "accumulation"
+    means for jersey evidence across a growing thread."""
+    once = _peaked(7)
+    twice = _pool_jersey(once, _peaked(7))
+    assert twice[7] > once[7]
+
+
+# --- three-tracklet threads (fix round 1: the untested accumulation path) ----
+
+
+def test_three_tracklet_thread_accumulates_jersey_evidence_and_merges():
+    """Pass 1 pools jersey evidence across EVERY member added to a thread so
+    far, not just the newest -- so a third tracklet's decision is scored
+    against two prior agreeing reads, not one. Appearance alone is kept
+    provably too weak to merge (min_score above the single-channel max of
+    LOG_CLAMP * body_weight = 6.0), so any merge below can only be jersey's
+    accumulated contribution."""
+    a = [1.0, 0.0]
+    ev = [_ev(1, 0, 10, a), _ev(2, 20, 30, a), _ev(3, 40, 50, a)]
+    model = _model()  # weights={"body": 1.0}, no other calibrators
+
+    body_only = merge_threads_two_pass(ev, model=model, min_score=8.0, pass2_score=None)
+    assert sorted(body_only.groups) == [[1], [2], [3]]
+
+    jersey = {1: _peaked(7), 2: _peaked(7), 3: _peaked(7)}
+    fused = merge_threads_two_pass(
+        ev, model=model, min_score=8.0, pass2_score=None,
+        jersey_likelihood_by_tid=jersey, jersey_prior=uniform_prior(), jersey_weight=1.0,
+    )
+    assert [1, 2, 3] in fused.groups
+
+
+def test_three_tracklet_uniform_jersey_is_bit_identical_to_disabled():
+    """Extends the pairwise bit-identity guarantee to the pooling path: three
+    tracklets whose likelihoods are all flat (never-read/abstaining) must
+    fuse to EXACTLY the jersey-disabled result, pooling included."""
+    a = [1.0, 0.0]
+    ev = [_ev(1, 0, 10, a), _ev(2, 20, 30, a), _ev(3, 40, 50, a)]
+    model = _model()
+
+    base = merge_threads_two_pass(ev, model=model, min_score=1.0, pass2_score=0.5)
+    flat = {1: uniform_prior(), 2: uniform_prior(), 3: uniform_prior()}
+    fused = merge_threads_two_pass(
+        ev, model=model, min_score=1.0, pass2_score=0.5,
+        jersey_likelihood_by_tid=flat, jersey_prior=uniform_prior(), jersey_weight=1.0,
+    )
+
+    assert fused.groups == base.groups
+    base_by_pair = {(p.a, p.b): p.affinity for p in base.pairs}
+    fused_by_pair = {(p.a, p.b): p.affinity for p in fused.pairs}
+    assert base_by_pair.keys() == fused_by_pair.keys()
+    for key, base_affinity in base_by_pair.items():
+        if base_affinity is None:
+            assert fused_by_pair[key] is None
+        else:
+            assert fused_by_pair[key] == pytest.approx(base_affinity, abs=1e-12)
