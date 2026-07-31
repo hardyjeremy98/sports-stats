@@ -47,11 +47,12 @@ class _FakeLegibility:
         return list(self._scores[: len(crops)])
 
 
-def _reader_with_fakes(scores, min_legibility=0.9):
-    reader = JerseyReader(min_legibility=min_legibility)
+def _reader_with_fakes(scores, min_legibility=None):
+    kwargs = {} if min_legibility is None else {"min_legibility": min_legibility}
+    reader = JerseyReader(**kwargs)
     reader._model = object()  # bypass "prepare() not called" guard
     reader._legibility = _FakeLegibility(scores)
-    reader._char_probs = lambda patch: np.full((3, 11), 1.0 / 11)  # stub
+    reader._char_probs = lambda patch: (np.full((3, 11), 1.0 / 11), 1.0)  # stub
     return reader
 
 
@@ -63,7 +64,7 @@ class _Crop:
 
 
 def test_crops_below_min_legibility_produce_no_read():
-    reader = _reader_with_fakes(scores=[0.2, 0.95])
+    reader = _reader_with_fakes(scores=[0.2, 0.95], min_legibility=0.9)
     reads = reader.read([_Crop(0), _Crop(1)])
     assert len(reads) == 1
     assert reads[0].frame_idx == 1
@@ -76,8 +77,25 @@ def test_legibility_score_becomes_crop_read_legibility_not_crop_quality():
 
 
 def test_all_crops_gated_out_returns_empty_list_not_an_error():
-    reader = _reader_with_fakes(scores=[0.1, 0.2])
+    reader = _reader_with_fakes(scores=[0.01, 0.05], min_legibility=0.1)
     assert reader.read([_Crop(0), _Crop(1)]) == []
+
+
+def test_default_min_legibility_is_a_floor_not_a_hard_gate():
+    """Offline sweep (2026-07-31): the hard legibility>=0.9 gate is replaced
+    by a soft weight; min_legibility now only floors out attractor-biased
+    sub-0.1 reads, so a mid-range score (e.g. 0.5) must be READ, not gated."""
+    reader = _reader_with_fakes(scores=[0.5, 0.05])
+    reads = reader.read([_Crop(0), _Crop(1)])
+    assert len(reads) == 1
+    assert reads[0].frame_idx == 0
+    assert reads[0].legibility == pytest.approx(0.5)
+
+
+def test_crop_read_carries_decode_confidence():
+    reader = _reader_with_fakes(scores=[0.5])
+    reads = reader.read([_Crop(0)])
+    assert reads[0].confidence == pytest.approx(1.0)
 
 
 class _FakeTokenizer:

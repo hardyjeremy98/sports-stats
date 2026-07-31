@@ -17,12 +17,19 @@ px player crops this pipeline actually has. Pose is not a fallback option
 here -- it is measured actively harmful, so it has been deleted rather than
 left as a dead code path that invites its own return.
 
-LEGIBILITY -- crops are gated by `ocr/legibility.py`'s `LegibilityClassifier`
+LEGIBILITY -- crops are scored by `ocr/legibility.py`'s `LegibilityClassifier`
 before being read, not by pose reliability. Measured at 450 tracklets (band +
-vote): reading every crop gave 73 correct / 377 wrong; gating at
+vote): reading every crop gave 73 correct / 377 wrong; HARD-gating at
 legibility >= 0.9 gave 235 correct / 29 wrong -- a 13x fall in wrong reads.
-A crop can have a perfectly good band crop and still be illegible (blur,
-occlusion, angle), which is exactly what this gate is for.
+That hard gate has since been REPLACED (offline 868-fragment sweep,
+2026-07-31 jersey-ocr merge-channel rule sweep) by a soft per-crop weight
+(`legibility ** a * confidence ** b`, a1 b1) feeding a Sigma-w-normalised
+tracklet posterior with a top1-vs-top2 log-odds margin abstention
+(tau=2.0, in `matchlab_core.reid.jersey.tracklet_likelihood`): the sweep's
+soft-weight family dominated the hard gate on held-out pairs (AUC 0.800 vs
+0.707, veto precision 0.999). `min_legibility` now only floors out crops
+whose band score is so low the read is attractor-biased garbage (see
+`JerseyReader.read`), not a legibility gate in its own right.
 
 The checkpoint was fine-tuned on hockey and SoccerNet data, so any accuracy
 figure measured on SoccerNet-derived footage is train-adjacent and optimistic.
@@ -77,8 +84,9 @@ class CropRead:
     """One crop's contribution to a tracklet's number evidence."""
 
     char_probs: np.ndarray  # (3, 11): positions x (digits 0-9, EOS)
-    legibility: float       # in [0, 1]; 0 contributes nothing
+    legibility: float       # band-legibility score in [0, 1]; 0 contributes nothing
     frame_idx: int
+    confidence: float = 1.0  # decode-confidence: P(argmax number | char_probs)
 
 
 def number_band(
@@ -158,7 +166,7 @@ def _add_lightning_prefix(state_dict: dict) -> dict:
 class JerseyReader:
     """Quality-gated crops in, per-crop character distributions out."""
 
-    def __init__(self, checkpoint: str = _DEFAULT_CKPT, min_legibility: float = 0.9):
+    def __init__(self, checkpoint: str = _DEFAULT_CKPT, min_legibility: float = 0.1):
         self.checkpoint = checkpoint
         self.min_legibility = min_legibility
         self._model = None
@@ -214,11 +222,26 @@ class JerseyReader:
         )
 
     def read(self, crops: list[ScoredCrop]) -> list[CropRead]:
-        """One `CropRead` per crop whose legibility score cleared
-        `min_legibility`. Crops below the gate are ABSENT from the result, not
-        present with zero confidence -- missing evidence, not evidence of
-        absence (ADR 001/003). If every crop is gated out, this returns an
-        empty list -- the abstention path, not an error."""
+        """One `CropRead` for every crop with a locatable band, carrying its
+        band-legibility score in `.legibility` and its decode-confidence in
+        `.confidence`.
+
+        NO HARD LEGIBILITY GATE (offline 868-fragment sweep, 2026-07-31
+        jersey-ocr merge-channel rule sweep): gating crops out at a fixed
+        legibility threshold discards graded information a soft per-crop
+        weight (`legibility ** a * confidence ** b`, applied downstream in
+        `tracklet_likelihood`'s weights) uses instead, and the sweep's winning
+        rule family dominated the shipped hard-gate rule on held-out pairs
+        (AUC 0.800 vs 0.707) using exactly this soft weighting. `min_legibility`
+        remains only as a floor to skip crops whose band score is so low the
+        read is attractor-biased garbage rather than borderline evidence:
+        measured over 16,477 sub-gate crops, low-legibility reads spike on a
+        handful of attractor numbers (10, 3, 1, 8, 11) rather than spreading
+        neutrally, so they are actively misleading, not merely low-weight --
+        default 0.1 is a floor, not the old 0.9 gate.
+
+        If every crop's band is degenerate (zero-size), this returns an empty
+        list -- the abstention path, not an error."""
         if self._model is None:
             raise RuntimeError("JerseyReader.read called before prepare()")
         if not crops:
@@ -231,20 +254,25 @@ class JerseyReader:
                 continue
             if band.size == 0:
                 continue
-            probs = self._char_probs(band)
+            probs, confidence = self._char_probs(band)
             out.append(
                 CropRead(
                     char_probs=probs,
                     legibility=float(score),
                     frame_idx=crop.frame_idx,
+                    confidence=confidence,
                 )
             )
         return out
 
-    def _char_probs(self, patch: np.ndarray) -> np.ndarray:
-        """(3, 11) digit+EOS distribution for one torso patch."""
+    def _char_probs(self, patch: np.ndarray) -> tuple[np.ndarray, float]:
+        """(3, 11) digit+EOS distribution for one torso patch, plus the
+        decode-confidence P(argmax number | char_probs) used as the `b`
+        (confidence) factor of the soft per-crop weight."""
         import cv2
         import torch
+
+        from matchlab_core.reid.jersey import crop_number_logprobs
 
         rgb = cv2.cvtColor(cv2.resize(patch, (128, 32)), cv2.COLOR_BGR2RGB)
         x = torch.from_numpy(rgb).permute(2, 0, 1).float().div_(255.0)
@@ -261,4 +289,8 @@ class JerseyReader:
             sub = full[i, cols]
             total = float(sub.sum())
             out[i] = sub / total if total > 0 else out[i]
-        return out
+
+        logprobs = crop_number_logprobs(out)
+        finite = logprobs[np.isfinite(logprobs)]
+        confidence = float(np.exp(finite.max())) if finite.size else 0.0
+        return out, confidence

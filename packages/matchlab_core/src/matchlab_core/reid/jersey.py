@@ -93,17 +93,40 @@ def _reweight_lengths(logprobs: np.ndarray, single_digit_prior: float) -> np.nda
     return out
 
 
-def tracklet_likelihood(crop_logprobs, weights, *, temperature: float = 1.0) -> np.ndarray:
+def tracklet_likelihood(
+    crop_logprobs, weights, *, temperature: float = 1.0, margin_tau: float = 0.0
+) -> np.ndarray:
     """Combine per-crop log-likelihoods into ONE likelihood over numbers.
 
     Identity evidence is aggregated per tracklet, never decided per frame
-    (ADR 002). Crops are weighted by legibility x crop quality and summed in
-    the log domain -- the paper's "conditional independence over time" -- then
-    divided by a single fitted temperature.
+    (ADR 002). Crops are weighted by legibility x crop quality and combined as
+    a WEIGHTED MEAN in the log domain -- (Sum_i w_i log L_i) / Sum_i w_i, not a
+    raw weighted sum -- then divided by a single fitted temperature.
+
+    The mean, not the sum, is load-bearing (offline 868-fragment sweep,
+    2026-07-31 jersey-ocr merge-channel rule sweep): summing ~100 correlated
+    crop log-likelihoods without normalising by Sum w made every tracklet
+    posterior argmax saturate to confidence ~1.0 regardless of how much real
+    evidence was behind it, so there was no tracklet-level confidence axis --
+    a fragment read from 3 crops looked exactly as certain as one read from
+    100. Dividing by Sum w (rho=1 in the sweep) makes the posterior
+    scale-free in crop count, which is also what makes a log-odds margin
+    threshold (below) meaningful in the first place: a threshold on a
+    saturating quantity can't separate confident from unconfident tracklets.
 
     ONE temperature, not `LLRCalibrator`: jersey has `transition`'s shape (a
     joint likelihood, not a scalar similarity), and the substrate carries 153
     true re-entry pairs, which cannot support a 20-bin density ratio.
+
+    `margin_tau` (posterior log-odds units, i.e. log p(top1) - log p(top2)):
+    when the softmax posterior's top and second candidate are closer than
+    this, the WHOLE tracklet abstains (flat likelihood) rather than reporting
+    a confident-looking argmax over a genuinely ambiguous read. Pre-registered
+    at tau=2.0 by the offline sweep (a1 b1 rho1 tau2 cell): held-out pair-AUC
+    0.800 vs the unnormalised/ungated shipped rule's 0.707, veto precision
+    0.999. Default 0.0 preserves the old behaviour (the margin check can never
+    fire, since top1's log-odds over top2 is never negative) for callers that
+    have not opted in.
 
     No crops, or no weight, returns the FLAT likelihood -- exactly neutral in
     `pair_llr`, which is how abstention stays free of any gate.
@@ -113,14 +136,25 @@ def tracklet_likelihood(crop_logprobs, weights, *, temperature: float = 1.0) -> 
     flat = np.full(N_NUMBERS, 1.0 / N_NUMBERS)
     if lp.size == 0 or w.size == 0 or float(w.sum()) <= 0.0:
         return flat
-    total = (w[:, None] * lp).sum(axis=0) / max(float(temperature), _FLOOR)
+    total = (w[:, None] * lp).sum(axis=0) / max(float(w.sum()), _FLOOR)
+    total = total / max(float(temperature), _FLOOR)
     finite = total[np.isfinite(total)]
     if not finite.size:
         return flat
     total = total - float(finite.max())
     likelihood = np.exp(np.where(np.isfinite(total), total, -np.inf))
     s = float(likelihood.sum())
-    return likelihood / s if s > 0.0 else flat
+    if s <= 0.0:
+        return flat
+    likelihood = likelihood / s
+
+    if margin_tau > 0.0:
+        order = np.argsort(likelihood)[::-1]
+        top1, top2 = likelihood[order[0]], likelihood[order[1]]
+        log_odds = float(np.log(max(top1, _FLOOR)) - np.log(max(top2, _FLOOR)))
+        if log_odds < margin_tau:
+            return flat
+    return likelihood
 
 
 def uniform_prior() -> np.ndarray:

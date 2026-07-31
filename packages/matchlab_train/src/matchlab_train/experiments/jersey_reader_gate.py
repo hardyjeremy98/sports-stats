@@ -42,7 +42,24 @@ class Params(BaseModel):
     # task-4b jersey-ocr merge-channel report.
     max_crops_per_tracklet: int = 100
     min_confidence: float = 0.5  # tracklet likelihood below this abstains
-    min_legibility: float = 0.9  # legibility score below this gates the crop
+    # Floor only, not a legibility gate: the offline 868-fragment sweep
+    # (2026-07-31) replaced the hard legibility>=0.9 gate with a soft
+    # per-crop weight (legibility^a * decode-confidence^b, a=1 b=1) plus a
+    # Sigma-w-normalised posterior and a top1-top2 margin abstention. 0.1
+    # only skips sub-0.1 reads, measured attractor-biased garbage.
+    min_legibility: float = 0.1
+    legibility_weight_power: float = 1.0  # "a" in legibility^a * confidence^b
+    confidence_weight_power: float = 1.0  # "b" in legibility^a * confidence^b
+    # Pre-registered cell (a1 b1 rho1 tau2): top1-top2 log-odds margin below
+    # which a tracklet's posterior abstains (flat likelihood). rho=1 (the
+    # weighted MEAN, not sum) is what makes this threshold scale-free in crop
+    # count -- see tracklet_likelihood's docstring. NOTE the sweep's
+    # tuning-optimal cell was rho=0.5; rho=1 was adopted on the separate,
+    # principled argument that a scale-free margin is required for tau to
+    # mean the same thing across tracklets of different crop counts, not
+    # because rho=1 scored best held-out. Disclose this whenever this figure
+    # is cited.
+    margin_tau: float = 2.0
     max_tracklets: int | None = None
 
 
@@ -101,8 +118,11 @@ class JerseyReaderGate(Experiment):
                     )
                 )
             reads = reader.read(crops)
+            weights = _soft_weights(
+                reads, params.legibility_weight_power, params.confidence_weight_power
+            )
             likelihood = tracklet_likelihood(
-                _logprobs(reads), np.array([r.legibility for r in reads])
+                _logprobs(reads), weights, margin_tau=params.margin_tau
             )
             best = int(np.argmax(likelihood))
             confidence = float(likelihood[best])
@@ -145,6 +165,15 @@ class JerseyReaderGate(Experiment):
         (OUT_DIR / "report.json").write_text(json.dumps(report, indent=2))
         self.write_result(self.workdir(), report)
         return report
+
+
+def _soft_weights(reads, a: float, b: float) -> np.ndarray:
+    """Per-crop weight legibility^a * decode-confidence^b (a1 b1 pre-registered
+    cell): replaces the hard legibility gate with graded evidence -- see
+    Params.min_legibility."""
+    if not reads:
+        return np.zeros((0,))
+    return np.array([r.legibility**a * r.confidence**b for r in reads])
 
 
 def _logprobs(reads) -> np.ndarray:

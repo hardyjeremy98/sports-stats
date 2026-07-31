@@ -67,7 +67,13 @@ class Params(BaseModel):
     base_config: str = "configs/pipeline.baseline-observe.yaml"
     checkpoint: str = "data/weights/parseq-jersey.ckpt"
     device: str = "cuda"
-    min_legibility: float = 0.9
+    # Floor only, not a legibility gate -- see jersey_reader_gate.Params for
+    # the full rationale (offline 868-fragment sweep, 2026-07-31).
+    min_legibility: float = 0.1
+    legibility_weight_power: float = 1.0  # "a" in legibility^a * confidence^b
+    confidence_weight_power: float = 1.0  # "b" in legibility^a * confidence^b
+    # Pre-registered cell a1 b1 rho1 tau2 -- see jersey_reader_gate.Params.
+    margin_tau: float = 2.0
     per_tracklet_crops: int = 100
     min_box_height_px: int = 60
     min_crop_confidence: float = 0.3
@@ -188,6 +194,28 @@ def _veto_precision_curve(
     return out
 
 
+_REFERENCE_REPORT = Path("data/experiments/jersey-reader-gate/report.json")
+
+
+def _load_reference_calibration() -> dict:
+    """The curated-split calibration, from the stored gate-1 artifact.
+
+    Absent or stale artifacts surface as "unknown" rather than a number: the
+    benchmark contract is that every figure in a report traces to a run in the
+    tree."""
+    if not _REFERENCE_REPORT.exists():
+        return {"note": "no stored jersey-reader-gate report", "precision": "unknown",
+                "coverage": "unknown"}
+    d = json.loads(_REFERENCE_REPORT.read_text())
+    return {
+        "note": "SoccerNet jersey TEST split (curated), from stored jersey-reader-gate report",
+        "accuracy": d.get("tracklet_accuracy", d.get("accuracy", "unknown")),
+        "precision": d.get("legible_precision", "unknown"),
+        "coverage": d.get("legible_coverage", "unknown"),
+        "passed_bar": d.get("passed", "unknown"),
+    }
+
+
 @register("jersey-channel")
 class JerseyChannelExperiment(Experiment):
     def run(self) -> dict:
@@ -241,13 +269,19 @@ class JerseyChannelExperiment(Experiment):
                 reads = reader.read(crops)
                 if reads:
                     logprobs = np.array([crop_number_logprobs(r.char_probs) for r in reads])
-                    weights = np.array([r.legibility for r in reads])
+                    weights = np.array(
+                        [
+                            r.legibility**p.legibility_weight_power
+                            * r.confidence**p.confidence_weight_power
+                            for r in reads
+                        ]
+                    )
                     for lp in logprobs:
                         observed_numbers.append(int(np.argmax(lp)))
                 else:
                     logprobs = np.zeros((0, N_NUMBERS))
                     weights = np.zeros((0,))
-                likelihood = tracklet_likelihood(logprobs, weights)
+                likelihood = tracklet_likelihood(logprobs, weights, margin_tau=p.margin_tau)
                 likelihood_by_frag[fid] = likelihood
                 is_flat_by_frag[fid] = _is_flat(likelihood)
 
@@ -314,11 +348,11 @@ class JerseyChannelExperiment(Experiment):
             "n_clips": len(clip_gt_pairs),
             "n_fragments_total": len(global_labels),
             "n_pairs_total": len(global_scores),
-            "reader_calibration_reference": {
-                "note": "SoccerNet jersey TEST split (curated), see jersey-reader-gate",
-                "precision": 0.8938,
-                "coverage": 0.8692,
-            },
+            # Reference calibration is READ from the stored jersey-reader-gate
+            # artifact, never hardcoded: a literal here once contradicted the
+            # stored report (which was stale from a broken run) and published a
+            # figure no run in the tree produced.
+            "reader_calibration_reference": _load_reference_calibration(),
             "reader_calibration_snmot": reader_calibration,
             "roc_auc": roc_auc,
             "pairs_touched_fraction": pairs_touched_fraction,

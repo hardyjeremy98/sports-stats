@@ -81,11 +81,47 @@ def test_zero_weight_crops_are_flat_not_confident():
     assert np.allclose(v, 1.0 / N_NUMBERS)
 
 
-def test_agreeing_crops_sharpen_the_tracklet_likelihood():
+def test_sigma_w_normalisation_makes_crop_count_irrelevant():
+    """Measured defect this replaces (2026-07-31 sweep, task-6 wiring): without
+    dividing by Sum w, repeating the SAME crop evidence more times made the
+    posterior look MORE confident even though no new evidence was added --
+    every tracklet posterior saturated toward argmax~1.0 regardless of
+    how much real evidence was behind it. Weighted-MEAN aggregation (rho=1)
+    makes two fragments with identical per-crop evidence but different crop
+    counts produce IDENTICAL posteriors -- confidence must come from
+    evidence, not from how many times it was repeated."""
     lp = crop_number_logprobs(_probs([{7: 0.6, 3: 0.4}, {EOS: 1.0}, {EOS: 1.0}]))
     one = tracklet_likelihood(lp[None, :], np.ones(1))
     five = tracklet_likelihood(np.repeat(lp[None, :], 5, axis=0), np.ones(5))
-    assert five[7] > one[7]
+    assert np.allclose(five, one)
+
+
+def test_margin_tau_zero_preserves_old_behaviour():
+    """Default margin_tau=0.0 never abstains on the margin: top1's log-odds
+    over top2 is never negative, so the old (pre-margin) callers see no
+    change in output."""
+    lp = crop_number_logprobs(_probs([{7: 0.6, 3: 0.4}, {EOS: 1.0}, {EOS: 1.0}]))
+    default = tracklet_likelihood(lp[None, :], np.ones(1))
+    explicit = tracklet_likelihood(lp[None, :], np.ones(1), margin_tau=0.0)
+    assert np.allclose(default, explicit)
+
+
+def test_margin_tau_abstains_on_a_close_split_but_not_a_landslide():
+    """16-vs-14 crop split (near-tied evidence) abstains at tau=2; a 30-0
+    landslide concentrates and clears the same threshold -- pre-registered
+    cell a1 b1 rho1 tau2 (offline 868-fragment sweep)."""
+    lp7 = crop_number_logprobs(_probs([{7: 1.0}, {EOS: 1.0}, {EOS: 1.0}]))
+    lp9 = crop_number_logprobs(_probs([{9: 1.0}, {EOS: 1.0}, {EOS: 1.0}]))
+
+    split_logprobs = np.concatenate([np.repeat(lp7[None, :], 16, axis=0),
+                                      np.repeat(lp9[None, :], 14, axis=0)])
+    split = tracklet_likelihood(split_logprobs, np.ones(30), margin_tau=2.0)
+    assert np.allclose(split, 1.0 / N_NUMBERS)
+
+    landslide_logprobs = np.repeat(lp7[None, :], 30, axis=0)
+    landslide = tracklet_likelihood(landslide_logprobs, np.ones(30), margin_tau=2.0)
+    assert not np.allclose(landslide, 1.0 / N_NUMBERS)
+    assert int(np.argmax(landslide)) == 7
 
 
 def test_illegible_pair_is_exactly_neutral():
