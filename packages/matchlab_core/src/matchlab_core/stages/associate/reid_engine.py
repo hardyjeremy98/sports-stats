@@ -16,9 +16,11 @@ from pathlib import Path
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
+from matchlab_core.crops import sample_quality_crops
 from matchlab_core.frame_features import FrameFeatures
 from matchlab_core.gt import GroundTruth
 from matchlab_core.interfaces import Associator, StageContext
+from matchlab_core.provenance import ModelProvenance
 from matchlab_core.registry import register
 from matchlab_core.reid.anchors import (
     Anchor,
@@ -31,6 +33,14 @@ from matchlab_core.reid.gates import (
     MotionFeasibilityGate,
     TeamConsistencyGate,
     TemporalOverlapGate,
+)
+from matchlab_core.reid.jersey import (
+    N_NUMBERS,
+    crop_number_logprobs,
+    number_prior,
+    pair_llr,
+    tracklet_likelihood,
+    uniform_prior,
 )
 from matchlab_core.reid.merge import merge_tracklets
 from matchlab_core.reid.motion import estimate_camera_motion
@@ -155,12 +165,73 @@ class Params(BaseModel):
     # to human QA); abstained threads go straight to QA.
     tier_auto_min_posterior: float = 0.85
     tier_auto_min_margin: float = 0.5
+    # Jersey-OCR merge channel (2026-07-30 jersey-ocr-merge-channel design;
+    # 06f78ec/7c3900f fusion ablation). OFF by default -- ADR 001 stands, the
+    # pipeline behaves identically with this unset. Measured: fused body+jersey
+    # reaches 50 correct merges at ZERO wrong on held-out clips (body-alone 0,
+    # jersey-alone 14), AUC 0.822 -> 0.887, do-no-harm exact on 4,280
+    # zero-jersey pairs. When enabled, the reader and legibility classifier are
+    # lazily prepared and only ever consulted for pairs the engine's own gates
+    # already admit as candidates -- the candidate set itself never changes.
+    jersey_enabled: bool = False
+    jersey_checkpoint: str = "data/weights/parseq-jersey.ckpt"
+    jersey_legibility_checkpoint: str = "data/weights/legibility-resnet34-soccer.pth"
+    jersey_per_tracklet_crops: int = 100
+    jersey_margin_tau: float = 2.0
+    jersey_weight: float = 1.0
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
 class ReidEngineAssociator(Associator):
     def __init__(self, **params):
         self.params = Params(**params)
+        self._jersey_reader = None  # lazy: only built when jersey_enabled
+
+    def provenance(self) -> list[ModelProvenance]:
+        if not self.params.jersey_enabled:
+            return []
+        reader = self._get_jersey_reader()
+        return [reader.provenance(), reader._legibility.provenance()]
+
+    def _get_jersey_reader(self):
+        # Imported lazily and only when jersey_enabled: keeps the default
+        # (OFF) path free of any OCR import, per ADR 001.
+        if self._jersey_reader is None:
+            from matchlab_core.ocr.parseq import JerseyReader
+
+            self._jersey_reader = JerseyReader(checkpoint=self.params.jersey_checkpoint)
+            self._jersey_reader._legibility.weights = self.params.jersey_legibility_checkpoint
+        return self._jersey_reader
+
+    def _jersey_likelihoods(
+        self, ctx: StageContext, tracklets: list[Tracklet]
+    ) -> tuple[dict[int, np.ndarray], np.ndarray]:
+        """Per-tracklet jersey-number likelihood, plus a number prior fit from
+        this run's own confident (non-abstaining) reads."""
+        p = self.params
+        reader = self._get_jersey_reader()
+        reader.prepare(device=ctx.device)
+        crops_by_tid = sample_quality_crops(
+            ctx, tracklets, per_tracklet=p.jersey_per_tracklet_crops
+        )
+        likelihood_by_tid: dict[int, np.ndarray] = {}
+        confident_numbers: list[int] = []
+        flat = np.full(N_NUMBERS, 1.0 / N_NUMBERS)
+        for tid, crops in crops_by_tid.items():
+            reads = reader.read(crops) if crops else []
+            if not reads:
+                likelihood_by_tid[tid] = flat
+                continue
+            logprobs = np.stack([crop_number_logprobs(r.char_probs) for r in reads])
+            weights = np.array([r.legibility * r.confidence for r in reads])
+            likelihood = tracklet_likelihood(
+                logprobs, weights, margin_tau=p.jersey_margin_tau
+            )
+            likelihood_by_tid[tid] = likelihood
+            if not np.allclose(likelihood, flat):
+                confident_numbers.append(int(np.argmax(likelihood)))
+        prior = number_prior(confident_numbers) if confident_numbers else uniform_prior()
+        return likelihood_by_tid, prior
 
     def associate(
         self, ctx: StageContext, tracklets: list[Tracklet], teams: list[TeamAssignment]
@@ -184,6 +255,11 @@ class ReidEngineAssociator(Associator):
         # cosines) without scoring any pair twice.
         breakdowns: dict[tuple[int, int], PairBreakdown | None] = {}
 
+        jersey_likelihood: dict[int, np.ndarray] = {}
+        jersey_prior = uniform_prior()
+        if p.jersey_enabled:
+            jersey_likelihood, jersey_prior = self._jersey_likelihoods(ctx, tracklets)
+
         def similarity(a: int, b: int) -> float | None:
             if a not in reps or b not in reps:
                 return None
@@ -194,7 +270,13 @@ class ReidEngineAssociator(Associator):
                     min_part_visibility=p.min_part_visibility,
                 )
             bd = breakdowns[key]
-            return None if bd is None else bd.score
+            if bd is None:
+                return None
+            score = bd.score
+            if p.jersey_enabled and a in jersey_likelihood and b in jersey_likelihood:
+                llr = pair_llr(jersey_likelihood[a], jersey_likelihood[b], jersey_prior)
+                score = score + p.jersey_weight * llr
+            return score
 
         def eligible(ta: Tracklet, tb: Tracklet) -> bool:
             # Referee pairs stay silent (never merge candidates); team
