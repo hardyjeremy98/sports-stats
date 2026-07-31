@@ -209,3 +209,48 @@ def test_dst_lr_decay_stays_disabled():
     p = Params()
     assert p.lr_decay == 1.0
     assert p.lr_decay_epochs == ()
+
+
+def test_fuse_experiment_is_registered():
+    assert "pcbas-fuse" in available()
+
+
+def test_fuse_round_trips_the_denoise_infer_export_format(tmp_path):
+    """The fusion driver consumes exactly what pcbas-denoise-infer writes.
+
+    That export is shirt-keyed `[frame, left_to_right, shirt, class_id, score]`, so a
+    format drift between the two would only surface when an ensemble is finally
+    assembled -- after four models have been trained.
+    """
+    import json
+
+    from matchlab_train.experiments.pcbas_fuse import load_export
+
+    payload = {
+        "keys": ["game_18_H1"],
+        "events": {"game_18_H1": [[100, 1, 7, 2, 0.8], [250, 0, 11, 7, 0.4]]},
+    }
+    path = tmp_path / "export.json"
+    path.write_text(json.dumps(payload))
+    loaded = load_export(str(path))
+    assert list(loaded) == ["game_18_H1"]
+    first, second = loaded["game_18_H1"]
+    assert (first.frame_idx, first.left_to_right, first.shirt_number, first.class_id) == (
+        100, 1, 7, 2
+    )
+    assert first.score == pytest.approx(0.8)
+    assert (second.frame_idx, second.left_to_right, second.shirt_number) == (250, 0, 11)
+
+
+def test_fuse_refuses_a_single_model(tmp_path):
+    """A one-model 'ensemble' would only apply the (n/N)^0.5 penalty to itself, which
+    silently reports a WORSE score under an ensemble's name."""
+    from matchlab_train.config import ExperimentConfig
+    from matchlab_train.experiments.pcbas_fuse import PCBASFuseExperiment
+
+    cfg = ExperimentConfig(
+        name="fuse-one", task="pcbas-fuse", description="one model",
+        output_dir=str(tmp_path), seed=345, params={"exports": ["only.json"]},
+    )
+    with pytest.raises(ValueError, match="at least 2"):
+        PCBASFuseExperiment(cfg).run()
