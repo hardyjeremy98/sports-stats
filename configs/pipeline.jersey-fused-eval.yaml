@@ -76,7 +76,12 @@ stages:
       jersey_legibility_checkpoint: data/weights/legibility-resnet34-soccer.pth
       jersey_per_tracklet_crops: 100
       jersey_margin_tau: 2.0
-      jersey_weight: 1.0
+      # Bounded-influence default (fix round 1, review of a61fdba): the LLR
+      # is rescaled to similarity units and capped at +-0.15, below the 0.20
+      # merge-relevant band width, so it can tip a marginal decision but
+      # never veto a strong body match alone. See the Params docstring in
+      # reid_engine.py.
+      jersey_weight: 0.15
   identity:
     impl: none
     params: {}

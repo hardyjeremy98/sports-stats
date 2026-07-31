@@ -142,9 +142,12 @@ def test_abstaining_pair_affinity_is_bit_identical(tmp_path, monkeypatch):
     assert _affinity(report, 1, 2) == pytest.approx(base_affinity, abs=1e-12)
 
 
-def test_disagreeing_pair_affinity_drops(tmp_path, monkeypatch):
+def test_disagreeing_pair_affinity_drops_but_is_bounded(tmp_path, monkeypatch):
     """A confident 7 vs a confident 9 is strong negative evidence: the fused
-    affinity must be strictly lower than the body-only affinity."""
+    affinity must drop, but by at most jersey_weight (similarity-scale,
+    bounded-influence fusion, fix round 1) -- a raw-nats sum would let one
+    channel veto an otherwise-strong body match outright, which is the
+    invariant this test guards."""
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
@@ -155,7 +158,7 @@ def test_disagreeing_pair_affinity_drops(tmp_path, monkeypatch):
     )
     base_affinity = _affinity(base_report, 1, 2)
 
-    from matchlab_core.stages.associate.reid_engine import ReidEngineAssociator
+    from matchlab_core.stages.associate.reid_engine import Params, ReidEngineAssociator
 
     monkeypatch.setattr(
         ReidEngineAssociator,
@@ -173,7 +176,47 @@ def test_disagreeing_pair_affinity_drops(tmp_path, monkeypatch):
         ctx.store.path(ArtifactName.ASSOCIATION).read_text()
     )
     fused_affinity = _affinity(report, 1, 2)
-    assert fused_affinity < base_affinity - 3.0
+    weight = Params().jersey_weight
+    assert fused_affinity < base_affinity
+    assert fused_affinity >= base_affinity - weight - 1e-9
+
+
+def test_maximal_jersey_veto_cannot_override_a_strong_body_match(tmp_path, monkeypatch):
+    """The no-veto invariant directly: even a saturated (maximally confident)
+    jersey disagreement must leave a strong body match's affinity no lower
+    than base - jersey_weight -- no single channel gets an absolute veto."""
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    # Near-identical embeddings -> a strong (~0.9+) body match.
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [0.995, 0.0998])])
+
+    _, _, _ = _run_stage(tmp_path / "base", tracklets, teams, ff, {"min_similarity": 0.0})
+    base_report = AssociationReport.model_validate_json(
+        (tmp_path / "base" / "run" / "association.json").read_text()
+    )
+    base_affinity = _affinity(base_report, 1, 2)
+    assert base_affinity > 0.9
+
+    from matchlab_core.stages.associate.reid_engine import ReidEngineAssociator
+
+    monkeypatch.setattr(
+        ReidEngineAssociator,
+        "_jersey_likelihoods",
+        lambda self, ctx, tracklets: (
+            {1: _peaked(7, mass=1.0 - 1e-15), 2: _peaked(9, mass=1.0 - 1e-15)},
+            uniform_prior(),
+        ),
+    )
+    ctx, stage, _ = _run_stage(
+        tmp_path / "jersey", tracklets, teams, ff,
+        {"min_similarity": 0.0, "jersey_enabled": True},
+    )
+    report = AssociationReport.model_validate_json(
+        ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+    )
+    fused_affinity = _affinity(report, 1, 2)
+    p = stage.params
+    assert fused_affinity >= base_affinity - p.jersey_weight - 1e-9
 
 
 def test_agreeing_pair_affinity_rises(tmp_path, monkeypatch):

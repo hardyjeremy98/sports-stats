@@ -28,6 +28,7 @@ from matchlab_core.reid.anchors import (
     OracleJerseyAnchorSource,
     Roster,
 )
+from matchlab_core.reid.evidence import LOG_CLAMP
 from matchlab_core.reid.gates import (
     AnchorConflictGate,
     MotionFeasibilityGate,
@@ -178,7 +179,25 @@ class Params(BaseModel):
     jersey_legibility_checkpoint: str = "data/weights/legibility-resnet34-soccer.pth"
     jersey_per_tracklet_crops: int = 100
     jersey_margin_tau: float = 2.0
-    jersey_weight: float = 1.0
+    # Fix round 1 (review of a61fdba): `score` here is a weighted cosine
+    # similarity in ~[-1, 1] (merge-gated at min_similarity=0.80), while
+    # `pair_llr` is a log-likelihood ratio saturated at +-LOG_CLAMP nats --
+    # different units. Adding a raw nats term let a single confident OCR
+    # disagreement (-LOG_CLAMP) drag a strong body match (0.85) to -5.15,
+    # an absolute single-channel veto -- exactly what evidence.py's
+    # LOG_CLAMP docstring says the bound exists to prevent, a guarantee that
+    # only holds when every summed term shares the nats scale. This engine's
+    # terms don't, so the LLR is instead rescaled into similarity units
+    # (`llr / LOG_CLAMP`, bounded to +-1) before the weight is applied, and
+    # the weight is capped at 0.15 -- below the 0.20 width of the
+    # merge-relevant band (0.80 gate to 1.0 max) -- so jersey evidence can
+    # tip a marginal decision but can never single-handedly veto a strong
+    # body match. The principled follow-up is full LLR-space fusion:
+    # calibrate the body similarity into nats with LLRCalibrator (as the
+    # task-7 offline ablation did) and sum in that shared scale; this
+    # bounded, similarity-scale form is the safe interim that preserves the
+    # engine's existing score semantics until that lands.
+    jersey_weight: float = 0.15
 
 
 @register(StageKind.ASSOCIATE, "reid-engine")
@@ -275,7 +294,9 @@ class ReidEngineAssociator(Associator):
             score = bd.score
             if p.jersey_enabled and a in jersey_likelihood and b in jersey_likelihood:
                 llr = pair_llr(jersey_likelihood[a], jersey_likelihood[b], jersey_prior)
-                score = score + p.jersey_weight * llr
+                # Rescaled into similarity units and weight-capped -- see the
+                # jersey_weight docstring for why a raw-nats sum is unsafe.
+                score = score + p.jersey_weight * (llr / LOG_CLAMP)
             return score
 
         def eligible(ta: Tracklet, tb: Tracklet) -> bool:
