@@ -224,3 +224,27 @@ class ActionHead(nn.Module):
             )
         x = self.classifier(x.permute(0, 2, 1))  # (B*M, T, 9)
         return x.reshape(b, m, -1, x.shape[-1]).permute(0, 3, 1, 2)  # (B, 9, M, T)
+
+
+def action_head_from_checkpoint(
+    path,
+    *,
+    pretrained: bool = False,
+    map_location=None,
+    n_classes: int = N_CLASSES,
+) -> ActionHead:
+    """Build the ActionHead the checkpoint was TRAINED as, then load its weights.
+
+    The temporal block is a config choice, so a checkpoint cannot be loaded into a
+    model built at the default. Both inference paths used to construct `ActionHead()`
+    -- always "conv" -- and `load_state_dict` then raised on every
+    `temporal_transformer.*` key, which made a trained transformer arm unscoreable.
+
+    `temporal` is read from the params the trainer records in the checkpoint.
+    Checkpoints written before the selector existed carry no such key and are conv.
+    """
+    state = torch.load(path, map_location=map_location, weights_only=False)
+    temporal: TemporalKind = (state.get("params") or {}).get("temporal", "conv")
+    model = ActionHead(n_classes=n_classes, pretrained=pretrained, temporal=temporal)
+    model.load_state_dict(state["model"])
+    return model

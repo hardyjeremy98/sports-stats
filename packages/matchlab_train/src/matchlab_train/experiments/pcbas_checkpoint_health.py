@@ -110,15 +110,18 @@ def summarise(cell_counts: Counter, anchor_hits: int, n_clips: int) -> dict:
 class PCBASCheckpointHealthExperiment(Experiment):
     def run(self) -> dict:
         import torch
-        from matchlab_core.pcbas.action_head import ActionHead
+        from matchlab_core.pcbas.action_head import action_head_from_checkpoint
 
         p = Params(**self.config.params)
         workdir = self.workdir()
         device = torch.device(p.device if torch.cuda.is_available() else "cpu")
 
         state = torch.load(p.checkpoint, map_location=device, weights_only=False)
-        model = ActionHead(pretrained=False).to(device).eval()
-        model.load_state_dict(state["model"])
+        # Built as the checkpoint was TRAINED -- a transformer-arm checkpoint cannot
+        # load into a conv-arm model, and constructing ActionHead() at its default
+        # made A1's checkpoints unscoreable.
+        model = action_head_from_checkpoint(p.checkpoint, map_location=device)
+        model = model.to(device).eval()
 
         ds = FootpassClipDataset(
             p.h5_path,

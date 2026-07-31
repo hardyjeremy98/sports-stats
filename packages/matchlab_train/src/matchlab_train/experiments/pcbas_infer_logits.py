@@ -110,17 +110,20 @@ class PCBASInferLogitsExperiment(Experiment):
 
     def run(self) -> dict:
         import torch
-        from matchlab_core.pcbas.action_head import ActionHead
+        from matchlab_core.pcbas.action_head import action_head_from_checkpoint
 
         p = Params(**self.config.params)
         workdir = self.workdir()
         device = torch.device(p.device if torch.cuda.is_available() else "cpu")
 
-        model = ActionHead(pretrained=False).to(device)
+        # Built as the checkpoint was TRAINED. `ActionHead(pretrained=False)` is
+        # always the conv arm, so this path could not load a transformer-arm
+        # checkpoint at all -- the arm trained fine and was unscoreable.
         state = torch.load(p.checkpoint, map_location=device, weights_only=False)
-        model.load_state_dict(state["model"])
-        model.eval()
-        print(f"loaded {p.checkpoint} (epoch {state.get('epoch')})")
+        model = action_head_from_checkpoint(p.checkpoint, map_location=device)
+        model = model.to(device).eval()
+        temporal = (state.get("params") or {}).get("temporal", "conv")
+        print(f"loaded {p.checkpoint} (epoch {state.get('epoch')}, temporal={temporal})")
 
         out_dir = Path(p.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)

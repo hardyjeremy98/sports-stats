@@ -197,3 +197,36 @@ def test_temporal_transformer_survives_a_fully_absent_player():
     mask[1] = 0.0
     out = block(x, mask)
     assert torch.isfinite(out).all()
+
+
+def test_action_head_from_checkpoint_honours_the_recorded_temporal_kind(tmp_path):
+    """A transformer-arm checkpoint must not be loaded as a conv-arm model.
+
+    Both inference paths built `ActionHead()` at its "conv" default and then called
+    load_state_dict, which raises on every temporal_transformer.* key. That made an
+    A1 checkpoint unscoreable -- the arm trained for 4.5 h and could not be measured.
+    The checkpoint records `temporal` in its params; the loader reads it.
+    """
+    from matchlab_core.pcbas.action_head import action_head_from_checkpoint
+
+    for kind in ("conv", "transformer"):
+        model = ActionHead(pretrained=False, temporal=kind)
+        path = tmp_path / f"{kind}.pt"
+        torch.save({"model": model.state_dict(), "epoch": 7, "params": {"temporal": kind}}, path)
+        loaded = action_head_from_checkpoint(path, pretrained=False)
+        assert loaded.temporal_kind == kind
+        for (ka, va), (kb, vb) in zip(
+            model.state_dict().items(), loaded.state_dict().items(), strict=True
+        ):
+            assert ka == kb
+            torch.testing.assert_close(va, vb)
+
+
+def test_action_head_from_checkpoint_defaults_to_conv_for_older_checkpoints(tmp_path):
+    """Checkpoints written before the selector existed carry no `temporal` key."""
+    from matchlab_core.pcbas.action_head import action_head_from_checkpoint
+
+    model = ActionHead(pretrained=False)
+    path = tmp_path / "legacy.pt"
+    torch.save({"model": model.state_dict(), "epoch": 3}, path)
+    assert action_head_from_checkpoint(path, pretrained=False).temporal_kind == "conv"
