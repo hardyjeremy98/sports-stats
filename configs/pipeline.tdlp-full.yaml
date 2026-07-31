@@ -16,6 +16,7 @@ description: >
   SOTA TDLP-full tracker (RTMPose + KPR appearance + released tdlp_sportsmot
   head) as a native TRACK stage, bridged to the external-trackers venvs.
 sport: soccer
+pitch: fifa
 video:
   sample_stride: 1
   max_frames: null
@@ -39,11 +40,24 @@ stages:
     impl: kit-color
     params:
       crops_per_tracklet: 8
+  # PnLCalib rebuild (SPO-62..66/70/84) -- the current calibration system.
+  # `pitch: fifa` above is required: the adapter emits homographies in real
+  # 105x68 m geometry.
   calibrate:
-    impl: yolo-pitch-local
+    impl: pnlcalib
     params:
-      weights: data/weights/football-pitch-detection.pt
-      keypoint_confidence: 0.5
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
   associate:
     impl: global-color
     params:

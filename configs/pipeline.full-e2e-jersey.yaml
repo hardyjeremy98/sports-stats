@@ -1,15 +1,16 @@
-# TDLP-full substrate + the B2 re-ID engine in the ASSOCIATE slot (SPO-53).
-# The engine consumes the tracker's own per-frame KPR/pose features
-# (frame_features.npz, exported by the tdlp-full stage) and owns the whole
-# tracklet -> named-entity path, so the identity slot is `none` by design —
-# the slot survives as a seam for other experiments. See
-# configs/pipeline.tdlp-full.yaml for the external-trackers requirements.
-name: tdlp-full-reid
+# Fully model-driven end-to-end pipeline for the Lab: every stage is a real
+# model prediction -- no oracle GT consumed anywhere. Jersey-OCR channel ON.
+# Worker needs: uv run --with ultralytics --with pytorch_lightning --with nltk
+# (torch/timm/torchvision are already in the cv group).
+name: full-e2e-jersey
 description: >
-  SOTA TDLP-full tracker + reid-engine association: constraint-gated tracklet
-  merging over the tracker's own part-based features, closed-roster naming
-  with abstention. Identity slot deliberately none.
+  Fully model-driven end-to-end run: YOLOv8x local detection, TDLP-full
+  tracking, kit-colour teams, pitch calibration, reid-engine association with
+  the jersey-OCR channel ENABLED (bounded influence, two-pass default). No
+  oracle stage anywhere: anchor_source is none, so naming abstains -- entities
+  are anonymous threads, which is the honest no-GT behaviour (ADR 001).
 sport: soccer
+# Required by the pnlcalib adapter: homographies in real FIFA 105x68 m geometry.
 pitch: fifa
 video:
   sample_stride: 1
@@ -35,9 +36,9 @@ stages:
     impl: kit-color
     params:
       crops_per_tracklet: 8
-  # PnLCalib rebuild (SPO-62..66/70/84) -- the current calibration system.
-  # `pitch: fifa` above is required: the adapter emits homographies in real
-  # 105x68 m geometry.
+  # PnLCalib rebuild (SPO-62..66/70/84) — the current calibration system. The
+  # legacy yolo-pitch-local block was inherited from tdlp-full-reid.yaml by
+  # mistake in the first run of this config.
   calibrate:
     impl: pnlcalib
     params:
@@ -83,11 +84,15 @@ stages:
       # Anchor layer (SPO-56): oracle jersey anchors from the video's GT
       # (benchmark condition; needs ingested GT next to the video). Set
       # anchor_source: none for anchor-free runs.
-      anchor_source: oracle-jersey
+      anchor_source: none
       anchor_coverage: 1.0
       anchor_noise: 0.0
       anchor_min_box_height: 0.0
       anchor_seed: 0
+      # Jersey-OCR channel (2026-08-01, docs/reports/2026-08-01-jersey-ocr-channel.md):
+      # fused body+jersey measured 50 correct merges @ zero wrong vs body-alone 0
+      # (held-out oracle fragments). Default is OFF; this eval config turns it on.
+      jersey_enabled: true
   identity:
     impl: none
     params: {}
