@@ -30,6 +30,26 @@ them under `data/soccernet/ball/<split>/<match>/` before running `ingest-soccern
 is understood to ship two half-videos per match sharing one `Labels-ball.json` — verify against
 an actual download before relying on this tier at scale (see the adapter's module docstring).
 
+## `jersey` — SoccerNet jersey-number recognition (gate-1-only, different shape)
+
+`jersey.json` covers **SoccerNet jersey-number recognition** (sn-jersey, Koshkina & Elder
+CVPRW 2024): per-tracklet crops plus `test_gt.json` mapping tracklet id to jersey number
+(`-1` for illegible). Different shape again from every other tier here: it scores per-tracklet
+number classification (correct / wrong / abstained, an integer count table — see
+`matchlab_train.experiments.jersey_reader_gate`), not box/track GT or timed events.
+
+This tier exists for exactly one purpose: **Gate 1** of the jersey-OCR merge channel —
+reproduce the published 87.45% tracklet accuracy on the data it was published on, before
+`matchlab_core.ocr.parseq.JerseyReader` is trusted on SNMOT/SportsMOT crops for anything
+downstream. It has no `tuning`/`held_out` role split; there is one split (`test`) and it is
+never used for threshold calibration. The `data/weights/parseq-jersey.ckpt` checkpoint was
+fine-tuned on this same data, so any number measured against it is a reproduction/wiring
+check, not an independent accuracy estimate — record that train-adjacency caveat wherever
+the figure is quoted. Data is on disk at `data/soccernet/jersey/test/`, loaded via
+`matchlab_train.datasets.soccernet_jersey.load_jersey_tracklets`; acquisition follows the
+[sn-jersey](https://github.com/SoccerNet/sn-jersey) layout (per-tracklet image directories
+plus `test_gt.json`).
+
 ## `footpass` — full-match tactical tier (double-gated acquisition, no adapter yet)
 
 `footpass.json` covers **FOOTPASS** (SoccerNet 2026 Player-Centric Ball-Action Spotting): 54

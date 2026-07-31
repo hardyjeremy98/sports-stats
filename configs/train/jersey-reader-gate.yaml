@@ -1,0 +1,25 @@
+# Gate 1 (SPO jersey-ocr merge channel, task 4): reproduce the published
+# 87.45% SoccerNet jersey tracklet accuracy on the data it was published on,
+# before the reader is pointed at SNMOT/SportsMOT crops for anything
+# downstream. See packages/matchlab_train/src/matchlab_train/experiments/
+# jersey_reader_gate.py for the pre-registered bar and count-table rationale.
+name: jersey-reader-gate
+task: jersey-reader-gate
+description: >
+  Reproduce the published SoccerNet jersey-number tracklet accuracy with
+  JerseyReader (PARSeq) + the pure jersey.py likelihood aggregation, on the
+  full SoccerNet jersey test split (1,211 tracklets).
+params:
+  root: data/soccernet/jersey
+  split: test
+  checkpoint: data/weights/parseq-jersey.ckpt
+  device: cuda
+  # 100 crops, evenly strided, was measured best (task-4b report); this
+  # config was previously stuck at 32, which is why the stored report.json
+  # was stale at 0.1367 -- see jersey_reader_gate.py's Params docstring.
+  max_crops_per_tracklet: 100
+  min_confidence: 0.5
+  # min_legibility, margin_tau, legibility_weight_power, confidence_weight_power
+  # left at Params defaults (0.1 floor, tau=2.0, a1 b1 -- the pre-registered
+  # cell from the offline 868-fragment sweep).
+output_dir: data/experiments

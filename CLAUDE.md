@@ -193,7 +193,10 @@ Non-negotiable invariants:
 
 Measured findings so far (details and caveats in `implementation-status.md` → Known
 findings): kit-colour association is ineffective for player-level identity; remaining ID
-switches are substantially a tracker-level problem that simple post-association cannot fix.
+switches are substantially a tracker-level problem that simple post-association cannot fix;
+jersey OCR as a pairwise merge channel (OFF by default) fused to 50 zero-wrong merges vs 14
+jersey-alone / 0 body-alone on held-out oracle-fragment tracklets, with real-tracker
+validation still open.
 
 ## Documentation governance
 
