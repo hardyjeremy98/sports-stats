@@ -80,6 +80,13 @@ shipping boundary — don't undo it, but don't read product meaning into it eith
   face identity stays behind the `face` extra and a config flag.
 - **SportsMOT is CC BY-NC 4.0 and agreement-gated** — fine as a research evaluation tier
   (`configs/datasets/sportsmot.json`); do not redistribute the data itself.
+- **FOOTPASS is NDA-gated broadcast footage** (`configs/datasets/footpass.json`) — fine as a
+  research tier; never redistribute the videos or tactical data, and never commit the
+  SoccerNet NDA password. Acquisition needs a Hugging Face **read** token *plus* a per-account
+  access grant on the restricted `SoccerNet/SN-PCBAS-2026` repo (401 = token/scope, 403 = not
+  on the authorized list). The tactical zips are not encrypted — the NDA password is not needed
+  for that tier. Tactical data is on disk and schema-verified; no video downloaded. See
+  `docs/reference/footpass-setup.md`.
 - **T-DEED (real action spotter) is GPL-3.0 code + SoccerNet-trained weights, isolated in a
   sibling `external-spotters/` env, reached via a subprocess CLI** — same env-isolation
   pattern as `ultralytics`/`external-trackers/`. The `tdeed` spotting stage runs against a
@@ -215,6 +222,7 @@ without runnable code.
 `data/` is gitignored: `data/videos/` (uploaded + ingested, with `.gt.json` ground truth),
 `data/runs/<id>/`, `data/clips/`, `data/weights/` (local YOLO weights from roboflow/sports),
 `data/soccernet/tracking/{train,test}/` and `data/sportsmot/<split>/` (MOT sequences),
-`data/matchlab.db`.
+`data/footpass/{tactical,videos_352x640,videos_fullHD}/` (FOOTPASS full matches — double-gated
+acquisition, see `docs/reference/footpass-setup.md`), `data/matchlab.db`.
 `configs/datasets/<tier>.json` (checked in, not gitignored) declares each dataset tier's tuning
 vs. held-out sequence roles over that gitignored data — see `configs/datasets/README.md`.
