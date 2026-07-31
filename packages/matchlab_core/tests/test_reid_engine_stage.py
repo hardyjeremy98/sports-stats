@@ -438,18 +438,19 @@ def _two_pass(params: dict | None = None) -> dict:
     return {"merge_strategy": "two-pass", **(params or {})}
 
 
-def test_default_merge_strategy_is_pairwise(tmp_path):
-    """Pin the default engine so it cannot flip silently again.
+def test_default_merge_strategy_is_two_pass(tmp_path):
+    """Pin the default engine so it cannot flip silently in either direction.
 
-    two-pass shipped as the default on 2026-07-31 on the strength of an SNMOT
-    A/B that ran with anchor_source=oracle-jersey at coverage 1.0. two-pass
-    merges two tracklets sharing an anchor on the anchor alone, so GT jersey
-    labels did much of the grouping and the engines looked tied. Anchorless,
-    two-pass loses at every threshold swept (-0.0273 mean entity IDF1 at the
-    then-shipped 4.0/2.0, better on 1 of 8 sequences). See
-    docs/reports/2026-08-01-anchorless-merge-ab.md.
+    two-pass is the default because the product processes whole matches, which
+    is the regime FOOTPASS measures: accumulation takes threads per player from
+    31.8 to 15.1 and coverage from 60.3% to 79.6%, anchorless.
+
+    It must NOT be selected on SNMOT, which carries ~1.2 tracklets per player
+    and so cannot exercise accumulation at all -- two-pass loses there
+    (-0.0273 mean entity IDF1 anchorless), and reverting the default on that
+    basis was a mistake made and undone on 2026-08-01.
     """
-    assert Params().merge_strategy == "pairwise"
+    assert Params().merge_strategy == "two-pass"
 
 
 def test_two_pass_is_selectable_and_produces_the_incumbent_artifacts(tmp_path):

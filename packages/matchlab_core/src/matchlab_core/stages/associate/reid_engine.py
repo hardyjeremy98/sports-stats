@@ -123,21 +123,34 @@ class Params(BaseModel):
     # constraints are same-team and non-overlapping tracklets; motion
     # feasibility becomes a scored channel rather than a veto.
     #
-    # two-pass was briefly the default (2026-07-31) on the strength of a
-    # FOOTPASS result and an SNMOT A/B that showed a tie. That A/B was invalid:
-    # it ran with anchor_source=oracle-jersey at coverage 1.0, and two-pass
-    # merges two tracklets sharing an anchor on the anchor alone
-    # (reid/twopass.py), so GT jersey labels did much of the grouping. Rerun
-    # ANCHORLESS on the same 8 SNMOT sequences, two-pass loses to pairwise at
-    # every threshold on a 1-D sweep: -0.0273 mean entity IDF1 at the shipped
-    # 4.0/2.0 (better on 1 of 8 sequences) and -0.0060 at its best point
-    # (-1.0/-3.0). Reverted 2026-08-01; see
-    # docs/reports/2026-08-01-anchorless-merge-ab.md.
+    # two-pass is the default because the product processes WHOLE MATCHES, and
+    # that is the regime it is measured in. On FOOTPASS (12,595 tracklets, 154
+    # player-halves, ~2,100 tracklets per ~26 players) accumulation is worth,
+    # at threshold 4.0: single-tracklet control 97.56% precision / 60.32%
+    # coverage / 31.8 threads per player -> pass 1 97.45% / 69.38% / 24.3 ->
+    # plus pass 2 96.46% / 79.60% / 15.1. Pass 2 buys +10.2 points of coverage
+    # for 1.0 point of precision. That harness has NO anchor layer, so those
+    # numbers are anchorless and unaffected by the GT leak described below.
+    # See docs/reports/2026-07-31-repaired-headline.md.
     #
-    # This does NOT retire two-pass. SNMOT carries ~1.2 tracklets per player,
-    # so it cannot exercise the accumulation two-pass exists for; the FOOTPASS
-    # regime (~2,100 tracklets for ~26 players) remains untested anchorless.
-    merge_strategy: str = "pairwise"
+    # It was briefly reverted to pairwise on 2026-08-01 and restored the same
+    # day. The revert over-generalised from SNMOT, where two-pass does lose
+    # (-0.0273 mean entity IDF1 anchorless at 4.0/2.0, better on 1 of 8
+    # sequences). But SNMOT clips are 30 s and carry ~1.2 tracklets per player,
+    # so there is nothing to accumulate -- the benchmark cannot exercise the
+    # mechanism this engine exists for, and must not be used to select it.
+    #
+    # What DOES survive from that work, and is not retracted:
+    #   - The 2026-07-31 claim that two-pass "ties" pairwise on SNMOT was
+    #     wrong; that A/B ran with anchor_source=oracle-jersey at coverage 1.0
+    #     and both engines merge two tracklets sharing an anchor on the anchor
+    #     alone (reid/merge.py, reid/twopass.py), so GT jersey labels did much
+    #     of the grouping. Anchorless, two-pass loses on SNMOT outright.
+    #   - 4.0 is the FOOTPASS-fitted operating point and is far too strict for
+    #     short broadcast clips, where it makes 8 merges across 8 sequences.
+    #     That is a domain gap, not a bug; lower it for clip-length footage.
+    # See docs/reports/2026-08-01-anchorless-merge-ab.md.
+    merge_strategy: str = "two-pass"
     fusion_model: str = "configs/reid/fusion-footpass-v1.json"
     pass1_min_score: float = 4.0
     pass2_min_score: float | None = 2.0
