@@ -34,6 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from matchlab_core.reid.evidence import LLRCalibrator, saturate
+from matchlab_core.reid.jersey import pair_llr
 from matchlab_core.reid.merge import AssociationPair, MergeResult
 from matchlab_core.reid.occupancy import js_distance
 from matchlab_core.reid.threads import ThreadState
@@ -193,6 +194,25 @@ class FusionModel:
         return total
 
 
+def _pool_jersey(a: np.ndarray | None, b: np.ndarray | None) -> np.ndarray | None:
+    """Combine two independent per-tracklet jersey likelihoods into one.
+
+    Elementwise product (both readings are evidence about the SAME true
+    number, so their likelihoods multiply) renormalised to sum to 1. A missing
+    side (no reads, or jersey disabled) leaves the other side unchanged --
+    abstention stays neutral, same convention as `pair_llr`/ADR 003.
+    """
+    if a is None:
+        return b
+    if b is None:
+        return a
+    prod = a * b
+    s = float(prod.sum())
+    if s <= 0.0:
+        return a  # degenerate (hard contradiction already saturated elsewhere)
+    return prod / s
+
+
 def merge_threads_two_pass(
     evidence: list[TrackletEvidence],
     *,
@@ -203,8 +223,25 @@ def merge_threads_two_pass(
     rounds: int = 8,
     pair_filter=None,
     anchor_by_tid: dict[int, str] | None = None,
+    jersey_likelihood_by_tid: dict[int, np.ndarray] | None = None,
+    jersey_prior: np.ndarray | None = None,
+    jersey_weight: float = 0.0,
 ) -> MergeResult:
-    """Two-pass merge. Returns the incumbent `MergeResult` contract unchanged."""
+    """Two-pass merge. Returns the incumbent `MergeResult` contract unchanged.
+
+    `jersey_likelihood_by_tid`/`jersey_prior`/`jersey_weight` wire the same
+    per-tracklet OCR reads the pairwise engine consults (computed once,
+    upstream in reid_engine.py -- never re-read here) into this path's score.
+    A thread pools its members' likelihoods via `_pool_jersey` as it grows;
+    each pass-1/pass-2 comparison adds `jersey_weight * pair_llr(...)` on top
+    of `model.score(...)`. `pair_llr` is already saturated to +-LOG_CLAMP
+    nats, so the jersey contribution here is bounded to
+    +-(jersey_weight * LOG_CLAMP) regardless of how confidently the two sides
+    disagree -- see `Params.jersey_weight_twopass` in reid_engine.py for the
+    derivation of a safe bound on this path's own (unbounded-sum) scale.
+    Default `jersey_weight=0.0` makes this exactly a no-op (0 * anything),
+    matching jersey_enabled=False's do-no-harm contract.
+    """
     ev = sorted(evidence, key=lambda e: (e.start, e.tracklet_id))
     if not ev:
         return MergeResult(groups=[], pairs=[])
@@ -221,12 +258,20 @@ def merge_threads_two_pass(
             for j in range(len(ev)):
                 allowed[(i, j)] = pair_filter(ev[i], ev[j])
 
+    jersey_by_tid = jersey_likelihood_by_tid or {}
+
+    def jersey_bonus(a: np.ndarray | None, b: np.ndarray | None) -> float:
+        if jersey_weight <= 0.0 or jersey_prior is None or a is None or b is None:
+            return 0.0
+        return jersey_weight * pair_llr(a, b, jersey_prior)
+
     pairs: list[AssociationPair] = []
     edges: list[tuple[int, int]] = []
     threads: list[ThreadState] = []
     t_fp: list[object] = []
     t_members: list[list[int]] = []
     t_team: list[int | None] = []
+    t_jersey: list[np.ndarray | None] = []
 
     def anchor_conflict(mx: list[int], my: list[int]) -> bool:
         """Threads anchored to different roster candidates are a cannot-link."""
@@ -250,6 +295,7 @@ def merge_threads_two_pass(
         live = [k for k in range(len(threads)) if eligible(i, k)]
         best_k, best_s, runner = None, -np.inf, -np.inf
         q_fp = states[i].footprint()
+        q_jersey = jersey_by_tid.get(tid[i])
         anchor_k = None
         for k in live:
             partner = max(t_members[k], key=lambda m: start[m])
@@ -267,6 +313,7 @@ def merge_threads_two_pass(
                     reason=AssociationRejectReason.NO_FEATURES,
                 ))
                 continue
+            s += jersey_bonus(t_jersey[k], q_jersey)
             if s > best_s:
                 best_k, best_s, runner = k, s, best_s
             elif s > runner:
@@ -294,6 +341,7 @@ def merge_threads_two_pass(
             edges.append((tid[partner], tid[i]))
             threads[best_k] = threads[best_k].merged_with(states[i])
             t_fp[best_k] = threads[best_k].footprint()
+            t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey)
             t_members[best_k].append(i)
         else:
             if best_k is not None:
@@ -307,6 +355,7 @@ def merge_threads_two_pass(
             t_fp.append(states[i].footprint())
             t_members.append([i])
             t_team.append(team[i])
+            t_jersey.append(q_jersey)
 
     # --- pass 2: thread against thread, both sides mature ---------------------
     if pass2_score is not None:
@@ -331,7 +380,7 @@ def merge_threads_two_pass(
             if not cands:
                 break
             scored = [
-                (s, x, y)
+                (s + jersey_bonus(t_jersey[x], t_jersey[y]), x, y)
                 for s, x, y in (
                     (model.score(threads[x], t_fp[x], threads[y], t_fp[y]), x, y)
                     for x, y in cands
@@ -355,9 +404,11 @@ def merge_threads_two_pass(
                 edges.append((tid[a_end], tid[b_start]))
                 threads[x] = threads[x].merged_with(threads[y])
                 t_fp[x] = threads[x].footprint()
+                t_jersey[x] = _pool_jersey(t_jersey[x], t_jersey[y])
                 t_members[x] = t_members[x] + t_members[y]
                 threads[y] = None
                 t_members[y] = []
+                t_jersey[y] = None
                 merged_any = True
             if not merged_any:
                 break

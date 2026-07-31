@@ -246,6 +246,29 @@ class Params(BaseModel):
     # bounded, similarity-scale form is the safe interim that preserves the
     # engine's existing score semantics until that lands.
     jersey_weight: float = 0.15
+    # Same channel, the two-pass path's own scale (SPO-53 post-merge fix,
+    # 2026-08-01: ba3c550 made two-pass the default the SAME day this channel
+    # landed, and nothing routed jersey evidence through it -- fused affinity
+    # was silently bit-identical to base under the new default). Two-pass sums
+    # calibrated LLRs in nats (FusionModel.score, unbounded sum of per-channel
+    # terms each individually saturated to +-LOG_CLAMP=6 nats), not a
+    # 0..1-bounded similarity, so `jersey_weight`'s similarity-unit cap does
+    # not apply here; this path needs its own nats-scale weight.
+    #
+    # `pair_llr` (reid/jersey.py) already saturates to +-LOG_CLAMP, so this
+    # channel's worst-case swing is +-(jersey_weight_twopass * LOG_CLAMP).
+    # The shipped fusion model (configs/reid/fusion-footpass-v1.json) weights
+    # body at 2.0328, so a body-alone match can reach at most
+    # 2.0328 * 6 = 12.20 nats -- and the default pass1_min_score is 4.0, so a
+    # near-saturated body match clears the merge line by up to
+    # 12.20 - 4.0 = 8.20 nats of margin. Capping jersey's swing at
+    # 1.0 * 6.0 = 6.0 nats keeps it strictly below that margin (with ~2.2 nats
+    # of headroom), so jersey evidence can tip a marginal pair (near the 4.0 /
+    # 2.0 thresholds) but can never by itself drag a near-saturated body match
+    # below the line -- the same no-absolute-veto invariant as the pairwise
+    # channel, derived from this path's own thresholds instead of borrowing
+    # the similarity-band number.
+    jersey_weight_twopass: float = 1.0
 
 
 def _tracklet_evidence(
@@ -457,6 +480,9 @@ class ReidEngineAssociator(Associator):
                 pair_filter=lambda a, b: eligible(idx_pre[a.tracklet_id],
                                                   idx_pre[b.tracklet_id]),
                 anchor_by_tid=anchor_by_tid,
+                jersey_likelihood_by_tid=jersey_likelihood if p.jersey_enabled else None,
+                jersey_prior=jersey_prior if p.jersey_enabled else None,
+                jersey_weight=p.jersey_weight_twopass,
             )
         else:
             result = merge_tracklets(
