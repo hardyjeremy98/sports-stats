@@ -1,24 +1,39 @@
-# Local-weights evaluation recipe: the roboflow/sports fine-tuned YOLOv8x
-# models run via ultralytics (AGPL — LOCAL EVAL ONLY, never ship; see
-# technology/10-libraries.md). No API key needed. Weights land in
-# data/weights/ via the gdrive links in roboflow/sports setup.sh.
+# TIER: PORTABLE-LIVE (see configs/README.md).
+#
+# The best stack that runs on a plain box with in-repo dependencies only -- no
+# sibling external-* environment, no API key. Every slot below is the current
+# best *available under that constraint*; slots where the overall best needs an
+# external env (TDLP-full tracking, PnLCalib calibration, the reid-engine
+# associate stage, which consumes TDLP-full's exported KPR features) stay on
+# their in-repo alternatives. For the unconstrained best stack use
+# pipeline.full-e2e-jersey.yaml.
+#
+# Local weights run via ultralytics; they land in data/weights/ (see
+# docs/reports/2026-08-01-detector-selection.md for the current detector).
 name: v1-local-eval
 description: >
-  Real models, no API key: local fine-tuned YOLOv8x detection + pitch keypoints,
-  BoT-SORT tracking, kit-color teams, global association, heuristic possession.
-  AGPL weights - evaluation only.
+  Portable-live stack, no API key and no external env: mobadam local YOLO
+  detection @960, BoT-SORT tracking, kit-color teams, local pitch keypoints,
+  global colour association, heuristic possession.
 sport: soccer
 video:
-  sample_stride: 2
+  # Stride 1, not 2: SPO-22 measured stride as the single best tracklet-purity
+  # axis (+0.0261 purity alone, mixed-identity seconds 32.2 -> 15.8) at 2x
+  # compute. docs/reports/2026-07-17-phase1-hardening.md.
+  sample_stride: 1
   max_frames: null
   resize_width: null
 stages:
   detect:
     impl: yolo-local
     params:
-      weights: data/weights/football-player-detection.pt
-      imgsz: 1280
-      confidence: 0.3
+      # Detector selected 2026-08-01 (docs/reports/2026-08-01-detector-selection.md):
+      # held-out player AP@0.5 0.803 -> 0.919, ball F1 0.368 -> 0.663, and
+      # end-to-end HOTA (tracklet) 0.502 -> 0.618 / ID switches -59%.
+      # imgsz 960 and confidence 0.4 are both measured optima, not defaults.
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 960
+      confidence: 0.4
   track:
     impl: botsort
     params:
@@ -37,7 +52,10 @@ stages:
       minimum_iou_threshold_first_assoc: 0.2
       minimum_iou_threshold_second_assoc: 0.5
       minimum_iou_threshold_unconfirmed_assoc: 0.3
-      high_conf_det_threshold: 0.6
+      # 0.4, not the library default 0.6: this is the parameter that actually
+      # governs BoT-SORT's low-score second association, and it was the best
+      # single purity/IDsw axis in the SPO-22 sweep (+0.0118 purity, -7.0 idsw).
+      high_conf_det_threshold: 0.4
       cmc_method: sparseOptFlow
       cmc_downscale: 2
       instant_first_frame_activation: true

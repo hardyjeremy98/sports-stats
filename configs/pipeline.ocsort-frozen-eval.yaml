@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # PHASE 3 CANDIDATE (SPO-33) -- OC-SORT over frozen reference detections.
 # Identical to configs/pipeline.v1-hardened-frozen-eval.yaml EXCEPT the track
 # stage is `ocsort` (motion-model ablation: no appearance, no CMC). Same frozen

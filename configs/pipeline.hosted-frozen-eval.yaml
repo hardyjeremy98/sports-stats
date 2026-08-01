@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # FROZEN HOSTED INCUMBENT DETECTIONS (SPO-26) -- Phase 2, SoccerNet tier.
 # This config freezes the SHIPPING incumbent detector (roboflow-hosted
 # football-players-detection-3zvbc/11, the same model id as

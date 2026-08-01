@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # PHASE 1 HARDENED BASELINE (SPO-22) -- the program comparator for every later
 # phase. Selected by the rule pre-registered in Linear SPO-22 before the sweeps
 # ran: best HOTA (tracklet) that does not regress tracklet_purity beyond the
@@ -60,6 +61,12 @@ stages:
   detect:
     impl: yolo-local
     params:
+      # DELIBERATELY NOT REPOINTED to the 2026-08-01 default detector
+      # (the program comparator -- every phase report quotes its numbers).
+      # Changing these weights silently invalidates every historical
+      # comparison made through this config. If you want the new
+      # detector, make a NEW config -- see
+      # configs/pipeline.detector-swap-eval.yaml.
       weights: data/weights/football-player-detection.pt
       imgsz: 1280
       confidence: 0.4

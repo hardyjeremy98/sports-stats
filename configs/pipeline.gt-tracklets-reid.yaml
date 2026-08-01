@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # SPO-85 GT-tracklet re-ID harness: the contamination-free measurement
 # substrate. Ground-truth tracks are fragmented at their natural gaps, so
 # tracklet purity is 1.0 by construction and every correct pair is known

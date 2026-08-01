@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 name: sota-detector-observe
 description: 'Best-tools research pipeline: MixSort YOLOX-X (SOTA detector, AP 0.984
   SportsMOT) + hardened BoT-SORT, on SNMOT-124. Research mode (non-shippable OK).'

@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # PHASE 3 CANDIDATE (SPO-31) -- BoT-SORT + online body ReID over frozen
 # detections. Track params are BYTE-IDENTICAL to the hardened comparator
 # (configs/pipeline.v1-hardened-frozen-eval.yaml); the ONLY differences are the

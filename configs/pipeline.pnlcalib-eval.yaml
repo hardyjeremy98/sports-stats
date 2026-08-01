@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # Local-weights evaluation recipe, but with PnLCalib pitch registration instead
 # of the roboflow/sports YOLOv8x-pose keypoint model. Identical to
 # pipeline.v1-local-eval.yaml except the `calibrate` stage and `pitch: fifa`.
@@ -42,6 +43,12 @@ stages:
   detect:
     impl: yolo-local
     params:
+      # DELIBERATELY NOT REPOINTED to the 2026-08-01 default detector
+      # (a calibration-eval substrate; the detector is a held-fixed control).
+      # Changing these weights silently invalidates every historical
+      # comparison made through this config. If you want the new
+      # detector, make a NEW config -- see
+      # configs/pipeline.detector-swap-eval.yaml.
       weights: data/weights/football-player-detection.pt
       imgsz: 1280
       confidence: 0.3

@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # SPO-36: permissive RF-DETR detector, measured for detection quality.
 #
 # This is the SHIPPABLE-path detector-adopt-and-measure config: RF-DETR base

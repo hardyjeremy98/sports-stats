@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 name: baseline-observe-oracle
 description: "Hardened BoT-SORT on ORACLE (GT) detections \u2014 tracker ceiling /\
   \ detector isolation vs baseline-observe."

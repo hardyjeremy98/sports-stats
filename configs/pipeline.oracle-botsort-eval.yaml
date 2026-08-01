@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # Oracle counterpart of pipeline.v1-local-eval.yaml (SPO-21 Phase 0 gate):
 # GT boxes stand in for the detector so the BoT-SORT tracker is measured with
 # detection quality held perfect -- the "tracker ceiling" of the current

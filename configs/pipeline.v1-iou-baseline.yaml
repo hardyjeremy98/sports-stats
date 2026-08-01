@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # v1 recipe with the cheap IoU tracker instead of BoT-SORT.
 # Exists as the second config for Lab run-diffing (tracker A/B), per the
 # locked pluggability requirement.

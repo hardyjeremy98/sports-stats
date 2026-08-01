@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # SPO-44 Bar A: the assembled licensing-clean TDLP tracker scored over FROZEN
 # reference detections (same detections the SOTA reference used), so the number
 # isolates the shippable head+appearance cost from detector differences. The

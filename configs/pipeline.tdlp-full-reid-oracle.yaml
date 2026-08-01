@@ -1,3 +1,4 @@
+# TIER: LIVE (see configs/README.md) -- tracks the current best in every slot; upgrade on promotion.
 # Oracle-detection condition for the B2 re-ID engine (SPO-59 primary
 # condition, matching the existing TDLP-full run protocol): GT boxes stand in
 # for the detector so merging/naming quality is measured with detection

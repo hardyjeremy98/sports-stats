@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # FULL benchmark eval config for the `tdeed` spotting stage (SPO-46/SPO-50).
 #
 # HUMAN-GATED, NON-SHIPPABLE: unlike pipeline.tdeed-spotting-smoke.yaml (which
@@ -45,6 +46,12 @@ stages:
   detect:
     impl: yolo-local
     params:
+      # DELIBERATELY NOT REPOINTED to the 2026-08-01 default detector
+      # (a spotting-eval substrate; the detector is a held-fixed control).
+      # Changing these weights silently invalidates every historical
+      # comparison made through this config. If you want the new
+      # detector, make a NEW config -- see
+      # configs/pipeline.detector-swap-eval.yaml.
       weights: data/weights/football-player-detection.pt
       imgsz: 1280
       confidence: 0.4

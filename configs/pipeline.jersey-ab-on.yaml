@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # EVALUATION config, not a shipped default: exercises the jersey-OCR merge
 # channel (task 8, jersey-ocr-merge-channel design) against the reid-engine
 # associate stage's shipped defaults, everything else copied byte-for-byte

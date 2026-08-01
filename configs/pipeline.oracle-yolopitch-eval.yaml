@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 name: oracle-yolopitch-eval
 description: "Oracle GT-box detector + IoU tracker with the previous default yolo-pitch-local\
   \ calibrator (EMA/carry smoothing, roboflow template) \u2014 the Gate 2 before/after\

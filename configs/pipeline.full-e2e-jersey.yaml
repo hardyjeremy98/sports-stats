@@ -1,3 +1,4 @@
+# TIER: LIVE (see configs/README.md) -- tracks the current best in every slot; upgrade on promotion.
 # Fully model-driven end-to-end pipeline for the Lab: every stage is a real
 # model prediction -- no oracle GT consumed anywhere. Jersey-OCR channel ON.
 # Worker needs: uv run --with ultralytics --with pytorch_lightning --with nltk
@@ -20,8 +21,12 @@ stages:
   detect:
     impl: yolo-local
     params:
-      weights: data/weights/football-player-detection.pt
-      imgsz: 1280
+      # Detector selected 2026-08-01 (docs/reports/2026-08-01-detector-selection.md):
+      # held-out player AP@0.5 0.803 -> 0.919, ball F1 0.368 -> 0.663, and
+      # end-to-end HOTA (tracklet) 0.502 -> 0.618 / ID switches -59%.
+      # imgsz 960 and confidence 0.4 are both measured optima, not defaults.
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 960
       confidence: 0.4
   track:
     impl: tdlp-full

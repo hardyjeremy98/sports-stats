@@ -1,3 +1,4 @@
+# TIER: LIVE (see configs/README.md) -- tracks the current best in every slot; upgrade on promotion.
 # ANCHORLESS twin of pipeline.tdlp-full-reid.yaml. Identical in every other
 # respect; the only change is anchor_source: oracle-jersey -> none.
 #

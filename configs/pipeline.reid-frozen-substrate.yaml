@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # SPO-59 replay substrate: score associate-layer variants on byte-identical
 # TDLP-full tracklets without re-running the GPU tracker. The frozen-tracklets
 # stage replays a Phase A base run's tracklets.json + frame_features.npz per

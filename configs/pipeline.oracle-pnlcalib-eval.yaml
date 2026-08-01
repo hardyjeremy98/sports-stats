@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # Gate 2 recipe (SPO-70): oracle (GT-box) detection with real PnLCalib pitch
 # calibration, so game-state quality (coverage / jitter / teleports / in-bounds,
 # computed by projecting GT tracks through the run's smoothed homographies) is

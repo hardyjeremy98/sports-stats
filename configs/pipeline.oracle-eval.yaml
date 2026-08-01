@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # Tracker-ceiling experiment: GT boxes stand in for the detector so tracker/
 # association failures can be measured with detection quality held perfect.
 # Otherwise identical to pipeline.stub.yaml -- this is a runnable harness

@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # PHASE 3 COMPARATOR (SPO-30) -- the SPO-22 hardened baseline (combo-b), with
 # its detector replaced by the `frozen` det-replay stage so it consumes the
 # Phase 2 frozen reference detections (identical input every Phase 3 candidate

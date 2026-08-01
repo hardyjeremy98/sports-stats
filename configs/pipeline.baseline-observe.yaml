@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # Observation run: the DEFAULT / current-best tracklet system — hardened
 # BoT-SORT — over frozen reference detections, so what you observe is the
 # TRACKER's behaviour (association / ID switches) isolated from detector

@@ -1,3 +1,4 @@
+# TIER: LIVE (see configs/README.md) -- tracks the current best in every slot; upgrade on promotion.
 # TDLP-full substrate + the B2 re-ID engine in the ASSOCIATE slot (SPO-53).
 # The engine consumes the tracker's own per-frame KPR/pose features
 # (frame_features.npz, exported by the tdlp-full stage) and owns the whole

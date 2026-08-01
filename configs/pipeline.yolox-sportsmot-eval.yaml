@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # FROZEN YOLOX SPORTSMOT COMPARATOR (SPO-25) -- Phase 2, rescoped 2026-07-17.
 # The PRD's fine-tuning ladder was skipped in favour of importing a frozen
 # reference detector (MixSort YOLOX-X, fine-tuned on SportsMOT) so tracker

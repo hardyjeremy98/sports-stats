@@ -1,3 +1,4 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
 # The v1 production recipe: roboflow/sports hosted models + BoT-SORT.
 # Requires ROBOFLOW_API_KEY and `pip install 'matchlab-core[cv]'`
 # (+ [face] extra for the identity stage — or set identity impl to "none").

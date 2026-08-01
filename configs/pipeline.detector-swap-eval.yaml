@@ -1,0 +1,95 @@
+# TIER: FROZEN (see configs/README.md) -- DETECTOR-SWAP EVAL, 2026-08-01.
+#
+# This config produced the end-to-end detector-swap numbers quoted in the
+# selection report and in docs/implementation-status.md. Do not retune it:
+# changing any slot invalidates those published deltas. In particular imgsz
+# stays 1280 (matching the program comparator it is differenced against) even
+# though 960 is the adopted production setting -- holding it fixed is what
+# makes the weights the only variable.
+#
+# Byte-identical to pipeline.v1-hardened-eval.yaml EXCEPT the `detect:` block,
+# so the detector is the only variable against the program comparator. Purpose:
+# confirm end-to-end that the detection-layer win measured by
+# `scripts/detector_bench.py` survives tracking and association, rather than
+# stopping at an AP number.
+#
+# Detector: mobadam/football-player-detection (Hugging Face), a 4-class
+# football YOLO. Measured on the SoccerNet tuning tier at stride 10, versus the
+# incumbent roboflow/sports football-player-detection.pt:
+#   player AP@0.5   0.767 -> 0.902
+#   player best F1  0.788 -> 0.915
+#   ball    best F1 0.362 -> 0.648
+# See docs/reports/2026-08-01-detector-selection.md.
+#
+# NOTE: this checkpoint's class order is ball/player/referee/goalkeeper, which
+# is NOT the roboflow order the `yolo-local` stage used to hard-code. The stage
+# now derives its class map from the checkpoint's own names
+# (`resolve_class_map`); without that, this swap would silently relabel every
+# player as a goalkeeper.
+name: detector-swap-eval
+description: >
+  The SPO-22 program comparator with ONLY the detector weights swapped to
+  mobadam: the end-to-end confirmation arm for the 2026-08-01 detector
+  selection. Frozen -- its deltas are published.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      # Canonical path. Byte-identical (md5 9f5639d8...) to the bench harness's
+      # own copy at data/weights/bench/mobadam-player_detector.pt, which this
+      # config used to point at -- one checkpoint, one path, so the manifest
+      # provenance of a swap run matches that of a live run.
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}
