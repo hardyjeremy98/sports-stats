@@ -346,3 +346,69 @@ def test_two_pass_records_channels_for_a_rejected_best_candidate():
     assert row["decision"] == "rejected"
     assert {c["name"] for c in row["channels"]} >= {"body", "gap", "jersey"}
     assert row["total"] == pytest.approx(sum(c["contribution"] for c in row["channels"]))
+def test_occupancy_shrinkage_fades_sparse_footprints_toward_neutral():
+    """With occupancy_shrink_n0 set, a thin pair's occupancy contribution is
+    scaled by n/(n+n0); in the data-rich regime the factor approaches 1 and
+    the fitted behaviour is unchanged. 0.0 (default) is exactly the old sum."""
+    import numpy as np
+    from matchlab_core.reid.evidence import LLRCalibrator
+    from matchlab_core.reid.threads import ThreadState
+    from matchlab_core.reid.twopass import FusionModel
+
+    cal = LLRCalibrator.fit(
+        np.linspace(0.0, 1.0, 200), np.r_[np.ones(100), np.zeros(100)]
+    )
+    def state(n):
+        xs = np.linspace(0.4, 0.6, n)
+        return ThreadState.from_fragment(
+            xs, xs, embedding=np.array([1.0, 0.0]), start=0, end=n,
+            exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+        )
+    a, b = state(30), state(30)
+    b = ThreadState.from_fragment(
+        np.linspace(0.4, 0.6, 30), np.linspace(0.4, 0.6, 30),
+        embedding=np.array([1.0, 0.0]), start=40, end=70,
+        exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+    )
+    base = FusionModel(calibrators={"body": cal, "occupancy": cal}, weights={})
+    shrunk = FusionModel(
+        calibrators={"body": cal, "occupancy": cal}, weights={},
+        occupancy_shrink_n0=300.0,
+    )
+    s0 = base.score(a, a.footprint(), b, b.footprint())
+    s1 = shrunk.score(a, a.footprint(), b, b.footprint())
+    # body identical; occupancy scaled by 30/330
+    occ = float(cal.llr(0.0))  # identical footprints -> js ~ 0
+    from matchlab_core.reid.occupancy import js_distance
+    occ = float(cal.llr(js_distance(b.footprint(), a.footprint())))
+    assert abs((s0 - s1) - occ * (1 - 30 / 330)) < 1e-9
+    # round-trips through serialisation
+    assert FusionModel.from_dict(shrunk.to_dict()).occupancy_shrink_n0 == 300.0
+
+
+def test_pass2_margin_blocks_contested_merges_only():
+    """Three same-looking singleton threads: every pass-2 pairing scores the
+    same, so no pairing is distinguishable from its alternative and a margin
+    bar blocks them all. With an unambiguous pair (third thread orthogonal),
+    the same bar lets the clear winner through. min_score is set high so pass
+    1 abstains and pass 2 owns every decision."""
+    a, b = [1.0, 0.0], [0.0, 1.0]
+    contested = [_ev(1, 0, 10, a), _ev(2, 20, 30, a), _ev(3, 40, 50, a)]
+    res = merge_threads_two_pass(
+        contested, model=_model(), min_score=99.0, pass2_score=0.0,
+        pass2_min_margin=0.5,
+    )
+    assert res.groups == [[1], [2], [3]]
+    # margin 0 is the legacy greedy: everything merges
+    res0 = merge_threads_two_pass(
+        contested, model=_model(), min_score=99.0, pass2_score=0.0,
+        pass2_min_margin=0.0,
+    )
+    assert res0.groups == [[1, 2, 3]]
+
+    clear = [_ev(1, 0, 10, a), _ev(2, 20, 30, a), _ev(3, 40, 50, b)]
+    res1 = merge_threads_two_pass(
+        clear, model=_model(), min_score=99.0, pass2_score=0.0,
+        pass2_min_margin=0.5,
+    )
+    assert [1, 2] in res1.groups and [3] in res1.groups

@@ -114,8 +114,9 @@ class TrackletEvidence:
     """Per-tracklet inputs to merging, already reduced from frames.
 
     `xs`/`ys` are pitch positions normalised to [0, 1]; empty when the tracklet
-    has no calibrated frames. `entry_xy`/`exit_xy` are in pitch centimetres and
-    feed the transition prior. Any of them may be absent -- the corresponding
+    has no calibrated frames. `entry_xy`/`exit_xy` are ALSO normalised [0, 1]
+    -- `displacement()` converts to metres itself, and the fitted prior's
+    scales assume that convention -- and feed the transition prior. Any of them may be absent -- the corresponding
     channel simply abstains.
     """
 
@@ -160,6 +161,17 @@ class FusionModel:
     # asserted at all. Appearance is the identity signal; position and timing
     # corroborate it but must never carry a merge on their own.
     required: tuple[str, ...] = ("body",)
+    # Sample-size shrinkage for the occupancy channel: its contribution is
+    # scaled by n_min / (n_min + occupancy_shrink_n0), where n_min is the
+    # smaller side's calibrated-frame count. JS distance between two sparse
+    # footprints is biased high (two 30-frame observations of the SAME player
+    # rarely overlap on a fine grid), so on short clips the channel votes
+    # against every merge. The calibrator was fitted on 45-minute FOOTPASS
+    # halves where n is thousands and the factor is ~1 -- shrinkage changes
+    # nothing in the fitted regime and fades the channel toward neutral
+    # exactly where its evidence is too thin to trust (ADR 003's "missing or
+    # low-quality evidence is neutral", applied continuously). 0.0 disables.
+    occupancy_shrink_n0: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -168,6 +180,7 @@ class FusionModel:
             "weights": dict(self.weights),
             "fps": self.fps,
             "required": list(self.required),
+            "occupancy_shrink_n0": self.occupancy_shrink_n0,
         }
 
     @classmethod
@@ -180,6 +193,7 @@ class FusionModel:
             weights=dict(d.get("weights", {})),
             fps=float(d.get("fps", 25.0)),
             required=tuple(d.get("required", ("body",))),
+            occupancy_shrink_n0=float(d.get("occupancy_shrink_n0", 0.0)),
         )
 
     @classmethod
@@ -234,6 +248,9 @@ class FusionModel:
                 continue
             llr = float(cal.llr(value))
             contribution = weight * llr
+            if name == "occupancy" and self.occupancy_shrink_n0 > 0.0:
+                n_min = min(a_fp.n_frames, b_fp.n_frames)
+                contribution *= n_min / (n_min + self.occupancy_shrink_n0)
             total += contribution
             channels.append({"name": name, "raw": value, "llr": llr,
                              "weight": weight, "contribution": contribution})
@@ -303,6 +320,7 @@ def merge_threads_two_pass(
     min_score: float,
     pass2_score: float | None = 0.0,
     min_margin: float = 0.0,
+    pass2_min_margin: float = 0.0,
     rounds: int = 8,
     pair_filter=None,
     anchor_by_tid: dict[int, str] | None = None,
@@ -509,6 +527,23 @@ def merge_threads_two_pass(
                 if s is not None
             ]
             scored.sort(key=lambda r: -r[0])
+            # Winner-margin in pass 2, same rationale as pass 1's `min_margin`:
+            # a thread pair merges only when its score beats each side's best
+            # ALTERNATIVE partner by the bar. Measured on FOOTPASS pass 1 the
+            # relative rule strictly dominates any absolute threshold (report
+            # 2026-08-01, addendum); pass 2 is the same decision made
+            # thread-to-thread, so it gets the same denominator. 0.0 keeps the
+            # legacy greedy exactly.
+            # Top-two scores per thread: a thread's best ALTERNATIVE partner
+            # is its top score if this pair is not it, else its second-best.
+            top2: dict[int, list[float]] = {}
+            if pass2_min_margin > 0.0:
+                for s, x, y in scored:
+                    for k in (x, y):
+                        t = top2.setdefault(k, [])
+                        t.append(s)
+                        t.sort(reverse=True)
+                        del t[2:]
             used: set[int] = set()
             merged_any = False
             for s, x, y in scored:
@@ -516,6 +551,17 @@ def merge_threads_two_pass(
                     break
                 if x in used or y in used:
                     continue
+                if pass2_min_margin > 0.0:
+                    # `s` is each side's best remaining score at this point in
+                    # the greedy sweep (higher-scored pairs are consumed or
+                    # skipped), so the alternative is the side's second-best.
+                    alt = max(
+                        (top2[k][1] if len(top2.get(k, [])) > 1 and top2[k][0] == s
+                         else top2.get(k, [-np.inf])[0])
+                        for k in (x, y)
+                    )
+                    if (s - alt) < pass2_min_margin:
+                        continue
                 used.update((x, y))
                 a_end = max(t_members[x], key=lambda m: start[m])
                 b_start = min(t_members[y], key=lambda m: start[m])

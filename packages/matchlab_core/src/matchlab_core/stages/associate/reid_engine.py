@@ -166,6 +166,11 @@ class Params(BaseModel):
     merge_strategy: str = "two-pass"
     fusion_model: str = "configs/reid/fusion-footpass-v1.json"
     pass1_min_score: float = 4.0
+    # Winner-margin bar for pass 2 (thread-to-thread), the same relative rule
+    # as `merge_min_margin` applies in pass 1. 0.0 = legacy greedy. Measured on
+    # FOOTPASS pass 1 the margin rule strictly dominates absolute thresholds
+    # (2026-08-01 report, addendum); pass-2 validation pending.
+    pass2_min_margin: float = 0.0
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -321,9 +326,14 @@ def _tracklet_evidence(
                 continue
             xs.append(px / pw)
             ys.append(py / ph)
+            # Normalised like xs/ys: `displacement()` expects [0, 1] endpoints
+            # (that is how the FOOTPASS prior was fitted). Feeding raw
+            # centimetres here made every displacement ~1e5 "metres", so the
+            # transition LLR saturated at -6 nats for EVERY pair -- a constant
+            # -2.82-nat tax instead of evidence (found 2026-08-01).
             if first_xy is None:
-                first_xy = np.array([px, py], dtype=np.float64)
-            last_xy = np.array([px, py], dtype=np.float64)
+                first_xy = np.array([px / pw, py / ph], dtype=np.float64)
+            last_xy = np.array([px / pw, py / ph], dtype=np.float64)
         out.append(
             TrackletEvidence(
                 tracklet_id=t.tracklet_id,
@@ -483,6 +493,7 @@ class ReidEngineAssociator(Associator):
                 min_score=p.pass1_min_score,
                 pass2_score=p.pass2_min_score,
                 min_margin=p.merge_min_margin,
+                pass2_min_margin=p.pass2_min_margin,
                 pair_filter=lambda a, b: eligible(idx_pre[a.tracklet_id],
                                                   idx_pre[b.tracklet_id]),
                 anchor_by_tid=anchor_by_tid,
