@@ -41,6 +41,14 @@ to a pipeline layer -- detection, online association, refinement (reserved),
 offline association -- or an explicit `ambiguous` tag, with the evidence
 basis recorded per instance; see `matchlab_core.attribution`.
 
+An eighth layer scores the TEAM slot, which had no metric at all: per-tracklet
+assignment accuracy (under the better cluster-label permutation, since
+home/away carry no inherent correspondence to GT's camera-relative sides) plus
+the merge engine's team-gate false-veto rate over GT-true re-entry pairs. The
+second half is the one that matters — under the two-pass engine, same-team is
+one of only two remaining hard constraints — and it is not derivable from
+accuracy. See `matchlab_core.team_eval` and `result["team"]`.
+
 Requires the `eval` extra (motmetrics; scipy comes in transitively and is
 what the HOTA backend actually needs). Imported lazily so the lean server
 install works without it.

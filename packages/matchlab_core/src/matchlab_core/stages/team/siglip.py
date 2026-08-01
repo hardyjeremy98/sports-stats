@@ -82,7 +82,13 @@ class SiglipTeamClassifier(TeamClassifier):
             if tr.cls not in (DetectionClass.PLAYER, DetectionClass.GOALKEEPER):
                 continue
             for c in crops.get(tr.tracklet_id, []):
-                flat.append(c[:, :, ::-1])  # BGR -> RGB
+                # ascontiguousarray, not a bare `[:, :, ::-1]`: the reversed
+                # view has a negative stride, and `transformers`' image
+                # processor calls torch.from_numpy on it, which rejects
+                # negative strides outright ("At least one stride in the given
+                # numpy array is negative"). That raised on the first crop of
+                # every run, so this stage had never executed end to end.
+                flat.append(np.ascontiguousarray(c[:, :, ::-1]))  # BGR -> RGB
                 owner.append(tr.tracklet_id)
 
         if len(flat) < 4:
