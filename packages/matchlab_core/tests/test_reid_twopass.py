@@ -276,3 +276,73 @@ def test_three_tracklet_uniform_jersey_is_bit_identical_to_disabled():
             assert fused_by_pair[key] is None
         else:
             assert fused_by_pair[key] == pytest.approx(base_affinity, abs=1e-12)
+
+
+def test_score_channels_sums_to_score_and_names_abstentions():
+    """The displayed breakdown must reconcile with the decided number, and an
+    abstaining channel must be distinguishable from one that voted zero.
+
+    The Lab shows this breakdown to explain why a merge did or did not happen;
+    if the parts did not add up to the whole, or a dead input looked like a
+    neutral one, the explanation would be worse than none.
+    """
+    import numpy as np
+    from matchlab_core.reid.twopass import FusionModel, TrackletEvidence
+
+    model = FusionModel.load("configs/reid/fusion-footpass-v1.json")
+    emb = np.ones(8, dtype=np.float64)
+    emb /= np.linalg.norm(emb)
+    # No pitch positions at all -> occupancy/transition have nothing to say.
+    a = TrackletEvidence(tracklet_id=1, start=0, end=50, embedding=emb).to_state()
+    b = TrackletEvidence(tracklet_id=2, start=100, end=150, embedding=emb).to_state()
+
+    total, channels = model.score_channels(a, a.footprint(), b, b.footprint())
+    assert total is not None
+    by_name = {c["name"]: c for c in channels}
+    assert set(by_name) == {"body", "occupancy", "gap", "transition"}
+
+    # Parts reconcile with the whole.
+    assert total == pytest.approx(sum(c["contribution"] for c in channels))
+
+    # Body had an embedding on both sides, so it voted.
+    assert by_name["body"]["llr"] is not None
+    # Occupancy had no pitch positions, so it abstained -- reported as None and
+    # contributing exactly nothing, NOT as a 0.0 vote.
+    assert by_name["occupancy"]["llr"] is None
+    assert by_name["occupancy"]["contribution"] == 0.0
+
+    # Transition does NOT abstain here, and that is worth pinning: ThreadState
+    # defaults an absent entry/exit position to (0, 0) rather than None, so the
+    # prior is asked about a player who "did not move" instead of being told
+    # there is no position at all. On an uncalibrated run that is a fabricated
+    # measurement, not evidence. Asserted so the behaviour is visible and any
+    # future change to it is deliberate.
+    assert by_name["transition"]["llr"] is not None
+
+
+def test_two_pass_records_channels_for_a_rejected_best_candidate():
+    """A merge that did NOT happen is the harder one to explain, so the engine
+    records the decisive candidate's channels even when it rejects it."""
+    import numpy as np
+    from matchlab_core.reid.twopass import FusionModel, TrackletEvidence, merge_threads_two_pass
+
+    model = FusionModel.load("configs/reid/fusion-footpass-v1.json")
+    rng = np.random.default_rng(0)
+
+    def emb(_seed):
+        v = rng.normal(size=8)
+        return v / np.linalg.norm(v)
+
+    ev = [
+        TrackletEvidence(tracklet_id=1, start=0, end=50, team=0, embedding=emb(1)),
+        TrackletEvidence(tracklet_id=2, start=100, end=150, team=0, embedding=emb(2)),
+    ]
+    # Unreachably high threshold: the pair is scored, then rejected.
+    result = merge_threads_two_pass(ev, model=model, min_score=1e6, pass2_score=1e6)
+
+    assert not result.merge_edges
+    assert result.channel_breakdowns, "a scored-then-rejected pair must be explained"
+    row = result.channel_breakdowns[0]
+    assert row["decision"] == "rejected"
+    assert {c["name"] for c in row["channels"]} >= {"body", "gap", "jersey"}
+    assert row["total"] == pytest.approx(sum(c["contribution"] for c in row["channels"]))

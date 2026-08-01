@@ -487,6 +487,30 @@ default — the non-physical 120×70 m template `yolo-pitch-local` was trained o
   tracking-only runs with no `calibration.jsonl`. Benchmark numbers now exist — see the Gate 2
   entry below.
 
+- An eighth layer (`eval.json`'s `team` block, 2026-08-01): the TEAM slot had **no metric at
+  all** until now — detection had AP, tracking HOTA/purity, association IDF1/entity purity,
+  while the predicted team appeared only as a display string on switch instances. Two
+  sub-layers in `matchlab_core/team_eval.py`, folded in by `evaluate_run` and omitted (never
+  faked) when a run has no `teams.json`. **`assignment`**: per-tracklet accuracy against the
+  GT team of each tracklet's majority GT track, scored under the better of the two global
+  cluster-label permutations — `home`/`away` are arbitrary cluster names with no inherent
+  correspondence to GT's camera-relative `left`/`right`, so a fixed mapping would score a
+  perfect classifier at 0.0 half the time; the chosen permutation is reported. UNKNOWN is an
+  abstention, excluded from the accuracy denominator and reported as `coverage` (ADR 003), so
+  always-guessing is not rewarded. Broken out `by_role`, plus a `confidence_by_role` summary
+  that re-tests SPO-75's population-separation claim on every run. **`gate`**: the merge
+  engine's team-gate behaviour, which is *not* derivable from accuracy — a classifier can be
+  95% accurate and still veto every true re-entry pair if its errors land on the tracklets
+  that re-enter. Pairs surviving the temporal gate are labelled from GT (`same_player` /
+  `opponents` / `same_team`) and run through the **real** `reid/gates.py::TeamConsistencyGate`
+  rather than a reimplementation that could drift from it; `false_veto_rate` over
+  `same_player` is the headline (true re-entry pairs removed from the merge engine's reach
+  before any appearance evidence is scored) and `true_veto_rate` over `opponents` is what the
+  gate buys in exchange. Computed twice — at the run's configured `team_min_confidence` and at
+  `0.0` — so the pre/post-SPO-75 difference is visible in a single payload. This layer exists
+  because under the two-pass merge engine **same-team is one of only two remaining hard
+  constraints**, making kit colour the last surviving veto.
+
 - Gate 2 calibration smoothing, smoother v3 (SPO-84): the offline smoother
   (`matchlab_core/calib/smoother.py`) aggregates its window with a **per-grid-point median**
   (was an arithmetic mean through v2) at a default `smoothing_window` of 15 (was 9).
@@ -743,6 +767,41 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
   counts, a rejection-reason constraint summary (gate vs colour-distance), an entity-to-tracklet
   mini-gantt, and a filterable/sortable candidate-pair list that seeks to and highlights both
   tracklets of a pair in the video overlay.
+- **Missed-merge measurement (fixed 2026-08-01).** `evaluation.py::merge_quality` now emits
+  `missed_pairs` / `n_missed_pairs` / `merge_recall` and the full `gt_composition_of_tracklet`,
+  and the Assoc tab reads those counts instead of deriving them. The previous UI derivation was
+  wrong twice over: it compared `gt_id_of_tracklet`, a per-tracklet **argmax** that erases the
+  identity of an impure tracklet's minority half, and it tallied only pairs present in the
+  associate stage's decision trail — which omits whole rejection classes (`reid/twopass.py`
+  drops temporally overlapping pairs and records nothing for a candidate that merely scored
+  under threshold). On SNMOT-125 it reported **1** missed merge where ground truth demanded
+  **17 across 11 players**. A tracklet counts as representing a GT player only above both a
+  frame floor and a share floor (`MIN_REPRESENTATION_FRAMES` / `MIN_REPRESENTATION_SHARE`);
+  without the share floor, transient ID switches inflate the same run to 115. Runs scored
+  before this fix lack the field and the tab says "re-score needed" rather than showing 0.
+  See [`docs/reports/2026-08-01-detector-selection.md`](reports/2026-08-01-detector-selection.md) §11.
+- **Merge verdicts and per-channel evidence are browsable on the Assoc tab (2026-08-01).**
+  The tab previously showed only counts, and under the `two-pass` default `reid_detail.pairs`
+  was empty (it is filled by the pairwise `similarity()` path, which two-pass never calls) —
+  so there was no way to see *which* merges were wrong or missed, nor why any pair scored what
+  it did. Now: three verdict lists (wrong merges with `GTa → GTb` and the frame, missed merges
+  with the shared GT track and per-side frame counts, associate-stage merges), plus an
+  expandable per-pair breakdown of every evidence channel — body, occupancy, gap, transition,
+  jersey — showing raw measurement, calibrated LLR, weight, and signed contribution in nats
+  against the threshold. `FusionModel.score` now delegates to `score_channels`, so the
+  displayed working cannot drift from the number the engine decided on, and the breakdown is
+  recorded for the decisive candidate **even when it is rejected under threshold** — a merge
+  that did not happen is the harder one to explain. New: `reid_detail.pair_channels`
+  (`schemas/reid_detail.py::PairChannels`/`ChannelScore`), `MergeResult.channel_breakdowns`.
+  A channel with no evidence reports `llr: null` and renders as "abstain", never as a zero
+  bar, so a dead input cannot be misread as a neutral vote.
+- **Tracker-level identity errors are now shown on the Assoc tab too.** The correct/wrong/missed
+  counters only judge merges the *associate* stage made, so a run whose TRACK stage glued two
+  players into one tracklet read "0 wrong" while being full of wrong identity joins — on
+  SNMOT-125, 20 of 28 tracklets are impure and one entity is GT11 for 12.5 s then GT23. Those
+  are unreachable by association, which merges but never splits. The tab now carries a separate
+  `⚠ n/N tracklets impure · Xs mixed` figure from `purity.tracklet`, and the merge counter is
+  labelled "wrong merges" so its scope is explicit.
 - Identity QA sub-tab (`IdentityQATab`) in the run viewer's QA tab: a same/different/unsure pair
   queue seeded from association near-misses (`color_too_far`, sorted closest-miss-first, plus
   `span_conflict`/`speed_implausible`) and eval entity-level ID switches (prev/new tracklets

@@ -104,14 +104,35 @@ export function MergeInspector({
               </span>
             )}
             {(() => {
-              const gtIds = artifacts.eval?.association?.gt_id_of_tracklet;
+              const assoc = artifacts.eval?.association;
+              const gtIds = assoc?.gt_id_of_tracklet;
               const ga = gtIds?.[String(pair.a)];
               const gb = gtIds?.[String(pair.b)];
+              // The evaluator's miss list is authoritative: two tracklets can
+              // share a player even when their majority votes differ, which is
+              // exactly what happens once the tracker glues two players into
+              // one tracklet. Trusting the argmax alone labelled those pairs
+              // "different players" and hid every missed merge on such a run.
+              const shared = (assoc?.missed_pairs ?? []).find(
+                (m) =>
+                  (m.a === pair.a && m.b === pair.b) ||
+                  (m.a === pair.b && m.b === pair.a),
+              );
+              if (shared) {
+                return (
+                  <span
+                    title={`Ground truth track ${shared.gt_id} is split across these two tracklets (${shared.frames_a} and ${shared.frames_b} frames). They should have been merged.`}
+                    className="rounded-full bg-amber-400/15 px-2 py-0.5 font-mono text-[10px] text-amber-300"
+                  >
+                    GT: same player (missed merge)
+                  </span>
+                );
+              }
               if (ga == null || gb == null) return null;
               const same = ga === gb;
               return (
                 <span
-                  title={`GT identities: T${pair.a} → track ${ga}, T${pair.b} → track ${gb}`}
+                  title={`Majority-vote GT identities: T${pair.a} → track ${ga}, T${pair.b} → track ${gb}`}
                   className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${
                     same ? "bg-volt-400/15 text-volt-300" : "bg-team-away/15 text-team-away"
                   }`}

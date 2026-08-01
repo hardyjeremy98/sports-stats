@@ -5,7 +5,7 @@ setup:
 	cd web && npm install
 
 api:
-	uv run uvicorn matchlab_server.app:app --reload --port 8000 --timeout-graceful-shutdown 5
+	uv run uvicorn matchlab_server.app:app --reload --port 8000
 
 worker:
 	uv run matchlab-worker

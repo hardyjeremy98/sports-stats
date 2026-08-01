@@ -22,6 +22,16 @@ class MergeResult:
     groups: list[list[int]]  # tracklet-id groups (threads), each sorted
     pairs: list[AssociationPair]  # full decision trail, association.json format
     merge_edges: list[tuple[int, int]] = field(default_factory=list)  # accepted edges
+    # Per-channel working for every pair the engine actually scored, including
+    # the best candidate it then rejected for being under threshold. Recorded
+    # because a merge that did NOT happen is the harder thing to explain, and
+    # the decision trail alone cannot say which channel vetoed it.
+    channel_breakdowns: list[dict] = field(default_factory=list)
+    # One row per tracklet's merge decision, carrying the ranked candidates it
+    # was weighed against and each candidate's channel scores. This is what
+    # makes an ABSTENTION inspectable: without the alternatives, "no merge" has
+    # no visible reason.
+    decisions: list[dict] = field(default_factory=list)
 
     def edges_for_group(self, group: list[int]) -> list[tuple[int, int]]:
         members = set(group)

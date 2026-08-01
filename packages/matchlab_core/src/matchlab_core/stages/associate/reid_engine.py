@@ -73,6 +73,8 @@ from matchlab_core.schemas.identity import IdentityKind, PlayerIdentity
 from matchlab_core.schemas.naming import NamingDecision, NamingReport
 from matchlab_core.schemas.reid_detail import (
     CandidateRank,
+    MergeDecision,
+    PairChannels,
     PairDetail,
     PrototypeDetail,
     ReidDetailReport,
@@ -593,10 +595,16 @@ class ReidEngineAssociator(Associator):
                 calibration=anchor_calibration,
             ),
         )
-        self._write_reid_detail(ctx, reps, breakdowns)
+        self._write_reid_detail(
+            ctx, reps, breakdowns, result.channel_breakdowns, result.decisions
+        )
         return entities
 
-    def _write_reid_detail(self, ctx: StageContext, reps: dict, breakdowns: dict) -> None:
+    def _write_reid_detail(
+        self, ctx: StageContext, reps: dict, breakdowns: dict,
+        channel_breakdowns: list[dict] | None = None,
+        decisions: list[dict] | None = None,
+    ) -> None:
         """reid_detail.json: the engine's working (prototype provenance +
         pair breakdowns + rankings) for the Lab's merge inspector."""
         ranked: dict[int, list[CandidateRank]] = {}
@@ -640,6 +648,12 @@ class ReidEngineAssociator(Associator):
                 n_parts=n_parts,
                 tracklets=tracklet_rows,
                 pairs=pair_rows,
+                pair_channels=[
+                    PairChannels.model_validate(row) for row in (channel_breakdowns or [])
+                ],
+                decisions=[
+                    MergeDecision.model_validate(row) for row in (decisions or [])
+                ],
             ),
         )
 

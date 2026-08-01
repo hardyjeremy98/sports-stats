@@ -40,9 +40,75 @@ class PairDetail(BaseModel):
     part_weights: list[float | None]  # min(vis_a, vis_b); None = excluded
 
 
+class ChannelScore(BaseModel):
+    """One evidence channel's contribution to a merge decision, in nats.
+
+    `llr=None` means the channel had no evidence and abstained -- distinct from
+    an llr of 0.0, which is a real "this is neither for nor against". Keeping
+    them apart is the difference between "position said nothing" and "position
+    said the two are equally likely", and only the first points at a broken
+    input.
+    """
+
+    name: str  # body | occupancy | gap | transition | jersey
+    raw: float | None = None  # the measurement before calibration
+    llr: float | None = None
+    weight: float = 1.0
+    contribution: float = 0.0  # weight * llr, what was actually summed
+
+
+class PairChannels(BaseModel):
+    """Why one pair scored what it did. Recorded for the decisive candidate of
+    each tracklet -- merged OR rejected under threshold -- so a merge that did
+    not happen can be explained, not just the ones that did."""
+
+    a: int
+    b: int
+    decision: str  # merged | rejected
+    total: float
+    threshold: float
+    pass_: int = Field(default=1, alias="pass")
+    channels: list[ChannelScore] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class CandidateEvidence(BaseModel):
+    """One thread this tracklet was scored against, with its channel working."""
+
+    partner: int  # tracklet id representing the candidate thread
+    total: float
+    channels: list[ChannelScore] = Field(default_factory=list)
+
+
+class MergeDecision(BaseModel):
+    """One tracklet's merge decision and the alternatives behind it.
+
+    `decision` is "merged" or "abstained". An abstention with a populated
+    candidate list is "nothing scored high enough"; an abstention with an empty
+    one is "nothing was even eligible" -- two very different situations that a
+    bare count cannot tell apart.
+    """
+
+    tracklet_id: int
+    decision: str
+    chosen: int | None = None  # partner tracklet id when merged
+    total: float | None = None  # best candidate's score
+    runner_up: float | None = None
+    threshold: float
+    n_candidates_total: int = 0  # before truncation to `candidates`
+    candidates: list[CandidateEvidence] = Field(default_factory=list)
+
+
 class ReidDetailReport(BaseModel):
     impl: str
     params: dict = Field(default_factory=dict)
     n_parts: int = 0
     tracklets: list[TrackletDetail] = Field(default_factory=list)
     pairs: list[PairDetail] = Field(default_factory=list)
+    # Per-channel working from the two-pass engine. Empty under the pairwise
+    # engine, which scores a single similarity and has no channels to show.
+    pair_channels: list[PairChannels] = Field(default_factory=list)
+    # Per-tracklet decisions with their ranked candidates -- the merge
+    # inspector's primary view. Empty under the pairwise engine.
+    decisions: list[MergeDecision] = Field(default_factory=list)

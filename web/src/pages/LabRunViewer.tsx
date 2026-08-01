@@ -1,7 +1,7 @@
 // The Lab's forensic run viewer: overlay video, confidence timeline, and an
 // inspector (stages / tracklets / players / events / QA).
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useGroundTruth, useRunArtifacts, type GtIndex, type RunArtifacts } from "../lib/artifacts";
@@ -18,6 +18,9 @@ import {
 import type {
   AssociationEntitySummary,
   AssociationPair,
+  ChannelScore,
+  MergeDecision,
+  PairChannels,
   AttributionLayer,
   EvalIdentity,
   EvalInstance,
@@ -957,6 +960,328 @@ function EventsTab({
 
 /* ---------- association inspector ---------- */
 
+/** Groups the Assoc tab by WHICH STAGE made the merges below it. The tab shows
+ *  three different agents' work — this stage, the tracker upstream, and what
+ *  ground truth wanted — and reading any of them as the others' is the mistake
+ *  this heading exists to prevent. */
+function StageSection({
+  title,
+  note,
+  children,
+}: {
+  title: string;
+  note: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-white/8 bg-turf-900/25 p-2">
+      <div className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-300">
+        {title}
+      </div>
+      <div className="mb-2 text-[11px] leading-snug text-ink-500">{note}</div>
+      <div className="flex flex-col gap-2">{children}</div>
+    </div>
+  );
+}
+
+/** A compact, scannable list of merge verdicts. Rows stay one line so a run
+ *  with a dozen wrong merges is still readable without scrolling forever. */
+function VerdictList({
+  title,
+  tone,
+  rows,
+}: {
+  title: string;
+  tone: "correct" | "wrong" | "missed";
+  rows: { key: string; label: string; detail: string; frame?: number }[];
+}) {
+  const toneClass =
+    tone === "wrong"
+      ? "border-team-away/30 text-team-away"
+      : tone === "missed"
+        ? "border-amber-400/30 text-amber-300"
+        : "border-volt-400/30 text-volt-300";
+  return (
+    <div className={`rounded-md border ${toneClass} bg-turf-900/40`}>
+      <div className="border-b border-white/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em]">
+        {title} · {rows.length}
+      </div>
+      <div className="max-h-44 overflow-y-auto">
+        {rows.map((r) => (
+          <div
+            key={r.key}
+            className="flex items-center justify-between gap-2 px-2 py-1 font-mono text-[11px] odd:bg-white/2"
+          >
+            <span className="text-ink-200">{r.label}</span>
+            <span className="text-ink-400">{r.detail}</span>
+            {r.frame != null && <span className="text-ink-500">f{r.frame}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One channel's signed contribution, as a centred bar. Abstention prints
+ *  "abstain" rather than a zero-length bar, so a dead input can never be
+ *  misread as a neutral vote. */
+function ChannelRow({ c, maxAbs }: { c: ChannelScore; maxAbs: number }) {
+  return (
+    <div className="flex items-center gap-2 font-mono text-[10px]">
+      <span className="w-16 shrink-0 text-ink-400">{c.name}</span>
+      <span className="w-14 shrink-0 text-right text-ink-500">
+        {c.raw == null ? "—" : c.raw.toFixed(3)}
+      </span>
+      <span className="relative h-2 flex-1 overflow-hidden rounded-sm bg-turf-800">
+        {c.llr != null && (
+          <span
+            className={`absolute top-0 h-full ${c.contribution >= 0 ? "bg-volt-400/70" : "bg-team-away/70"}`}
+            style={{
+              left: c.contribution >= 0 ? "50%" : undefined,
+              right: c.contribution < 0 ? "50%" : undefined,
+              width: `${(Math.abs(c.contribution) / maxAbs) * 50}%`,
+            }}
+          />
+        )}
+        <span className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
+      </span>
+      <span
+        className={`w-14 shrink-0 text-right ${
+          c.llr == null ? "text-ink-600" : c.contribution >= 0 ? "text-volt-300" : "text-team-away"
+        }`}
+        title={
+          c.llr == null
+            ? "no evidence — this channel abstained and contributed nothing"
+            : `llr ${c.llr.toFixed(3)} × weight ${c.weight.toFixed(2)}`
+        }
+      >
+        {c.llr == null ? "abstain" : c.contribution.toFixed(2)}
+      </span>
+    </div>
+  );
+}
+
+/** Merge decisions, each expandable to the candidates it was weighed against
+ *  and every candidate's channel scores.
+ *
+ *  Decision-centric rather than pair-centric on purpose: the question being
+ *  answered is "why did THIS tracklet merge / not merge", and that is only
+ *  answerable next to the alternatives. Abstentions are listed alongside
+ *  merges — on a run that merges nothing, they are the only thing to inspect.
+ */
+function DecisionList({ decisions }: { decisions: MergeDecision[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [filter, setFilter] = useState<"all" | "merged" | "abstained">("all");
+  const rows = decisions
+    .filter((d) => filter === "all" || d.decision === filter)
+    .sort((x, y) => (y.total ?? -Infinity) - (x.total ?? -Infinity));
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+          Merge decisions · evidence
+        </span>
+        <span className="flex gap-1">
+          {(["all", "merged", "abstained"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${
+                filter === f ? "bg-volt-400/20 text-volt-300" : "bg-turf-800 text-ink-500"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-[12px] text-ink-500">
+          No {filter} decisions.
+          {filter === "merged" && (
+            <>
+              {" "}
+              This lists what the <em>associate</em> stage decided. Merges the
+              tracker made inside a tracklet are not its decisions and appear
+              under merge verdicts above.
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {rows.map((d) => {
+            const isOpen = open === d.tracklet_id;
+            const cleared = d.total != null && d.total >= d.threshold;
+            return (
+              <div key={d.tracklet_id} className="rounded-md bg-turf-900/40">
+                <button
+                  onClick={() => setOpen(isOpen ? null : d.tracklet_id)}
+                  className="flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[11px] hover:bg-white/5"
+                >
+                  <span className="text-ink-200">
+                    T{d.tracklet_id}
+                    {d.chosen != null && <span className="text-volt-300"> → T{d.chosen}</span>}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-ink-500">
+                      {d.n_candidates_total} cand
+                      {d.n_candidates_total === 1 ? "" : "s"}
+                    </span>
+                    <span className={d.decision === "merged" ? "text-volt-300" : "text-ink-500"}>
+                      {d.decision}
+                    </span>
+                    <span className={cleared ? "text-volt-300" : "text-team-away"}>
+                      {d.total == null ? "—" : d.total.toFixed(2)}
+                    </span>
+                    <span className="text-ink-600">/ {d.threshold.toFixed(1)}</span>
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-white/5 px-2 py-1.5">
+                    {d.candidates.length === 0 ? (
+                      <div className="font-mono text-[10px] text-ink-500">
+                        No eligible candidate — every other thread overlapped in time,
+                        was another team, or conflicted on an anchor. Nothing was scored.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {d.n_candidates_total > d.candidates.length && (
+                          <div className="font-mono text-[10px] text-ink-600">
+                            showing top {d.candidates.length} of {d.n_candidates_total}
+                          </div>
+                        )}
+                        {d.candidates.map((c, i) => {
+                          const maxAbs = Math.max(
+                            1e-6,
+                            ...c.channels.map((ch) => Math.abs(ch.contribution)),
+                          );
+                          return (
+                            <div key={c.partner} className="flex flex-col gap-0.5">
+                              <div className="flex items-center justify-between font-mono text-[10px]">
+                                <span
+                                  className={
+                                    c.partner === d.chosen ? "text-volt-300" : "text-ink-300"
+                                  }
+                                >
+                                  #{i + 1} T{c.partner}
+                                  {c.partner === d.chosen && " · chosen"}
+                                </span>
+                                <span
+                                  className={
+                                    c.total >= d.threshold ? "text-volt-300" : "text-team-away"
+                                  }
+                                >
+                                  {c.total.toFixed(2)}
+                                </span>
+                              </div>
+                              {c.channels.map((ch) => (
+                                <ChannelRow key={ch.name} c={ch} maxAbs={maxAbs} />
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Per-channel evidence behind each scored pair, as a signed bar per channel.
+ *  The point is to make "which input killed this merge" readable at a glance:
+ *  a channel that abstained is shown as "—", never as a zero-length bar, so a
+ *  dead input cannot be mistaken for a neutral one. */
+function ChannelBreakdownList({ rows }: { rows: PairChannels[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const sorted = [...rows].sort((x, y) => y.total - x.total);
+  return (
+    <div>
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+        Evidence per channel (nats)
+      </div>
+      <div className="flex flex-col gap-1">
+        {sorted.map((p) => {
+          const id = `${p.a}-${p.b}-${p.pass}`;
+          const isOpen = open === id;
+          const maxAbs = Math.max(
+            1e-6,
+            ...p.channels.map((c) => Math.abs(c.contribution)),
+          );
+          return (
+            <div key={id} className="rounded-md bg-turf-900/40">
+              <button
+                onClick={() => setOpen(isOpen ? null : id)}
+                className="flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[11px] hover:bg-white/5"
+              >
+                <span className="text-ink-200">
+                  T{p.a} ↔ T{p.b}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className={p.decision === "merged" ? "text-volt-300" : "text-ink-500"}>
+                    {p.decision}
+                  </span>
+                  <span className={p.total >= p.threshold ? "text-volt-300" : "text-team-away"}>
+                    {p.total.toFixed(2)}
+                  </span>
+                  <span className="text-ink-600">/ {p.threshold.toFixed(1)}</span>
+                </span>
+              </button>
+              {isOpen && (
+                <div className="flex flex-col gap-0.5 border-t border-white/5 px-2 py-1.5">
+                  {p.channels.map((c) => (
+                    <div key={c.name} className="flex items-center gap-2 font-mono text-[10px]">
+                      <span className="w-16 shrink-0 text-ink-400">{c.name}</span>
+                      <span className="w-14 shrink-0 text-right text-ink-500">
+                        {c.raw == null ? "—" : c.raw.toFixed(3)}
+                      </span>
+                      <span className="relative h-2 flex-1 overflow-hidden rounded-sm bg-turf-800">
+                        {c.llr != null && (
+                          <span
+                            className={`absolute top-0 h-full ${c.contribution >= 0 ? "bg-volt-400/70" : "bg-team-away/70"}`}
+                            style={{
+                              left: c.contribution >= 0 ? "50%" : undefined,
+                              right: c.contribution < 0 ? "50%" : undefined,
+                              width: `${(Math.abs(c.contribution) / maxAbs) * 50}%`,
+                            }}
+                          />
+                        )}
+                        <span className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
+                      </span>
+                      <span
+                        className={`w-14 shrink-0 text-right ${
+                          c.llr == null
+                            ? "text-ink-600"
+                            : c.contribution >= 0
+                              ? "text-volt-300"
+                              : "text-team-away"
+                        }`}
+                        title={
+                          c.llr == null
+                            ? "no evidence — this channel abstained and contributed nothing"
+                            : `llr ${c.llr.toFixed(3)} × weight ${c.weight.toFixed(2)}`
+                        }
+                      >
+                        {c.llr == null ? "abstain" : c.contribution.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AssocTab({
   artifacts,
   fps,
@@ -1022,20 +1347,89 @@ function AssocTab({
 
   // GT verdicts (evaluation layer, never the associate stage): flag wrong
   // merges and rejected-but-same-player missed merges when the run is scored.
-  const gtIds = artifacts.eval?.association?.gt_id_of_tracklet ?? null;
+  const assocEval = artifacts.eval?.association ?? null;
+  const reidDetail = artifacts.reidDetail ?? null;
+  const gtIds = assocEval?.gt_id_of_tracklet ?? null;
+  // Missed merges come from the EVALUATOR, never from a tally over
+  // report.pairs. The trail only contains pairs the engine actually scored --
+  // it drops temporally overlapping pairs and never records a candidate that
+  // merely scored under threshold -- so counting misses here could only ever
+  // undercount. Same reason the counts below are read, not summed.
+  const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+  const missedKeys = new Set(
+    (assocEval?.missed_pairs ?? []).map((m) => pairKey(m.a, m.b)),
+  );
   const verdictOf = (p: AssociationPair): PairGtVerdict => {
     if (!gtIds) return null;
-    const ga = gtIds[String(p.a)];
-    const gb = gtIds[String(p.b)];
-    if (ga == null || gb == null) return null;
-    if (p.decision === "merged") return ga === gb ? "correct" : "wrong";
-    return ga === gb ? "missed" : null;
+    if (p.decision === "merged") {
+      const ga = gtIds[String(p.a)];
+      const gb = gtIds[String(p.b)];
+      if (ga == null || gb == null) return null;
+      return ga === gb ? "correct" : "wrong";
+    }
+    return missedKeys.has(pairKey(p.a, p.b)) ? "missed" : null;
   };
-  const verdictCounts = { correct: 0, wrong: 0, missed: 0 };
-  for (const p of report.pairs) {
-    const v = verdictOf(p);
-    if (v) verdictCounts[v] += 1;
-  }
+  // Runs scored before the miss-list existed have no `n_missed_pairs`. Showing
+  // "0 missed" for them would swap one wrong number for another, so say the
+  // metric is unavailable and let the user re-score.
+  const hasMissData = assocEval?.n_missed_pairs !== undefined;
+  // "Wrong" means every merge in the run that joined two different players,
+  // whichever stage made it. Scoping it to the associate stage reported 0 on a
+  // run with 14 tracker-made player swaps.
+  const hasAllMerges = assocEval?.n_wrong_total !== undefined;
+  const verdictCounts = {
+    correct: hasAllMerges
+      ? (assocEval?.n_merges_total ?? 0) - (assocEval?.n_wrong_total ?? 0)
+      : (assocEval?.n_pairs_correct ?? 0),
+    wrong: hasAllMerges
+      ? (assocEval?.n_wrong_total ?? 0)
+      : (assocEval?.n_pairs ?? 0) - (assocEval?.n_pairs_correct ?? 0),
+    missed: assocEval?.n_missed_pairs ?? 0,
+  };
+  const trackWrong = assocEval?.n_track_merges_wrong ?? 0;
+  const trackCorrect = (assocEval?.n_track_merges ?? 0) - trackWrong;
+  const trackMerges = assocEval?.track_merges ?? [];
+  const trackMergesWrong = trackMerges.filter((m) => !m.correct);
+  // Kept apart on purpose. Combining them hid the thing that matters most on
+  // this run: re-ID merged nothing, yet the joint list looked healthy because
+  // every entry in it was the tracker's.
+  const trackerCorrect = trackMerges
+    .filter((m) => m.correct)
+    .map((m) => ({
+      key: `tc-${m.tracklet_id}-${m.frame_b_start}`,
+      label: `T${m.tracklet_id}`,
+      detail: `GT${m.gt_a} rejoined`,
+      frame: m.frame_b_start,
+    }));
+  const reidCorrect = (assocEval?.merged_pairs ?? [])
+    .filter((m) => m.correct)
+    .map((m) => ({
+      key: `rc-${m.a}-${m.b}`,
+      label: `T${m.a} ↔ T${m.b}`,
+      detail: `GT${m.gt_a}`,
+      frame: undefined as number | undefined,
+    }));
+  const reidWrong = (assocEval?.merged_pairs ?? [])
+    .filter((m) => !m.correct)
+    .map((m) => ({
+      key: `rw-${m.a}-${m.b}`,
+      label: `T${m.a} ↔ T${m.b}`,
+      detail: `GT${m.gt_a} vs GT${m.gt_b}`,
+      frame: undefined as number | undefined,
+    }));
+  const missedPlayers = new Set((assocEval?.missed_pairs ?? []).map((m) => m.gt_id)).size;
+  const mergeRecall = assocEval?.merge_recall ?? null;
+  // Identity errors made INSIDE a tracklet, by the track stage. The three
+  // counters above only judge merges the associate stage made, so a run whose
+  // tracker glued two players into one tracklet reads "0 wrong" while being
+  // full of wrong identity joins. Association cannot fix these -- it merges,
+  // it never splits -- so they belong on this tab as a separate figure rather
+  // than folded into a number about association's own decisions.
+  const trackPurity = artifacts.eval?.purity?.tracklet?.post_filter ?? null;
+  const nImpure =
+    trackPurity && trackPurity.frac_impure != null
+      ? Math.round(trackPurity.frac_impure * trackPurity.n_tracklets)
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -1043,20 +1437,70 @@ function AssocTab({
         <div className="flex items-center justify-between gap-2">
           <Mono className="text-ink-100">{report.impl}</Mono>
           <span className="font-mono text-[11px] text-ink-500">
-            {merged} merged · {rejected} rejected
+            {/* This engine's OWN decisions. The verdict badges below count
+                merges from every stage, so without the qualifier "0 merged"
+                next to "6 merges GT-correct" reads as a contradiction. */}
+            <span title="Decisions made by this associate stage. Merges the tracker made inside a tracklet are counted in the verdict badges below, not here.">
+              associate: {merged} merged · {rejected} rejected
+            </span>
           </span>
         </div>
-        {gtIds && (
+        {assocEval && (
           <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-            <span className="rounded-full bg-volt-400/15 px-2 py-0.5 text-volt-300">
+            <span
+              className="rounded-full bg-volt-400/15 px-2 py-0.5 text-volt-300"
+              title={
+                hasAllMerges
+                  ? `Merges that joined two tracklets of the same player, from EITHER stage. ${trackCorrect} were the tracker rejoining a tracklet across a gap; ${verdictCounts.correct - trackCorrect} were associate-stage merges.`
+                  : "Associate-stage merges only."
+              }
+            >
               ✓ {verdictCounts.correct} merges GT-correct
+              {hasAllMerges && trackCorrect > 0 && ` (${trackCorrect} by tracker)`}
             </span>
-            <span className={`rounded-full px-2 py-0.5 ${verdictCounts.wrong ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}>
-              ✗ {verdictCounts.wrong} wrong
+            <span
+              className={`rounded-full px-2 py-0.5 ${verdictCounts.wrong ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}
+              title={
+                hasAllMerges
+                  ? `Every merge that joined two different players, by majority-vote GT of each side — from EITHER stage. ${trackWrong} of them were made by the tracker rejoining a tracklet across a gap (association cannot undo those); the rest are associate-stage merges.`
+                  : "Associate-stage merges only. Re-score this run to include merges the tracker made across gaps."
+              }
+            >
+              ✗ {verdictCounts.wrong} wrong merges
+              {hasAllMerges && trackWrong > 0 && ` (${trackWrong} by tracker)`}
             </span>
-            <span className={`rounded-full px-2 py-0.5 ${verdictCounts.missed ? "bg-amber-400/15 text-amber-300" : "bg-turf-800 text-ink-500"}`}>
-              ◌ {verdictCounts.missed} missed (GT-same, rejected)
-            </span>
+            {hasMissData ? (
+              <span
+                className={`rounded-full px-2 py-0.5 ${verdictCounts.missed ? "bg-amber-400/15 text-amber-300" : "bg-turf-800 text-ink-500"}`}
+                title="Merges ground truth required but association did not make. Counted by the evaluator over all tracklet pairs, so it includes pairs the engine never scored (e.g. blocked on temporal overlap) that never appear in the trail below."
+              >
+                ◌ {verdictCounts.missed} missed
+                {missedPlayers > 0 && ` · ${missedPlayers} player${missedPlayers === 1 ? "" : "s"} split`}
+              </span>
+            ) : (
+              <span
+                className="rounded-full bg-turf-800 px-2 py-0.5 text-ink-500"
+                title="This run was scored before missed merges were measured. Re-score it (POST /api/runs/{id}/evaluate) to get the number."
+              >
+                ◌ missed: re-score needed
+              </span>
+            )}
+            {mergeRecall != null && (
+              <span className="rounded-full bg-turf-800 px-2 py-0.5 text-ink-400">
+                recall {mergeRecall.toFixed(2)}
+              </span>
+            )}
+            {nImpure != null && (
+              <span
+                className={`rounded-full px-2 py-0.5 ${nImpure ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}
+                title={`Tracklets containing more than one GT player — identity errors made by the TRACK stage, before association sees them. ${trackPurity?.total_mixed_seconds ?? 0}s of tracked time sits under the wrong identity. Association can only merge tracklets, never split them, so it cannot repair these.`}
+              >
+                ⚠ {nImpure}/{trackPurity?.n_tracklets} tracklets impure
+                {trackPurity?.total_mixed_seconds
+                  ? ` · ${trackPurity.total_mixed_seconds.toFixed(1)}s mixed`
+                  : ""}
+              </span>
+            )}
           </div>
         )}
         {Object.keys(report.params).length > 0 && (
@@ -1098,6 +1542,91 @@ function AssocTab({
           </div>
         )}
       </div>
+
+      {/* Split by the stage that MADE the merge. Mixing them was actively
+          misleading: a run where re-ID merged nothing still showed a healthy
+          "correct merges" list, because those merges were all the tracker's.
+          Only the first section is this stage's own behaviour; the second is
+          upstream damage it cannot undo (it merges tracklets, never splits
+          them); the third is what ground truth wanted from it. */}
+      <StageSection
+        title="This stage · re-ID engine"
+        note="Merges the associate stage decided, and the evidence behind every decision."
+      >
+        {reidCorrect.length > 0 || reidWrong.length > 0 ? (
+          <>
+            {reidCorrect.length > 0 && (
+              <VerdictList title="Correct merges" tone="correct" rows={reidCorrect} />
+            )}
+            {reidWrong.length > 0 && (
+              <VerdictList title="Wrong merges" tone="wrong" rows={reidWrong} />
+            )}
+          </>
+        ) : (
+          <div className="text-[12px] text-ink-500">
+            This stage merged nothing. Every decision below is an abstention —
+            expand one to see which candidates it weighed and which channel held
+            it under threshold.
+          </div>
+        )}
+        {(reidDetail?.decisions ?? []).length > 0 ? (
+          <DecisionList decisions={reidDetail!.decisions!} />
+        ) : (
+          (reidDetail?.pair_channels ?? []).length > 0 && (
+            <ChannelBreakdownList rows={reidDetail!.pair_channels!} />
+          )
+        )}
+      </StageSection>
+
+      {(trackerCorrect.length > 0 || trackMergesWrong.length > 0) && (
+        <StageSection
+          title="Upstream · tracker"
+          note="Gaps the TRACK stage rejoined inside a single tracklet. Not this stage's decisions, and it cannot repair them — association merges tracklets, it never splits them."
+        >
+          {trackMergesWrong.length > 0 && (
+            <VerdictList
+              title="Wrong merges · joined two players"
+              tone="wrong"
+              rows={trackMergesWrong.map((m) => ({
+                key: `tw-${m.tracklet_id}-${m.frame_b_start}`,
+                label: `T${m.tracklet_id}`,
+                detail: `GT${m.gt_a} → GT${m.gt_b}`,
+                frame: m.frame_b_start,
+              }))}
+            />
+          )}
+          {trackerCorrect.length > 0 && (
+            <VerdictList
+              title="Correct merges · same player rejoined"
+              tone="correct"
+              rows={trackerCorrect}
+            />
+          )}
+        </StageSection>
+      )}
+
+      {assocEval && (
+        <StageSection
+          title="vs ground truth"
+          note="Merges ground truth required that no stage made. Derived from GT composition over all tracklet pairs, so it includes pairs no engine ever scored."
+        >
+          {(assocEval.missed_pairs ?? []).length > 0 ? (
+            <VerdictList
+              title="Missed merges · same player, never joined"
+              tone="missed"
+              rows={(assocEval.missed_pairs ?? []).map((m) => ({
+                key: `ms-${m.a}-${m.b}-${m.gt_id}`,
+                label: `T${m.a} ↔ T${m.b}`,
+                detail: `GT${m.gt_id} · ${m.frames_a}f / ${m.frames_b}f`,
+              }))}
+            />
+          ) : (
+            <div className="text-[12px] text-ink-500">
+              Ground truth required no further merges.
+            </div>
+          )}
+        </StageSection>
+      )}
 
       <div>
         <div className="mb-1.5 flex items-center justify-between">

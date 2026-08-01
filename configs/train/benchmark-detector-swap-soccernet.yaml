@@ -1,0 +1,46 @@
+# End-to-end confirmation for the 2026-08-01 detector selection.
+#
+# `scripts/detector_bench.py` measured the detection layer in isolation and
+# found the incumbent roboflow/sports checkpoint is the bottleneck (player
+# AP@0.5 0.803 -> 0.921 held-out for mobadam/football-player-detection). This
+# config asks the only question that measurement cannot answer: does the AP
+# gain survive tracking and association, or does the tracker absorb it?
+#
+# Two candidates, identical in every slot except `detect.params.weights`:
+#   - v1-hardened (pipeline.v1-hardened-eval.yaml) -- the program comparator
+#   - detector-swap (pipeline.detector-swap-eval.yaml) -- same file, new weights
+#
+# imgsz stays 1280 and confidence stays 0.4 for both, so the detector weights
+# are the single variable. That costs the new detector nothing: its measured
+# best-F1 operating point on the tuning tier is exactly conf 0.4 (F1 0.9152,
+# flat from 0.35-0.45), so it is not being handicapped by the comparator's
+# threshold.
+#
+# HELD-OUT config: this is the one-shot reporting run for the detector
+# decision, not an iterative calibration harness. Do not re-run it with
+# tweaked parameters -- that is what the tuning tier is for.
+name: benchmark-detector-swap-soccernet
+task: benchmark
+description: >
+  End-to-end detector swap (incumbent roboflow/sports vs
+  mobadam/football-player-detection) over the soccernet held-out sequences,
+  with the SPO-22 hardened BoT-SORT stack held fixed. Confirms whether the
+  measured detection-layer gain reaches HOTA / tracklet purity / ID switches.
+params:
+  dataset_manifest: configs/datasets/soccernet.json
+  roles: [held_out]
+  candidates:
+    - name: v1-hardened-incumbent
+      kind: pipeline
+      config: configs/pipeline.v1-hardened-eval.yaml
+      overrides: {}
+      comparison_class: matched_data
+    - name: detector-swap-mobadam
+      kind: pipeline
+      config: configs/pipeline.detector-swap-eval.yaml
+      overrides: {}
+      comparison_class: matched_data
+  device: cuda
+  iou_threshold: 0.5
+  tolerances: {}
+output_dir: data/experiments

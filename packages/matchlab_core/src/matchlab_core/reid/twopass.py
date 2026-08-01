@@ -44,6 +44,41 @@ from matchlab_core.schemas import AssociationRejectReason
 CHANNELS = ("body", "occupancy", "gap", "transition")
 
 
+#: Candidates kept per decision when recording the working. A decision is
+#: explained by its winner and the near-misses it beat; the long tail of
+#: obviously-worse threads is payload, not insight. Truncation is reported on
+#: the row (`n_candidates_total`) so a capped list never reads as the whole
+#: field.
+MAX_RECORDED_CANDIDATES = 8
+
+
+def _decision_row(
+    tracklet_id: int,
+    decision: str,
+    chosen: int | None,
+    total: float | None,
+    runner: float,
+    threshold: float,
+    candidates: list[dict],
+    max_candidates: int,
+) -> dict:
+    """One tracklet's merge decision, with the alternatives it was weighed
+    against. `decision` is "merged" or "abstained" -- abstained covers both "no
+    candidate cleared the threshold" and "nothing was eligible at all", which
+    the candidate list distinguishes."""
+    ranked = sorted(candidates, key=lambda c: -c["total"])
+    return {
+        "tracklet_id": int(tracklet_id),
+        "decision": decision,
+        "chosen": chosen,
+        "total": None if total is None or not np.isfinite(total) else float(total),
+        "runner_up": None if not np.isfinite(runner) else float(runner),
+        "threshold": float(threshold),
+        "n_candidates_total": len(ranked),
+        "candidates": ranked[:max_candidates],
+    }
+
+
 def members_disjoint(mx, my, start, end) -> bool:
     """Do two threads' tracklets interleave without ever overlapping?
 
@@ -151,19 +186,23 @@ class FusionModel:
     def load(cls, path: str | Path) -> FusionModel:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
-    def score(self, a: ThreadState, a_fp, b: ThreadState, b_fp) -> float | None:
-        """Total evidence in nats for `a` and `b` being the same player.
+    def score_channels(
+        self, a: ThreadState, a_fp, b: ThreadState, b_fp
+    ) -> tuple[float | None, list[dict]]:
+        """`score`, plus the per-channel working behind it.
 
-        `a` ends first. Channels with no usable evidence contribute nothing --
-        abstention is neutral, never a penalty.
+        Returns `(total, channels)` where each channel carries its raw
+        measurement, the calibrated log-likelihood ratio in nats, the weight
+        applied, and the weighted contribution actually summed. A channel with
+        no evidence is reported with `llr=None` and contributes nothing --
+        published rather than dropped, because "this channel abstained" and
+        "this channel voted 0" are different facts and the difference is
+        exactly what makes a merge decision explicable.
 
-        Returns None when no channel in `required` has evidence. Neutrality
-        makes a missing channel cost nothing, but the decision threshold is
-        absolute, so without this a pair with NO appearance evidence could be
-        merged by elapsed time alone -- which is the silent player swap the
-        product treats as worse than an unknown identity. Identity evidence is
-        required to assert identity; the rest only ever supports it.
+        `score` delegates here so the displayed breakdown can never drift from
+        the number the engine actually decided on.
         """
+        channels: list[dict] = []
         raw: dict[str, float] = {}
 
         pa, pb = a.prototype, b.prototype
@@ -177,20 +216,59 @@ class FusionModel:
         if self.required and not any(
             n in raw and self.calibrators.get(n) is not None for n in self.required
         ):
-            return None
+            for name in ("body", "occupancy", "gap", "transition"):
+                channels.append({
+                    "name": name, "raw": raw.get(name), "llr": None,
+                    "weight": self.weights.get(name, 1.0), "contribution": 0.0,
+                })
+            return None, channels
 
         total = 0.0
-        for name, value in raw.items():
+        for name in ("body", "occupancy", "gap"):
+            value = raw.get(name)
             cal = self.calibrators.get(name)
-            if cal is None or not np.isfinite(value):
+            weight = self.weights.get(name, 1.0)
+            if value is None or cal is None or not np.isfinite(value):
+                channels.append({"name": name, "raw": value, "llr": None,
+                                 "weight": weight, "contribution": 0.0})
                 continue
-            total += self.weights.get(name, 1.0) * float(cal.llr(value))
+            llr = float(cal.llr(value))
+            contribution = weight * llr
+            total += contribution
+            channels.append({"name": name, "raw": value, "llr": llr,
+                             "weight": weight, "contribution": contribution})
 
+        t_weight = self.weights.get("transition", 1.0)
+        t_llr = None
         if self.prior is not None and b.entry_xy is not None:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
-            llr = float(np.ravel(saturate(self.prior.llr(np.array([gap_s]), dx, dy)))[0])
-            if np.isfinite(llr):
-                total += self.weights.get("transition", 1.0) * llr
+            candidate = float(np.ravel(saturate(self.prior.llr(np.array([gap_s]), dx, dy)))[0])
+            if np.isfinite(candidate):
+                t_llr = candidate
+                total += t_weight * candidate
+        channels.append({
+            "name": "transition", "raw": gap_s, "llr": t_llr, "weight": t_weight,
+            "contribution": 0.0 if t_llr is None else t_weight * t_llr,
+        })
+        return total, channels
+
+    def score(self, a: ThreadState, a_fp, b: ThreadState, b_fp) -> float | None:
+        """Total evidence in nats for `a` and `b` being the same player.
+
+        Channels with no usable evidence contribute nothing -- abstention is
+        neutral, never a penalty.
+
+        Returns None when no channel in `required` has evidence. Neutrality
+        makes a missing channel cost nothing, but the decision threshold is
+        absolute, so without this a pair with NO appearance evidence could be
+        merged by elapsed time alone -- which is the silent player swap the
+        product treats as worse than an unknown identity. Identity evidence is
+        required to assert identity; the rest only ever supports it.
+
+        Thin wrapper over `score_channels` so the Lab's displayed breakdown and
+        the engine's decision can never disagree.
+        """
+        total, _ = self.score_channels(a, a_fp, b, b_fp)
         return total
 
 
@@ -231,6 +309,7 @@ def merge_threads_two_pass(
     jersey_likelihood_by_tid: dict[int, np.ndarray] | None = None,
     jersey_prior: np.ndarray | None = None,
     jersey_weight: float = 0.0,
+    max_candidates: int = MAX_RECORDED_CANDIDATES,
 ) -> MergeResult:
     """Two-pass merge. Returns the incumbent `MergeResult` contract unchanged.
 
@@ -271,6 +350,8 @@ def merge_threads_two_pass(
         return jersey_weight * pair_llr(a, b, jersey_prior)
 
     pairs: list[AssociationPair] = []
+    breakdowns: list[dict] = []
+    decisions: list[dict] = []
     edges: list[tuple[int, int]] = []
     threads: list[ThreadState] = []
     t_fp: list[object] = []
@@ -299,6 +380,11 @@ def merge_threads_two_pass(
     for i in range(len(ev)):
         live = [k for k in range(len(threads)) if eligible(i, k)]
         best_k, best_s, runner = None, -np.inf, -np.inf
+        best_chans: list[dict] = []
+        # Every candidate this tracklet was scored against, not just the winner.
+        # A merge decision is only explicable next to the alternatives it beat
+        # -- and an abstention only next to the ones that were not good enough.
+        cand_rows: list[dict] = []
         q_fp = states[i].footprint()
         q_jersey = jersey_by_tid.get(tid[i])
         anchor_k = None
@@ -311,16 +397,28 @@ def merge_threads_two_pass(
             ):
                 anchor_k = k
                 break
-            s = model.score(threads[k], t_fp[k], states[i], q_fp)
+            s, chans = model.score_channels(threads[k], t_fp[k], states[i], q_fp)
             if s is None:
                 pairs.append(AssociationPair(
                     a=tid[partner], b=tid[i], decision="rejected",
                     reason=AssociationRejectReason.NO_FEATURES,
                 ))
                 continue
-            s += jersey_bonus(t_jersey[k], q_jersey)
+            bonus = jersey_bonus(t_jersey[k], q_jersey)
+            s += bonus
+            # Jersey rides on the same nats scale as the fitted channels, so it
+            # is reported alongside them rather than folded silently into the
+            # total the other four have to clear.
+            chans = [*chans, {
+                "name": "jersey", "raw": None,
+                "llr": None if jersey_weight <= 0.0 else bonus / max(jersey_weight, 1e-9),
+                "weight": jersey_weight, "contribution": bonus,
+            }]
+            cand_rows.append({
+                "partner": int(tid[partner]), "total": float(s), "channels": chans,
+            })
             if s > best_s:
-                best_k, best_s, runner = k, s, best_s
+                best_k, best_s, runner, best_chans = k, s, best_s, chans
             elif s > runner:
                 runner = s
         for k in range(len(threads)):
@@ -343,6 +441,15 @@ def merge_threads_two_pass(
             pairs.append(AssociationPair(
                 a=tid[partner], b=tid[i], decision="merged", affinity=best_s
             ))
+            breakdowns.append({
+                "a": tid[partner], "b": tid[i], "pass": 1, "decision": "merged",
+                "total": float(best_s), "threshold": float(min_score),
+                "channels": best_chans,
+            })
+            decisions.append(_decision_row(
+                tid[i], "merged", int(tid[partner]), best_s, runner,
+                min_score, cand_rows, max_candidates,
+            ))
             edges.append((tid[partner], tid[i]))
             threads[best_k] = threads[best_k].merged_with(states[i])
             t_fp[best_k] = threads[best_k].footprint()
@@ -356,6 +463,15 @@ def merge_threads_two_pass(
                     affinity=best_s,
                     reason=AssociationRejectReason.EMBED_TOO_FAR,
                 ))
+                breakdowns.append({
+                    "a": tid[partner], "b": tid[i], "pass": 1,
+                    "decision": "rejected", "total": float(best_s),
+                    "threshold": float(min_score), "channels": best_chans,
+                })
+            decisions.append(_decision_row(
+                tid[i], "abstained", None, best_s if best_k is not None else None,
+                runner, min_score, cand_rows, max_candidates,
+            ))
             threads.append(states[i])
             t_fp.append(states[i].footprint())
             t_members.append([i])
@@ -423,4 +539,7 @@ def merge_threads_two_pass(
         for k, members in enumerate(t_members)
         if threads[k] is not None and members
     )
-    return MergeResult(groups=groups, pairs=pairs, merge_edges=edges)
+    return MergeResult(
+        groups=groups, pairs=pairs, merge_edges=edges,
+        channel_breakdowns=breakdowns, decisions=decisions
+    )

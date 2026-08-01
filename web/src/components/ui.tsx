@@ -141,12 +141,22 @@ export function Tabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className="flex items-center gap-1 border-b border-white/8 px-1">
+    // Scrolls horizontally rather than clipping: the tab set grows with the
+    // run's artifacts (assoc/eval only appear when present), and the panel is
+    // inside an `overflow-hidden` Card, so on a narrow viewport the last tabs
+    // were unreachable. Buttons get `shrink-0` so flex scrolls them instead of
+    // compressing the labels.
+    //
+    // `shrink-0` on the BAR is load-bearing too: setting overflow on a flex
+    // item drops its automatic minimum size to zero, so inside a column flex
+    // parent a tall sibling (the Assoc tab's content) collapsed this bar to
+    // ~4px and left the tabs unclickable until a reload.
+    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/8 px-1">
       {tabs.map((t) => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
-          className={`relative -mb-px border-b-2 px-3 py-2 text-[13px] transition-colors ${
+          className={`relative -mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${
             active === t.id
               ? "border-volt-400 text-ink-100"
               : "border-transparent text-ink-400 hover:text-ink-100"

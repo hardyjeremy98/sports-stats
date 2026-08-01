@@ -33,6 +33,28 @@ def _write_soccernet_seq(root: Path) -> Path:
     return seq
 
 
+
+def _write_long_soccernet_seq(root: Path, n_frames: int = 100) -> Path:
+    """Same two players as `_write_soccernet_seq`, but long enough to contain a
+    real absence (> SEGMENT_GAP_FRAMES) with ground truth on BOTH sides of it."""
+    seq = root / "SNMOT-002"
+    (seq / "gt").mkdir(parents=True)
+    (seq / "seqinfo.ini").write_text(
+        f"[Sequence]\nname=SNMOT-002\nimDir=img1\nframeRate=25\nseqLength={n_frames}\n"
+        "imWidth=1920\nimHeight=1080\nimExt=.jpg\n"
+    )
+    (seq / "gameinfo.ini").write_text(
+        "[Sequence]\nname=SNMOT-002\nnum_tracklets=2\n"
+        "trackletID_1= player team left;10\n"
+        "trackletID_2= player team right;7\n"
+    )
+    rows = []
+    for frame in range(1, n_frames + 1):
+        rows.append(f"{frame},1,100,100,40,120,1,-1,-1,-1")
+        rows.append(f"{frame},2,500,200,40,120,1,-1,-1,-1")
+    (seq / "gt" / "gt.txt").write_text("\n".join(rows))
+    return seq
+
 def test_load_soccernet_sequence(tmp_path):
     gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
     assert gt.sequence == "SNMOT-001"
@@ -1459,3 +1481,178 @@ def test_transition_records_sorted_and_enriched_via_evaluate_run(tmp_path):
         assert rec["gt_label"] == "#10 (left)"
         assert rec["verdict"] == "frame_exit"
         assert rec["t_to"] == 8.0  # first matched frame after re-entry
+
+
+def test_missed_merges_survive_an_impure_tracklet(tmp_path):
+    """A missed merge must be reported even when the tracklet carrying the
+    player is IMPURE and its majority vote lands on someone else.
+
+    Regression for the Lab's Assoc tab reporting "1 missed" on a run whose
+    ground truth had 12 unmerged exit/re-enter players (2026-08-01). Missed
+    merges were derived from `gt_id_of_tracklet`, a per-tracklet ARGMAX. Where
+    the tracker had glued two players into one tracklet -- exactly the runs
+    where association matters most -- each half's argmax pointed at a different
+    GT id, so the pair never looked GT-same and the miss was invisible.
+
+    Here tracklet 11 spends 6 frames on GT 2 and 4 frames on GT 1, so its
+    argmax is GT 2. GT 1 is nonetheless split across tracklets 10 and 11 and
+    was never merged: that is a real missed merge and must be counted.
+    """
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        # Clean fragment of GT 1 (box at 100,100).
+        _tracklet(10, [(f, 100, 100) for f in range(0, 4)]),
+        # Impure: mostly GT 2 (500,200), but also carries GT 1 for 4 frames.
+        _tracklet(
+            11,
+            [(f, 500, 200) for f in range(0, 6)] + [(f, 100, 100) for f in range(6, 10)],
+        ),
+    ]
+    # Nothing merged: each tracklet is its own entity.
+    players = [
+        {"player_id": 1, "tracklet_ids": [10], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [11], "team": "home"},
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    assoc = evaluate_run(run_dir, gt)["association"]
+
+    # The argmax is genuinely GT 2 -- the fix must not change that.
+    assert assoc["gt_id_of_tracklet"] == {10: 1, 11: 2}
+    # ...but GT 1 is split across 10 and 11 and was never merged.
+    assert assoc["n_missed_pairs"] == 1
+    missed = assoc["missed_pairs"]
+    assert len(missed) == 1
+    assert (missed[0]["a"], missed[0]["b"], missed[0]["gt_id"]) == (10, 11, 1)
+    # Nothing was merged, so recall is 0 of 1 opportunity.
+    assert assoc["merge_recall"] == 0.0
+
+
+def test_missed_merges_ignore_incidental_gt_overlap(tmp_path):
+    """A couple of stray frames on another player's box is IoU noise, not a
+    missed merge. Only tracklets that meaningfully represent a GT track count,
+    or every brush-past in a crowd would be reported as a missing merge."""
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 10)]),
+        # Solidly GT 2, with a single incidental frame on GT 1's box.
+        _tracklet(11, [(f, 500, 200) for f in range(0, 9)] + [(9, 100, 100)]),
+    ]
+    players = [
+        {"player_id": 1, "tracklet_ids": [10], "team": "home"},
+        {"player_id": 2, "tracklet_ids": [11], "team": "home"},
+    ]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    assoc = evaluate_run(run_dir, gt)["association"]
+    assert assoc["n_missed_pairs"] == 0
+    assert assoc["missed_pairs"] == []
+
+
+def test_missed_merges_not_counted_when_already_merged(tmp_path):
+    """Two fragments of one GT player that WERE merged are a correct merge,
+    never also a miss."""
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    tracklets = [
+        _tracklet(10, [(f, 100, 100) for f in range(0, 5)]),
+        _tracklet(11, [(f, 100, 100) for f in range(5, 10)]),
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10, 11], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    assoc = evaluate_run(run_dir, gt)["association"]
+    assert assoc["n_pairs_correct"] == 1
+    assert assoc["n_missed_pairs"] == 0
+    assert assoc["merge_recall"] == 1.0
+
+
+def test_tracker_rejoining_two_players_is_a_wrong_merge(tmp_path):
+    """A tracklet that goes away and comes back as a DIFFERENT player is a
+    wrong merge, and must be counted as one.
+
+    Regression for the Assoc tab reporting "0 wrong merges" on a run whose
+    tracker had glued GT 11 and GT 23 into one identity (2026-08-01). Wrong
+    merges were only ever counted for the associate stage, so a merge made by
+    the TRACK stage -- the same "these are the same player" claim, across a gap
+    inside one tracklet -- was never asked the question. Association cannot
+    undo it either: it merges tracklets, it never splits them.
+    """
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_long_soccernet_seq(tmp_path))
+
+    # One tracklet: 5 frames on GT 1, a gap, then 5 frames on GT 2.
+    tracklets = [
+        _tracklet(
+            10,
+            [(f, 100, 100) for f in range(0, 5)] + [(f, 500, 200) for f in range(80, 85)],
+        )
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    assoc = evaluate_run(run_dir, gt)["association"]
+
+    # The associate stage merged nothing -- and that is still true.
+    assert assoc["n_pairs"] == 0
+    # But the tracker asserted "same player" across the gap, and was wrong.
+    assert assoc["n_track_merges"] == 1
+    assert assoc["n_track_merges_wrong"] == 1
+    assert assoc["n_wrong_total"] == 1
+    wrong = [m for m in assoc["track_merges"] if not m["correct"]][0]
+    assert (wrong["tracklet_id"], wrong["gt_a"], wrong["gt_b"]) == (10, 1, 2)
+
+
+def test_tracker_rejoining_the_same_player_is_a_correct_merge(tmp_path):
+    """The same gap, rejoined onto the SAME player, is a correct merge --
+    the counter must not simply flag every gap."""
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_long_soccernet_seq(tmp_path))
+    tracklets = [
+        _tracklet(
+            10,
+            [(f, 100, 100) for f in range(0, 5)] + [(f, 100, 100) for f in range(80, 85)],
+        )
+    ]
+    players = [{"player_id": 1, "tracklet_ids": [10], "team": "home"}]
+    run_dir = _write_run_dir(tmp_path, tracklets, players)
+
+    assoc = evaluate_run(run_dir, gt)["association"]
+    assert assoc["n_track_merges"] == 1
+    assert assoc["n_track_merges_wrong"] == 0
+    assert assoc["n_wrong_total"] == 0
+    assert assoc["merge_precision_all"] == 1.0
+    # The correct merge is listed, not just counted -- the Lab renders a
+    # correct-merges view from this and had nothing to show without it.
+    assert [m["correct"] for m in assoc["track_merges"]] == [True]
+
+
+def test_short_detection_hole_is_not_scored_as_a_merge(tmp_path):
+    """A one-frame dropped detection is not the player leaving, so rejoining
+    across it is not a merge decision and must not be scored as one."""
+    pytest.importorskip("motmetrics")
+    from matchlab_core.evaluation import evaluate_run
+
+    gt = load_soccernet_sequence(_write_soccernet_seq(tmp_path))
+    frames = [(f, 100, 100) for f in range(0, 10) if f != 5]  # hole at frame 5
+    run_dir = _write_run_dir(
+        tmp_path,
+        [_tracklet(10, frames)],
+        [{"player_id": 1, "tracklet_ids": [10], "team": "home"}],
+    )
+    assoc = evaluate_run(run_dir, gt)["association"]
+    assert assoc["n_track_merges"] == 0

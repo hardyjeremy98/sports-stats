@@ -1,0 +1,100 @@
+# ASSOCIATE-LAYER REPLAY (2026-08-01).
+#
+# Everything upstream of `associate:` is replayed from a source run
+# (`frozen` detections + `frozen-tracklets` tracklets/frame_features), so the
+# expensive TDLP-full stage does not re-run. Use it to iterate on the merge
+# engine or on what the engine RECORDS -- the reid_detail working the Lab's
+# merge inspector reads -- without paying ~15 minutes per iteration.
+#
+# The substrate is byte-identical to the source run, so association is the only
+# variable. Point stages.{detect,track}.params.run_dir at the run you want to
+# replay.
+name: assoc-replay-eval
+description: 'Associate-layer replay: reuses a source run''s tracklets + frame_features
+  via the frozen-tracklets tracker so only the ASSOCIATE stage re-runs. Set stages.track.params.run_dir.'
+sport: soccer
+pitch: fifa
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 960
+      confidence: 0.4
+  track:
+    impl: frozen-tracklets
+    params:
+      run_dir: data/runs/a743c9b482ed
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: pnlcalib
+    params:
+      command:
+      - ../external-calibrators/PnLCalib/.venv/bin/python
+      - ../external-calibrators/pnlcalib_cli.py
+      weights_kp: ../external-calibrators/PnLCalib/weights/SV_kp
+      weights_line: ../external-calibrators/PnLCalib/weights/SV_lines
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
+  associate:
+    impl: reid-engine
+    params:
+      min_similarity: 0.8
+      merge_decision_rule: mutual-best
+      merge_min_margin: 0.0
+      overlap_tolerance_frames: 2
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
+      anchor_source: none
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+      jersey_enabled: true
+      # NOT a recommendation -- an exploration value. The shipped default is
+      # 4.0, fitted on FOOTPASS whole matches (~2,100 tracklets per player); a
+      # 30 s clip carries ~1.2, so nothing ever clears it and the engine
+      # abstains on everything. Lowered here to make the engine actually decide
+      # so its merges can be inspected. Measured consequence on SNMOT-125: it
+      # buys 2 merges, and BOTH are wrong -- lowering the bar does not recover
+      # the 17 missed merges, which is further evidence the problem is the
+      # appearance calibrator's operating point, not the threshold.
+      pass1_min_score: -1.0
+      pass2_min_score: -1.5
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

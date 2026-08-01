@@ -581,9 +581,51 @@ export interface EvalResult {
       correct: boolean;
     }[];
     // Majority-vote GT identity per tracklet (JSON keys are stringified
-    // tracklet ids; null = never matched a GT box). Lets the UI verdict any
-    // pair decision, including rejected-but-same-player missed merges.
+    // tracklet ids; null = never matched a GT box). Use for labelling a
+    // tracklet, NOT for finding missed merges -- an argmax hides the identity
+    // of every impure tracklet's minority half. `missed_pairs` below is the
+    // authoritative miss list.
     gt_id_of_tracklet?: Record<string, number | null>;
+    // Merges GT says were required but association did not make. Computed by
+    // the evaluator from full GT composition over ALL tracklet pairs -- never
+    // derivable in the UI from the associate stage's decision trail, which
+    // omits whole rejection classes (temporally overlapping pairs, and
+    // below-threshold candidates that were scored but never recorded).
+    n_missed_pairs?: number;
+    missed_pairs?: {
+      a: number;
+      b: number;
+      gt_id: number;
+      frames_a: number;
+      frames_b: number;
+    }[];
+    // n_pairs_correct / (n_pairs_correct + n_missed_pairs); null when GT
+    // demanded no merges at all.
+    merge_recall?: number | null;
+    // Merges the TRACK stage made by rejoining a tracklet across a gap, scored
+    // by the same majority-vote rule as the associate stage's merges. Without
+    // these a run reads "0 wrong merges" while the tracker has swapped players
+    // inside a single tracklet -- which association cannot undo.
+    n_track_merges?: number;
+    n_track_merges_wrong?: number;
+    // Every gap the tracker rejoined, correct and wrong alike. The full list
+    // (not just the wrong rows) so the Lab can show a correct-merges view on a
+    // run where the associate stage merged nothing.
+    track_merges?: {
+      tracklet_id: number;
+      gt_a: number;
+      gt_b: number;
+      frame_a_end: number;
+      frame_b_start: number;
+      correct: boolean;
+    }[];
+    // Both stages combined -- the honest answer to "how many merges are wrong".
+    n_merges_total?: number;
+    n_wrong_total?: number;
+    merge_precision_all?: number | null;
+    // tid -> {gt_track_id: matched_frames}, the evidence behind both the
+    // argmax and the miss list.
+    gt_composition_of_tracklet?: Record<string, Record<string, number>>;
   };
   instances: EvalInstance[];
   // SPO-19 context block: how attribution was derived for this payload.
@@ -728,12 +770,63 @@ export interface PairDetail {
   part_weights: (number | null)[];
 }
 
+// One evidence channel's contribution to a merge decision, in nats.
+// `llr: null` means the channel had NO evidence and abstained — deliberately
+// distinct from an llr of 0, which is a real "neither for nor against". Only
+// the first points at a missing or broken input.
+export interface ChannelScore {
+  name: string; // body | occupancy | gap | transition | jersey
+  raw: number | null; // measurement before calibration
+  llr: number | null;
+  weight: number;
+  contribution: number; // weight * llr — what was actually summed
+}
+
+// Why one pair scored what it did. Recorded for the decisive candidate of each
+// tracklet, merged OR rejected under threshold, so a merge that did not happen
+// can be explained too.
+export interface PairChannels {
+  a: number;
+  b: number;
+  decision: string; // merged | rejected
+  total: number;
+  threshold: number;
+  pass: number;
+  channels: ChannelScore[];
+}
+
+export interface CandidateEvidence {
+  partner: number; // tracklet id standing for the candidate thread
+  total: number;
+  channels: ChannelScore[];
+}
+
+// One tracklet's merge decision plus the alternatives behind it. An abstention
+// WITH candidates means "nothing scored high enough"; an abstention with none
+// means "nothing was even eligible" — a bare count cannot tell those apart.
+export interface MergeDecision {
+  tracklet_id: number;
+  decision: string; // merged | abstained
+  chosen: number | null;
+  total: number | null;
+  runner_up: number | null;
+  threshold: number;
+  n_candidates_total: number; // before truncation to `candidates`
+  candidates: CandidateEvidence[];
+}
+
 export interface ReidDetailReport {
   impl: string;
   params: Record<string, unknown>;
   n_parts: number;
   tracklets: TrackletDetail[];
   pairs: PairDetail[];
+  // Empty under the pairwise engine, which scores one similarity and has no
+  // channels to break down.
+  pair_channels?: PairChannels[];
+  // Per-tracklet decisions with ranked candidates — the merge inspector's
+  // primary view. Empty under the pairwise engine.
+  decisions?: MergeDecision[];
 }
 
 // ---- Identity QA labels (human annotations; never mutate run artifacts/entities) ----

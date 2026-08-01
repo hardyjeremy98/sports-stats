@@ -1,12 +1,28 @@
-"""Player + ball detection from the roboflow/sports fine-tuned LOCAL weights
-(football-player-detection.pt / football-ball-detection.pt, YOLOv8x).
+"""Player + ball detection from local YOLO weights.
 
-LICENSING: these weights and the ultralytics runtime are AGPL-3.0 — this
-implementation is for LOCAL EVALUATION ONLY (per technology/10-libraries.md:
-"prototype only"). The shippable path is the 'roboflow' hosted detector or an
-RF-DETR fine-tune from matchlab-train. Ultralytics is deliberately NOT a
-declared dependency; install it explicitly (`uv run --with ultralytics ...` or
-pip install ultralytics) to use this stage.
+DEFAULT WEIGHTS (2026-08-01): `football-player-detection-mobadam.pt`
+(`mobadam/football-player-detection`) at imgsz 960, selected by the detector
+benchmark in `docs/reports/2026-08-01-detector-selection.md`. It replaced the
+previous roboflow/sports default, which was the bottleneck on the whole
+tracklet/re-ID stack: SoccerNet held-out player AP@0.5 0.803 -> 0.919, ball F1
+0.368 -> 0.663, and end-to-end HOTA (tracklet) 0.502 -> 0.618 with ID switches
+down 59%, from this weights change alone. imgsz 960 (not the old 1280) is also
+measured, not assumed -- every candidate was swept and none improved past 1280,
+while the old default degraded badly above it. confidence 0.4 sits within 0.001
+of the best-F1 point on BOTH the tuning and held-out tiers.
+
+The previous default is kept on disk as `football-player-detection.pt` and is
+still pinned explicitly by the frozen comparator configs
+(`pipeline.v1-hardened-eval.yaml` and the other eval substrates), so their
+historical numbers stay reproducible. Do not repoint those.
+
+Class ids are NOT assumed: `resolve_class_map` derives them from the
+checkpoint's own `model.names`, because football checkpoints disagree on class
+ORDER and a weights swap that trusted ids would silently relabel every player
+as a goalkeeper.
+
+Ultralytics is deliberately NOT a declared dependency; install it explicitly
+(`uv run --with ultralytics ...` or pip install ultralytics) to use this stage.
 """
 
 from __future__ import annotations
@@ -24,6 +40,11 @@ from matchlab_core.schemas.run import StageKind
 from matchlab_core.stages.detect.ball_utils import resolve_ball_track
 
 # Class ids of the fine-tuned player model (same dataset as the hosted one).
+# Only a FALLBACK: different football checkpoints order these classes
+# differently (roboflow/sports is ball/goalkeeper/player/referee, others are
+# ball/player/referee/goalkeeper), so trusting ids alone silently mislabels
+# every detection when the weights are swapped. `resolve_class_map` derives the
+# mapping from the checkpoint's own class NAMES and only falls back to this.
 _CLASS_MAP = {
     0: DetectionClass.BALL,
     1: DetectionClass.GOALKEEPER,
@@ -31,12 +52,54 @@ _CLASS_MAP = {
     3: DetectionClass.REFEREE,
 }
 
+# Detector class name -> our DetectionClass. Covers football-fine-tuned models
+# and the COCO name space (a COCO-pretrained checkpoint is a legitimate player
+# detector: "person" is the player class, everything else is background).
+_NAME_MAP = {
+    "ball": DetectionClass.BALL,
+    "sports ball": DetectionClass.BALL,
+    "football": DetectionClass.BALL,
+    "soccer ball": DetectionClass.BALL,
+    "goalkeeper": DetectionClass.GOALKEEPER,
+    "goalkeepers": DetectionClass.GOALKEEPER,
+    "player": DetectionClass.PLAYER,
+    "players": DetectionClass.PLAYER,
+    "person": DetectionClass.PLAYER,
+    "referee": DetectionClass.REFEREE,
+}
+
+
+def resolve_class_map(names) -> tuple[dict[int, DetectionClass], set[int]]:
+    """Map a checkpoint's class ids to DetectionClass using its own names.
+
+    Returns `(class_map, keep_ids)`. `keep_ids` is what the detector should
+    emit: for a COCO checkpoint that is person + sports ball only, so the other
+    78 classes are dropped instead of being defaulted into PLAYER.
+
+    Falls back to the roboflow/sports id order when `names` is missing or none
+    of the names are recognisable -- and in that case keeps every id, matching
+    the historical behaviour.
+    """
+    if isinstance(names, list):
+        names = dict(enumerate(names))
+    if not names:
+        return dict(_CLASS_MAP), set(_CLASS_MAP)
+
+    mapped = {
+        int(k): _NAME_MAP[str(v).strip().lower()]
+        for k, v in names.items()
+        if str(v).strip().lower() in _NAME_MAP
+    }
+    if not mapped:
+        return dict(_CLASS_MAP), set(names)
+    return mapped, set(mapped)
+
 
 class Params(BaseModel):
-    weights: str = "data/weights/football-player-detection.pt"
+    weights: str = "data/weights/football-player-detection-mobadam.pt"
     ball_weights: str = ""  # optional dedicated ball model, tiled
-    imgsz: int = 1280      # the model was fine-tuned at 1280
-    confidence: float = 0.3
+    imgsz: int = 960       # measured optimum; 1280 and 1920 both score worse
+    confidence: float = 0.4  # within 0.001 of best F1 on tuning AND held-out
     ball_buffer_size: int = 10
     ball_max_gap_frames: int = 30
 
@@ -62,6 +125,9 @@ class YoloLocalDetector(Detector):
                 "roboflow/sports setup.sh gdrive links into data/weights/."
             )
         self._model = YOLO(self.params.weights)
+        self._class_map, self._keep_ids = resolve_class_map(
+            getattr(self._model, "names", None)
+        )
         if self.params.ball_weights and Path(self.params.ball_weights).exists():
             self._ball_model = YOLO(self.params.ball_weights)
 
@@ -95,11 +161,12 @@ class YoloLocalDetector(Detector):
                 Detection(
                     box=Box(x1=float(b[0]), y1=float(b[1]), x2=float(b[2]), y2=float(b[3])),
                     confidence=float(c),
-                    cls=_CLASS_MAP.get(int(k), DetectionClass.PLAYER),
+                    cls=self._class_map.get(int(k), DetectionClass.PLAYER),
                 )
                 for b, c, k in zip(
                     boxes.xyxy.tolist(), boxes.conf.tolist(), boxes.cls.tolist()
                 )
+                if int(k) in self._keep_ids
             ]
             if self._ball_model is not None:
                 detections = [d for d in detections if d.cls != DetectionClass.BALL]

@@ -450,8 +450,10 @@ def merge_quality(
     standalone.
     """
     gt_id_of_tracklet: dict[int, int | None] = {}
+    composition: dict[int, dict[int, int]] = {}
     for tid, frames in tracklets_by_id.items():
         votes = _gt_composition_of_tracklet(frames, gt_by_frame, iou_threshold)
+        composition[tid] = votes
         gt_id_of_tracklet[tid] = min(votes, key=lambda gid: (-votes[gid], gid)) if votes else None
 
     n_entities_merged = 0
@@ -488,6 +490,41 @@ def merge_quality(
                 )
 
     merge_precision = (n_pairs_correct / n_pairs) if n_pairs else None
+
+    # --- every merge, not just the associate stage's ------------------------
+    # A tracker that rejoins a track across a gap has asserted "same player"
+    # exactly as a merge does, so it is judged by the same rule: compare the
+    # majority-vote GT of each joined segment. Without this the run's dominant
+    # identity failure is invisible -- SNMOT-125 reported "0 wrong merges"
+    # while one tracklet held GT11 for 12.5 s and then GT23.
+    track_merges: list[dict] = []
+    for tid, frames in tracklets_by_id.items():
+        segs = _tracklet_segments(frames, gt_by_frame, iou_threshold)
+        for s_a, s_b in zip(segs, segs[1:]):
+            track_merges.append(
+                {
+                    "tracklet_id": tid,
+                    "gt_a": s_a["gt_id"],
+                    "gt_b": s_b["gt_id"],
+                    "frame_a_end": s_a["end"],
+                    "frame_b_start": s_b["start"],
+                    "correct": s_a["gt_id"] == s_b["gt_id"],
+                }
+            )
+    n_track_merges = len(track_merges)
+    n_track_merges_wrong = sum(1 for m in track_merges if not m["correct"])
+
+    n_wrong_total = (n_pairs - n_pairs_correct) + n_track_merges_wrong
+    n_merges_total = n_pairs + n_track_merges
+    merge_precision_all = (
+        (n_merges_total - n_wrong_total) / n_merges_total if n_merges_total else None
+    )
+
+    missed_pairs = _missed_merges(composition, entities, merged_pairs)
+    n_missed_pairs = len(missed_pairs)
+    denom = n_pairs_correct + n_missed_pairs
+    merge_recall = (n_pairs_correct / denom) if denom else None
+
     return {
         "n_entities_merged": n_entities_merged,
         "n_pairs": n_pairs,
@@ -495,11 +532,191 @@ def merge_quality(
         "n_pairs_unmatched": n_pairs_unmatched,
         "merge_precision": merge_precision,
         "merged_pairs": merged_pairs,
+        # Merges GT says were REQUIRED but that association did not make.
+        # Computed from each tracklet's full GT composition, never from
+        # `gt_id_of_tracklet`, and never from the associate stage's own
+        # decision trail -- see `_missed_merges` for why both would undercount.
+        "n_missed_pairs": n_missed_pairs,
+        "missed_pairs": missed_pairs,
+        "merge_recall": merge_recall,
+        # Merges the TRACK stage made by rejoining a tracklet across a gap,
+        # judged by the same majority-vote rule as associate's merges. These
+        # are real wrong merges -- a silent player swap -- and association
+        # cannot undo them, so they are reported, not buried in a purity score.
+        "n_track_merges": n_track_merges,
+        "n_track_merges_wrong": n_track_merges_wrong,
+        # The full list, each row carrying its own `correct` flag. Emitting only
+        # the wrong ones left the Lab unable to show a correct-merges view at
+        # all on a run where every correct merge was the tracker's -- the count
+        # was visible but nothing backed it.
+        "track_merges": track_merges,
+        # Every merge in the run, from either stage.
+        "n_merges_total": n_merges_total,
+        "n_wrong_total": n_wrong_total,
+        "merge_precision_all": merge_precision_all,
+        # tid -> {gt_track_id: matched_frames}. The evidence behind both the
+        # argmax above and the missed-merge list, published so the Lab can
+        # show WHY a pair was judged rather than asking consumers to re-derive
+        # it from an argmax that discards the rest of the distribution.
+        "gt_composition_of_tracklet": composition,
         # Every tracklet's majority-vote GT identity (None = never matched a
         # GT box). Published so consumers can verdict any pair decision —
         # the Lab's Assoc tab flags wrong merges AND missed merges with it.
         "gt_id_of_tracklet": gt_id_of_tracklet,
     }
+
+
+#: A tracklet *represents* a GT player when it holds at least this many frames
+#: of that player AND they are at least `MIN_REPRESENTATION_SHARE` of the
+#: tracklet's matched frames. Both bounds are needed:
+#:
+#: - the frame floor rejects IoU noise (a brush-past in a crowd);
+#: - the share floor rejects transient ID switches. An impure tracklet clips
+#:   a few frames off many neighbours, and pairing every such fragment is
+#:   O(n^2) nonsense: on SNMOT-125 a share-free rule reported 115 "missed
+#:   merges" against 12 real ones. Merging two tracklets that are each mostly
+#:   *other* players would not be a fix, so they are not a missed merge.
+#:
+#: Calibrated on SNMOT-125 (2026-08-01) against an independent count derived
+#: from GT absences: 12 players there leave and re-enter. A 0.2 share recovers
+#: 11 of them (17 pairs); 0.5 finds only 3. Sensitivity is documented in
+#: docs/reports/2026-08-01-detector-selection.md.
+MIN_REPRESENTATION_FRAMES = 3
+MIN_REPRESENTATION_SHARE = 0.2
+
+
+#: Frames of absence that separate one tracked segment from the next. Below
+#: this a hole is a dropped detection, not the player leaving; above it, the
+#: tracker rejoined two separately-observed runs -- which is a merge decision
+#: and must be judged like one.
+SEGMENT_GAP_FRAMES = 12
+#: Segments shorter than this are flicker and carry no reliable identity.
+MIN_SEGMENT_FRAMES = 5
+
+
+def _tracklet_segments(
+    frames: list[tuple[int, list[float]]],
+    gt_by_frame: dict[int, list[tuple[int, list[float]]]],
+    iou_threshold: float,
+    gap: int = SEGMENT_GAP_FRAMES,
+    min_len: int = MIN_SEGMENT_FRAMES,
+) -> list[dict]:
+    """Split one tracklet into the separately-observed runs the tracker joined,
+    and give each run its own majority-vote GT identity.
+
+    A tracklet that disappears for half a second and comes back is the tracker
+    asserting "same player" across that gap -- the identical claim the associate
+    stage makes when it merges two tracklets, and it has to be scored the same
+    way. Judging only whole tracklets hides it: the tracklet gets ONE majority
+    vote, the minority player vanishes into it, and a wrong join reads as a
+    slightly impure tracklet instead of a wrong merge.
+    """
+    if not frames:
+        return []
+    ordered = sorted(frames, key=lambda fb: fb[0])
+    runs: list[list[tuple[int, list[float]]]] = [[ordered[0]]]
+    for prev, cur in zip(ordered, ordered[1:]):
+        if cur[0] - prev[0] > gap:
+            runs.append([cur])
+        else:
+            runs[-1].append(cur)
+
+    out: list[dict] = []
+    for run in runs:
+        if len(run) < min_len:
+            continue
+        votes = _gt_composition_of_tracklet(run, gt_by_frame, iou_threshold)
+        if not votes:
+            continue
+        gid = min(votes, key=lambda g: (-votes[g], g))
+        # Majority *of the matched frames* -- flickers onto a neighbour never
+        # outvote the player the segment actually followed.
+        out.append(
+            {
+                "start": run[0][0],
+                "end": run[-1][0],
+                "gt_id": gid,
+                "frames": votes[gid],
+                "matched": sum(votes.values()),
+            }
+        )
+    return out
+
+
+def _missed_merges(
+    composition: dict[int, dict[int, int]],
+    entities: list[dict],
+    merged_pairs: list[dict],
+    min_frames: int = MIN_REPRESENTATION_FRAMES,
+    min_share: float = MIN_REPRESENTATION_SHARE,
+) -> list[dict]:
+    """Tracklet pairs that GT says are the same player but that association
+    left in different entities.
+
+    Deliberately computed from the FULL per-tracklet GT composition, not from
+    `gt_id_of_tracklet`. The argmax keeps only each tracklet's majority player,
+    so when the tracker glues two players into one tracklet -- precisely the
+    runs where association matters most -- the minority half's identity is
+    erased and its missed merges become invisible. Measured on SNMOT-125
+    (2026-08-01): ground truth had 12 unmerged exit/re-enter players; the
+    argmax-derived count reported 1.
+
+    Also deliberately independent of the associate stage's decision trail. A
+    trail only records pairs the engine actually scored, and engines omit
+    whole rejection classes from it (`reid/twopass.py` drops temporally
+    overlapping pairs, and records nothing at all for a best-candidate that
+    simply scored under the threshold). Anything absent from the trail could
+    never be flagged, so a missed merge must be derived from GT alone.
+
+    A pair is reported once per GT track they share, for the pair of tracklets
+    that each *represent* it (see `MIN_REPRESENTATION_FRAMES` /
+    `MIN_REPRESENTATION_SHARE`) and sit in different entities. Tracklets absent
+    from `entities` (never associated into any player record) still count --
+    being dropped is not the same as being merged.
+    """
+    entity_of: dict[int, int] = {}
+    for e in entities:
+        for tid in e["tracklet_ids"]:
+            entity_of[tid] = e["player_id"]
+
+    already_merged = {
+        (min(p["a"], p["b"]), max(p["a"], p["b"]))
+        for p in merged_pairs
+        if p.get("correct")
+    }
+
+    owners: dict[int, list[int]] = {}
+    for tid, votes in composition.items():
+        total = sum(votes.values())
+        if not total:
+            continue
+        for gid, n in votes.items():
+            if n >= min_frames and (n / total) >= min_share:
+                owners.setdefault(gid, []).append(tid)
+
+    missed: list[dict] = []
+    for gid in sorted(owners):
+        tids = sorted(owners[gid])
+        for i in range(len(tids)):
+            for j in range(i + 1, len(tids)):
+                a, b = tids[i], tids[j]
+                ea, eb = entity_of.get(a), entity_of.get(b)
+                # Same entity => association already joined them; a correct
+                # merge is never also a miss.
+                if ea is not None and eb is not None and ea == eb:
+                    continue
+                if (a, b) in already_merged:
+                    continue
+                missed.append(
+                    {
+                        "a": a,
+                        "b": b,
+                        "gt_id": gid,
+                        "frames_a": composition[a][gid],
+                        "frames_b": composition[b][gid],
+                    }
+                )
+    return missed
 
 
 def _gt_composition_of_tracklet(
