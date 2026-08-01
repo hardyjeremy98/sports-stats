@@ -254,6 +254,19 @@ def evaluate_run(
         ),
     }
 
+    # Team-classification layer: assignment accuracy under the better cluster-
+    # label permutation, plus the merge engine's team-gate false-veto rate over
+    # GT-true re-entry pairs. Reuses the tracklet-level purity records' GT match
+    # rather than matching a second time. Omitted (no `team` key) when the run
+    # has no teams.json.
+    from matchlab_core.team_eval import evaluate_team
+
+    team_result = evaluate_team(
+        run_dir, gt, manifest, tracklets, result["purity"]["tracklet"]["tracklets"]
+    )
+    if team_result is not None:
+        result["team"] = team_result
+
     from matchlab_core.crop_yield import crop_yield
 
     result["crop_yield"] = crop_yield(
