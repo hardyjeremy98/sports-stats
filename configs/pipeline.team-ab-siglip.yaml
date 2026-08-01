@@ -1,0 +1,101 @@
+# TIER: FROZEN (see configs/README.md) -- comparability baseline -- do not retune; its numbers are published.
+# TEAM A/B (SigLIP arm) -- SPO-87, the decontamination run pre-registered in
+# SPO-73 and never executed (it was blocked by the SPO-86 substrate loss;
+# the oracle-team substrate exists again via stages/team/oracle.py).
+#
+# QUESTION: how much merge yield does the kit-colour team gate cost, versus a
+# perfect team classifier? Under the two-pass merge engine the only hard
+# constraints left are temporal non-overlap and same-team, so kit colour is the
+# last remaining veto -- and SPO-73 measured it falsely vetoing 19% of true
+# re-entry pairs BEFORE the merge rule evaluated them, which contaminated that
+# whole benchmark.
+#
+# The two arms differ in exactly one line: `stages.team.impl`. Everything else
+# is copied byte-for-byte from pipeline.jersey-ab-on.yaml's substrate (oracle
+# detect + oracle-fragment track @ gap_frames 2 + osnet features + reid-engine
+# at its shipped permissive defaults, anchor_source none).
+#
+# Jersey is OFF in BOTH arms, deliberately: the team gate is a hard veto
+# applied before any evidence is scored, so a second channel cannot rescue a
+# team-vetoed pair -- it would only add variance to the comparison.
+#
+# CAVEAT: oracle fragments are easier than real tracker output. This measures
+# the SIZE OF THE TEAM GATE'S COST on a controlled substrate; it is not a
+# do-no-harm gate and the absolute merge counts do not transfer to a real
+# tracker.
+name: team-ab-siglip
+description: >
+  Team A/B (SigLIP arm, SPO-87): oracle-fragment substrate, reid-engine at
+  shipped defaults, anchor-free, jersey off. Only stages.team.impl differs.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: oracle
+    params:
+      gap_frames: 2
+      min_fragment_frames: 1
+      features_backend: in-repo
+      features_model: osnet
+  team:
+    impl: siglip-kmeans
+    params:
+      # Stage defaults, untouched: this arm asks whether the
+      # already-registered alternative beats kit-colour as shipped,
+      # not whether a tuned SigLIP can.
+      model_name: google/siglip-base-patch16-224
+      crops_per_tracklet: 8
+      batch_size: 32
+  calibrate:
+    impl: static-demo
+    enabled: false
+  associate:
+    impl: reid-engine
+    params:
+      # Permissive merging, adopted 2026-07-26 (SPO-85): mutual-best at zero
+      # margin, floor 0.80. Deliberately admits ~15% wrong merges so
+      # downstream work can see them; unchanged here.
+      min_similarity: 0.80
+      merge_decision_rule: mutual-best
+      merge_min_margin: 0.0
+      overlap_tolerance_frames: 2
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
+      anchor_source: none
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+      min_posterior: 0.6
+      min_margin: 0.2
+      tier_auto_min_posterior: 0.85
+      tier_auto_min_margin: 0.5
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    enabled: false
+  events:
+    impl: possession-heuristic
+    enabled: false
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false
