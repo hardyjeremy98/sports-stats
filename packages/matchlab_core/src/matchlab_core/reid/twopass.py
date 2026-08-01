@@ -243,6 +243,7 @@ def merge_threads_two_pass(
     min_score: float,
     pass2_score: float | None = 0.0,
     min_margin: float = 0.0,
+    pass2_min_margin: float = 0.0,
     rounds: int = 8,
     pair_filter=None,
     anchor_by_tid: dict[int, str] | None = None,
@@ -411,6 +412,23 @@ def merge_threads_two_pass(
                 if s is not None
             ]
             scored.sort(key=lambda r: -r[0])
+            # Winner-margin in pass 2, same rationale as pass 1's `min_margin`:
+            # a thread pair merges only when its score beats each side's best
+            # ALTERNATIVE partner by the bar. Measured on FOOTPASS pass 1 the
+            # relative rule strictly dominates any absolute threshold (report
+            # 2026-08-01, addendum); pass 2 is the same decision made
+            # thread-to-thread, so it gets the same denominator. 0.0 keeps the
+            # legacy greedy exactly.
+            # Top-two scores per thread: a thread's best ALTERNATIVE partner
+            # is its top score if this pair is not it, else its second-best.
+            top2: dict[int, list[float]] = {}
+            if pass2_min_margin > 0.0:
+                for s, x, y in scored:
+                    for k in (x, y):
+                        t = top2.setdefault(k, [])
+                        t.append(s)
+                        t.sort(reverse=True)
+                        del t[2:]
             used: set[int] = set()
             merged_any = False
             for s, x, y in scored:
@@ -418,6 +436,17 @@ def merge_threads_two_pass(
                     break
                 if x in used or y in used:
                     continue
+                if pass2_min_margin > 0.0:
+                    # `s` is each side's best remaining score at this point in
+                    # the greedy sweep (higher-scored pairs are consumed or
+                    # skipped), so the alternative is the side's second-best.
+                    alt = max(
+                        (top2[k][1] if len(top2.get(k, [])) > 1 and top2[k][0] == s
+                         else top2.get(k, [-np.inf])[0])
+                        for k in (x, y)
+                    )
+                    if (s - alt) < pass2_min_margin:
+                        continue
                 used.update((x, y))
                 a_end = max(t_members[x], key=lambda m: start[m])
                 b_start = min(t_members[y], key=lambda m: start[m])

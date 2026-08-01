@@ -195,3 +195,31 @@ Two findings, both decisive:
 
 Margin in pass 2 remains unplumbed and unmeasured (the harness arms here are
 pass-1 only).
+
+## Addendum 2 (2026-08-02): pass-2 margin — implemented, but no dominance there
+
+`pass2_min_margin` now plumbs the winner-margin rule into pass 2 (thread pair
+must beat each side's best alternative partner; 0.0 = legacy greedy, the
+default). Measured LOSO on FOOTPASS, on top of pass 1 at 4.0/margin 0.5:
+
+| pass-2 arm | precision | coverage | wrong |
+|---|---|---|---|
+| score 4.0, margin 0 | 0.9763 | 0.7651 | 231 |
+| score 4.0, margin 0.5 | 0.9812 | 0.6807 | 162 |
+| score 4.0, margin 1.0 | 0.9812 | 0.6724 | 160 |
+| score 7.0, margin 0 | 0.9801 | 0.7071 | 179 |
+| score 8.0, margin 0 | 0.9809 | **0.6931** | 168 |
+
+**The margin rule does NOT dominate in pass 2** — threshold 8.0 matches margin
+0.5's precision at ~1.2 pts more coverage. Unlike pass 1 (one query, a small
+natural candidate set, occasional genuine ties), agglomeration pairs are
+pervasively contested at close scores, so the margin throttles coverage about
+as indiscriminately as a threshold does. Margin dominance is a pass-1
+phenomenon. Use `pass2_min_score` for the pass-2 trade; `pass2_min_margin`
+stays available (on SNMOT through the full engine it removed 1 of 3 wrong
+merges at zero cost) but earns no default.
+
+Recommended operating recipe from this session's measurements, full-match
+footage: pass 1 `min_score 4.0` + `merge_min_margin 0.5`, pass 2
+`pass2_min_score` chosen by the precision/coverage trade you want (4.0 →
+0.9763/0.765, 8.0 → 0.9809/0.693), `pass2_min_margin 0.0`.
