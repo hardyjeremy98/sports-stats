@@ -412,3 +412,45 @@ def test_pass2_margin_blocks_contested_merges_only():
         pass2_min_margin=0.5,
     )
     assert [1, 2] in res1.groups and [3] in res1.groups
+
+
+def test_footprint_alpha_zero_is_identical_and_positive_pulls_uniform():
+    import numpy as np
+    from matchlab_core.reid.threads import ThreadState
+
+    s = ThreadState.from_fragment(
+        np.array([0.5]), np.array([0.5]), embedding=None, start=0, end=1,
+        exit_xy=np.zeros(2), entry_xy=np.zeros(2),
+    )
+    base = s.footprint()
+    assert np.array_equal(s.footprint(alpha=0.0).grid, base.grid)
+    smoothed = s.footprint(alpha=1.0).grid
+    uniform = np.full_like(base.grid, 1.0 / base.grid.size)
+    # strictly closer to uniform than the raw single-cell footprint
+    assert np.abs(smoothed - uniform).sum() < np.abs(base.grid - uniform).sum()
+    assert np.isclose(smoothed.sum(), 1.0)
+
+
+def test_gap_binned_calibrators_select_by_gap_and_round_trip():
+    import numpy as np
+    from matchlab_core.reid.evidence import LLRCalibrator
+    from matchlab_core.reid.twopass import FusionModel
+
+    rng = np.random.default_rng(0)
+    hi = LLRCalibrator.fit(rng.normal(0.9, 0.05, 2000), rng.normal(0.1, 0.05, 2000))
+    lo = LLRCalibrator.fit(rng.normal(0.6, 0.05, 2000), rng.normal(0.4, 0.05, 2000))
+    m = FusionModel(
+        calibrators={"body": lo},
+        calibrators_by_gap={"body": [(2.0, hi)]},
+        weights={"body": 1.0},
+    )
+    # short gap -> sharp calibrator; long gap falls through to the flat one
+    assert m._calibrator_for("body", 1.0) is hi
+    assert m._calibrator_for("body", 10.0) is lo
+    assert m._calibrator_for("occupancy", 1.0) is None
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.occupancy_alpha == 0.0
+    assert len(m2.calibrators_by_gap["body"]) == 1
+    assert m2._calibrator_for("body", 1.0).llr(0.8) == m._calibrator_for(
+        "body", 1.0
+    ).llr(0.8)

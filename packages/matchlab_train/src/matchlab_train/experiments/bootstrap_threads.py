@@ -201,6 +201,20 @@ def corrupt_fragments(frags, embeddings: dict, c: Corruption):
 
 
 CACHE = Path("data/experiments/bootstrap-cache")
+
+# Cache-variant knobs. These MUST appear in every cache filename that depends
+# on them: the caches were previously keyed only by (key, MAX_GAP_FRAMES), so
+# changing the coordinate convention or adding per-fragment data silently
+# returned stale pickles fitted under the old semantics -- the exact failure
+# class of the positional-cache alignment bug (2026-07-27) and the occupancy
+# fit/serve mismatch this revision exists to fix.
+#: "rel" = formation-relative xs/ys (the historical harness behaviour; what
+#: fusion-footpass-v1 was fitted on), "abs" = absolute pitch coordinates (what
+#: reid_engine actually serves).
+COORDS = "rel"
+#: Last-K/first-K absolute observation rows cached per fragment, for endpoint
+#: velocity estimation (item 3). Part of the cache key.
+TAIL_K = 30
 # The fragmentation the appearance extractor was run at. `fragment_embeddings.pkl`
 # is keyed by position in THAT list, so any other setting must be remapped.
 APPEARANCE_GAP_FRAMES = 2
@@ -243,14 +257,15 @@ def half_frames(key: str):
     fragment -- 2,500 full-array scans per half -- which was both slow and the
     reason this died under memory pressure.
     """
-    cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}.pkl"
+    cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}-{COORDS}-t{TAIL_K}.pkl"
     if cache.exists():
         frags, first_xy, last_xy = pickle.loads(cache.read_bytes())
         return frags, first_xy, last_xy, appearance_for(key, frags)
 
     half = load_half(VAL_H5, key)
     frags = build_fragments(
-        half, max_gap_frames=MAX_GAP_FRAMES, min_frames=50, relative=True
+        half, max_gap_frames=MAX_GAP_FRAMES, min_frames=50,
+        relative=(COORDS == "rel"),
     )
     rows = half.rows
     obs = rows[~np.isnan(rows[:, COL.ROI_X])]
@@ -268,6 +283,13 @@ def half_frames(key: str):
         b = lo + int(np.searchsorted(block, f.end, "right"))
         first_xy.append(obs[a, [COL.X, COL.Y]].astype(float))
         last_xy.append(obs[b - 1, [COL.X, COL.Y]].astype(float))
+        # Absolute-coordinate endpoint tails for velocity estimation: the
+        # fragment's own xs/ys may be formation-relative (COORDS="rel"), whose
+        # derivative is player-minus-centroid velocity -- wrong for a
+        # transition prediction. (frame, x, y) rows, real timestamps, because
+        # spans can contain gaps up to MAX_GAP_FRAMES.
+        f.tail_xy = obs[max(b - TAIL_K, a):b][:, [COL.FRAME, COL.X, COL.Y]].astype(float)
+        f.head_xy = obs[a:min(a + TAIL_K, b)][:, [COL.FRAME, COL.X, COL.Y]].astype(float)
     first_xy, last_xy = np.array(first_xy), np.array(last_xy)
 
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -517,7 +539,7 @@ def fit_from(matches: list[str]):
     # Cached on the fit-match set: nothing about it varies across operating
     # points, and rebuilding it per sweep is what kept dying under memory
     # pressure from concurrent jobs.
-    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}.pkl"
+    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}-{COORDS}.pkl"
     if fit_cache.exists():
         cals_d, prior_d, w = pickle.loads(fit_cache.read_bytes())
         return (

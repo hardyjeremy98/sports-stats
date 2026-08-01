@@ -172,6 +172,18 @@ class FusionModel:
     # exactly where its evidence is too thin to trust (ADR 003's "missing or
     # low-quality evidence is neutral", applied continuously). 0.0 disables.
     occupancy_shrink_n0: float = 0.0
+    # Dirichlet pseudo-count per footprint cell (threads.footprint alpha).
+    # Applied by merge_threads_two_pass when it builds footprints; 0.0 = off.
+    occupancy_alpha: float = 0.0
+    # Gap-conditioned calibrators: {channel: [[gap_hi_s, calibrator], ...]},
+    # bins tried in order, first with gap_s < gap_hi_s wins, falling through to
+    # the flat calibrator in `calibrators` past the last edge. Appearance
+    # reliability varies enormously with the gap (fine-tuned soccer re-ID drops
+    # ~99% -> 62% from 1-frame to 12 s gaps); one global body calibrator
+    # averages regimes that share nothing but a name. Empty dict = flat.
+    calibrators_by_gap: dict[str, list[tuple[float, LLRCalibrator]]] = field(
+        default_factory=dict
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -181,6 +193,11 @@ class FusionModel:
             "fps": self.fps,
             "required": list(self.required),
             "occupancy_shrink_n0": self.occupancy_shrink_n0,
+            "occupancy_alpha": self.occupancy_alpha,
+            "calibrators_by_gap": {
+                k: [[hi, cal.to_dict()] for hi, cal in bins]
+                for k, bins in self.calibrators_by_gap.items()
+            },
         }
 
     @classmethod
@@ -194,11 +211,22 @@ class FusionModel:
             fps=float(d.get("fps", 25.0)),
             required=tuple(d.get("required", ("body",))),
             occupancy_shrink_n0=float(d.get("occupancy_shrink_n0", 0.0)),
+            occupancy_alpha=float(d.get("occupancy_alpha", 0.0)),
+            calibrators_by_gap={
+                k: [(float(hi), LLRCalibrator.from_dict(cd)) for hi, cd in bins]
+                for k, bins in d.get("calibrators_by_gap", {}).items()
+            },
         )
 
     @classmethod
     def load(cls, path: str | Path) -> FusionModel:
         return cls.from_dict(json.loads(Path(path).read_text()))
+
+    def _calibrator_for(self, name: str, gap_s: float) -> LLRCalibrator | None:
+        for hi, cal in self.calibrators_by_gap.get(name, ()):
+            if gap_s < hi:
+                return cal
+        return self.calibrators.get(name)
 
     def score_channels(
         self, a: ThreadState, a_fp, b: ThreadState, b_fp
@@ -228,7 +256,8 @@ class FusionModel:
         raw["gap"] = gap_s
 
         if self.required and not any(
-            n in raw and self.calibrators.get(n) is not None for n in self.required
+            n in raw and self._calibrator_for(n, gap_s) is not None
+            for n in self.required
         ):
             for name in ("body", "occupancy", "gap", "transition"):
                 channels.append({
@@ -240,7 +269,7 @@ class FusionModel:
         total = 0.0
         for name in ("body", "occupancy", "gap"):
             value = raw.get(name)
-            cal = self.calibrators.get(name)
+            cal = self._calibrator_for(name, gap_s)
             weight = self.weights.get(name, 1.0)
             if value is None or cal is None or not np.isfinite(value):
                 channels.append({"name": name, "raw": value, "llr": None,
@@ -403,7 +432,7 @@ def merge_threads_two_pass(
         # A merge decision is only explicable next to the alternatives it beat
         # -- and an abstention only next to the ones that were not good enough.
         cand_rows: list[dict] = []
-        q_fp = states[i].footprint()
+        q_fp = states[i].footprint(alpha=model.occupancy_alpha)
         q_jersey = jersey_by_tid.get(tid[i])
         anchor_k = None
         for k in live:
@@ -470,7 +499,7 @@ def merge_threads_two_pass(
             ))
             edges.append((tid[partner], tid[i]))
             threads[best_k] = threads[best_k].merged_with(states[i])
-            t_fp[best_k] = threads[best_k].footprint()
+            t_fp[best_k] = threads[best_k].footprint(alpha=model.occupancy_alpha)
             t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey)
             t_members[best_k].append(i)
         else:
@@ -491,7 +520,7 @@ def merge_threads_two_pass(
                 runner, min_score, cand_rows, max_candidates,
             ))
             threads.append(states[i])
-            t_fp.append(states[i].footprint())
+            t_fp.append(states[i].footprint(alpha=model.occupancy_alpha))
             t_members.append([i])
             t_team.append(team[i])
             t_jersey.append(q_jersey)
@@ -570,7 +599,7 @@ def merge_threads_two_pass(
                 ))
                 edges.append((tid[a_end], tid[b_start]))
                 threads[x] = threads[x].merged_with(threads[y])
-                t_fp[x] = threads[x].footprint()
+                t_fp[x] = threads[x].footprint(alpha=model.occupancy_alpha)
                 t_jersey[x] = _pool_jersey(t_jersey[x], t_jersey[y])
                 t_members[x] = t_members[x] + t_members[y]
                 threads[y] = None

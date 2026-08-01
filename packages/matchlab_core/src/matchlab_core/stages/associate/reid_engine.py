@@ -171,6 +171,12 @@ class Params(BaseModel):
     # FOOTPASS pass 1 the margin rule strictly dominates absolute thresholds
     # (2026-08-01 report, addendum); pass-2 validation pending.
     pass2_min_margin: float = 0.0
+    # Occupancy coordinate convention fed to the footprints. "absolute" is the
+    # engine's historical behaviour and matches fusion-footpass-v2-abs.json;
+    # "formation-relative" mirrors the harness's relative_coords (per-frame
+    # observable team centroid subtracted, +0.5) and must be paired with a
+    # relative-fitted model. Measured before trusting either pairing.
+    occupancy_coords: str = "absolute"
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -289,6 +295,8 @@ def _tracklet_evidence(
     team_by_tid: dict,
     calibration: dict[int, np.ndarray],
     pitch_size_cm: tuple[float, float],
+    occupancy_coords: str = "absolute",
+    min_centroid_teammates: int = 3,
 ) -> list[TrackletEvidence]:
     """Reduce pipeline artifacts to the per-tracklet inputs merging needs.
 
@@ -314,18 +322,60 @@ def _tracklet_evidence(
 
     out: list[TrackletEvidence] = []
     pw, ph = pitch_size_cm
+
+    # Per-frame projected positions, computed once. Needed twice when
+    # occupancy_coords="formation-relative": each tracklet's own trajectory,
+    # and the per-frame per-team centroid it is measured against.
+    pos_by_tid: dict[int, dict[int, tuple[float, float]]] = {}
     for t in tracklets:
-        xs, ys = [], []
-        first_xy = last_xy = None
+        d: dict[int, tuple[float, float]] = {}
         for fr in t.frames:
             h = calibration.get(fr.frame_idx)
             if h is None:
                 continue
             px, py = _project(h, (fr.box.bottom_center.x, fr.box.bottom_center.y))
-            if not (np.isfinite(px) and np.isfinite(py)):
+            if np.isfinite(px) and np.isfinite(py):
+                d[fr.frame_idx] = (px / pw, py / ph)
+        pos_by_tid[t.tracklet_id] = d
+
+    centroid: dict[tuple[int, object], tuple[float, float, int]] = {}
+    if occupancy_coords == "formation-relative":
+        for t in tracklets:
+            team = team_by_tid.get(t.tracklet_id)
+            if team is None:
                 continue
-            xs.append(px / pw)
-            ys.append(py / ph)
+            for f, (x, y) in pos_by_tid[t.tracklet_id].items():
+                sx, sy, n = centroid.get((f, team), (0.0, 0.0, 0))
+                centroid[(f, team)] = (sx + x, sy + y, n + 1)
+
+    for t in tracklets:
+        xs, ys = [], []
+        first_xy = last_xy = None
+        team = team_by_tid.get(t.tracklet_id)
+        for fr in t.frames:
+            if fr.frame_idx not in pos_by_tid[t.tracklet_id]:
+                continue
+            px_n, py_n = pos_by_tid[t.tracklet_id][fr.frame_idx]
+            px, py = px_n * pw, py_n * ph
+            if occupancy_coords == "formation-relative":
+                # Mirrors matchlab_train position_evidence.relative_coords:
+                # subtract the team's OBSERVABLE centroid (self included) and
+                # recentre on 0.5. Below the teammate floor the frame carries
+                # no usable formation signal and is dropped from the footprint
+                # (abstention, ADR 003) -- on sparse clips a 1-2 player
+                # "centroid" is mostly the query itself.
+                c = centroid.get((fr.frame_idx, team))
+                if team is None or c is None or c[2] < min_centroid_teammates:
+                    ox = oy = None
+                else:
+                    ox = px_n - c[0] / c[2] + 0.5
+                    oy = py_n - c[1] / c[2] + 0.5
+                if ox is not None:
+                    xs.append(ox)
+                    ys.append(oy)
+            else:
+                xs.append(px / pw)
+                ys.append(py / ph)
             # Normalised like xs/ys: `displacement()` expects [0, 1] endpoints
             # (that is how the FOOTPASS prior was fitted). Feeding raw
             # centimetres here made every displacement ~1e5 "metres", so the
@@ -488,6 +538,7 @@ class ReidEngineAssociator(Associator):
                     team_by_tid=team_by_tid,
                     calibration=calibration,
                     pitch_size_cm=tuple(p.pitch_size_cm),
+                    occupancy_coords=p.occupancy_coords,
                 ),
                 model=FusionModel.load(p.fusion_model),
                 min_score=p.pass1_min_score,
