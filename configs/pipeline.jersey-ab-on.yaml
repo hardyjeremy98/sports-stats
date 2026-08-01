@@ -1,0 +1,99 @@
+# EVALUATION config, not a shipped default: exercises the jersey-OCR merge
+# channel (task 8, jersey-ocr-merge-channel design) against the reid-engine
+# associate stage's shipped defaults, everything else copied byte-for-byte
+# from pipeline.reid-frozen-substrate.yaml. `jersey_enabled` is OFF in every
+# shipped config; this file exists to measure the channel on real runs, not
+# to change what ships.
+#
+# Track is switched from frozen-tracklets (replay of a Phase A workdir) to
+# the oracle tracker with in-repo/osnet features, matching
+# pipeline.gt-tracklets-reid.yaml's substrate: GT boxes fragmented at natural
+# gaps (gap_frames=2), so a single clip with GT can run this end to end
+# without a Phase A workdir or the external-trackers checkout.
+name: jersey-ab-on
+description: >
+  Anchor-free A/B arm (jersey ON): jersey-fused-eval with
+  anchor_source none, so merges come only from body evidence (+ jersey when ON).
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: oracle
+    params:
+      gap_frames: 2
+      min_fragment_frames: 1
+      features_backend: in-repo
+      features_model: osnet
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: static-demo
+    enabled: false
+  associate:
+    impl: reid-engine
+    params:
+      # Permissive merging, adopted 2026-07-26 (SPO-85): mutual-best at zero
+      # margin, floor 0.80. Deliberately admits ~15% wrong merges so
+      # downstream work can see them; unchanged here.
+      min_similarity: 0.80
+      merge_decision_rule: mutual-best
+      merge_min_margin: 0.0
+      overlap_tolerance_frames: 2
+      max_prototypes: 4
+      view_threshold: 0.7
+      starved_max_frames: 2
+      min_part_visibility: 0.3
+      max_speed_px_s: 800.0
+      max_speed_cm_s: 900.0
+      soft_gap_s: 15.0
+      gmc: true
+      gmc_downscale: 2
+      calibration_min_confidence: 0.5
+      anchor_source: none
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+      min_posterior: 0.6
+      min_margin: 0.2
+      tier_auto_min_posterior: 0.85
+      tier_auto_min_margin: 0.5
+      # Jersey-OCR merge channel under evaluation here (default OFF
+      # everywhere else). Measured (fusion ablation, commits
+      # 06f78ec/7c3900f): fused body+jersey reaches 50 correct merges at
+      # ZERO wrong on held-out clips vs body-alone 0 and jersey-alone 14;
+      # AUC 0.822 -> 0.887; do-no-harm exact on 4,280 zero-jersey pairs.
+      jersey_enabled: true
+      jersey_checkpoint: data/weights/parseq-jersey.ckpt
+      jersey_legibility_checkpoint: data/weights/legibility-resnet34-soccer.pth
+      jersey_per_tracklet_crops: 100
+      jersey_margin_tau: 2.0
+      # Bounded-influence default (fix round 1, review of a61fdba): the LLR
+      # is rescaled to similarity units and capped at +-0.15, below the 0.20
+      # merge-relevant band width, so it can tip a marginal decision but
+      # never veto a strong body match alone. See the Params docstring in
+      # reid_engine.py.
+      jersey_weight: 0.15
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    enabled: false
+  events:
+    impl: possession-heuristic
+    enabled: false
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    enabled: false

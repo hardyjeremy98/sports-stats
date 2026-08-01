@@ -37,8 +37,12 @@ stages:
   detect:
     impl: yolo-local
     params:
-      weights: data/weights/football-player-detection.pt
-      imgsz: 1280
+      # Detector selected 2026-08-01 (docs/reports/2026-08-01-detector-selection.md):
+      # held-out player AP@0.5 0.803 -> 0.919, ball F1 0.368 -> 0.663, and
+      # end-to-end HOTA (tracklet) 0.502 -> 0.618 / ID switches -59%.
+      # imgsz 960 and confidence 0.4 are both measured optima, not defaults.
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 960
       confidence: 0.4
   track:
     impl: tdlp-full
@@ -101,6 +105,12 @@ stages:
       # Anchor layer (SPO-56): oracle jersey anchors from the video's GT
       # (benchmark condition; needs ingested GT next to the video). Set
       # anchor_source: none for anchor-free runs.
+      # Jersey-OCR merge channel ON by default (Jeremy, 2026-08-01) after the
+      # anchor-free engine A/B on held-out SNMOT-124..127: merge precision
+      # 0.75 -> 0.82, mean entity IDF1 0.851 -> 0.866, no regressions on any
+      # clip. Worker needs the enriched deps (pytorch_lightning, nltk) and
+      # the parseq/legibility checkpoints in data/weights/.
+      jersey_enabled: true
       anchor_source: none
       anchor_coverage: 1.0
       anchor_noise: 0.0

@@ -82,6 +82,12 @@ stages:
       gmc: true
       gmc_downscale: 2
       calibration_min_confidence: 0.5
+      # Jersey-OCR merge channel ON by default (Jeremy, 2026-08-01) after the
+      # anchor-free engine A/B on held-out SNMOT-124..127: merge precision
+      # 0.75 -> 0.82, mean entity IDF1 0.851 -> 0.866, no regressions on any
+      # clip. Worker needs the enriched deps (pytorch_lightning, nltk) and
+      # the parseq/legibility checkpoints in data/weights/.
+      jersey_enabled: true
       anchor_source: oracle-jersey
       anchor_coverage: 1.0
       anchor_noise: 0.0
