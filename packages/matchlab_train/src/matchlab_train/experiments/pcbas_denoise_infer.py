@@ -91,6 +91,33 @@ def tokens_to_events(
     return events
 
 
+def denoiser_from_state(state: dict, device) -> DSTDenoiser:
+    """Build the DSTDenoiser a checkpoint was TRAINED as, then load its weights.
+
+    The attention params must come from the checkpoint too, not just `encoder`:
+    spatial_first and temporal_first share an IDENTICAL state_dict, so a
+    temporal_first (B2) checkpoint loads cleanly into a spatial_first model and
+    scores the wrong architecture with no error raised anywhere.
+    """
+    saved = state.get("params", {})
+    model = DSTDenoiser(
+        framespan=saved.get("framespan", FRAMESPAN),
+        hidden_dim=saved.get("hidden_dim", 512),
+        n_heads=saved.get("n_heads", 8),
+        n_enc_layers=saved.get("n_layers", 6),
+        n_dec_layers=saved.get("n_layers", 6),
+        dropout=0.0,
+        encoder=saved.get("encoder", "flat"),
+        attn_order=saved.get("attn_order", "spatial_first"),
+        attn_dim=saved.get("attn_dim", 64),
+        attn_layers=saved.get("attn_layers", 1),
+        attn_use_logits=saved.get("attn_use_logits", False),
+    ).to(device)
+    model.load_state_dict(state["model"])
+    model.eval()
+    return model
+
+
 def dedupe(events: list[PCBASEvent], window: int) -> list[PCBASEvent]:
     """Collapse the same action re-emitted by overlapping windows.
 
@@ -130,19 +157,10 @@ class PCBASDenoiseInferExperiment(Experiment):
 
         state = torch.load(p.checkpoint, map_location=device, weights_only=False)
         saved = state.get("params", {})
-        model = DSTDenoiser(
-            framespan=saved.get("framespan", p.framespan),
-            hidden_dim=saved.get("hidden_dim", 512),
-            n_heads=saved.get("n_heads", 8),
-            n_enc_layers=saved.get("n_layers", 6),
-            n_dec_layers=saved.get("n_layers", 6),
-            dropout=0.0,
-            encoder=saved.get("encoder", "flat"),
-        ).to(device)
-        model.load_state_dict(state["model"])
-        model.eval()
+        model = denoiser_from_state(state, device)
         print(f"loaded {p.checkpoint} (epoch {state.get('epoch')}, "
-              f"encoder {saved.get('encoder', 'flat')})")
+              f"encoder {saved.get('encoder', 'flat')}, "
+              f"attn_order {saved.get('attn_order', 'spatial_first')})")
 
         ds = FootpassWindowDataset(
             p.h5_path, p.logits_dir, framespan=p.framespan, stride=p.stride, train=False

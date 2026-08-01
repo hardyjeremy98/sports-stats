@@ -254,3 +254,41 @@ def test_fuse_refuses_a_single_model(tmp_path):
     )
     with pytest.raises(ValueError, match="at least 2"):
         PCBASFuseExperiment(cfg).run()
+
+
+def test_denoise_infer_rebuilds_the_attention_the_checkpoint_was_trained_with():
+    """spatial_first and temporal_first share an IDENTICAL state_dict, so a B2
+    (temporal_first) checkpoint loads cleanly into a spatial_first model and scores
+    the wrong architecture with no error raised. The rebuild must read the attn
+    params the trainer saves, not construct at the defaults.
+    """
+    from matchlab_train.experiments.pcbas_denoise_infer import denoiser_from_state
+
+    p = Params(encoder="attn", attn_order="temporal_first", attn_dim=8, attn_layers=1,
+               framespan=FRAMESPAN, hidden_dim=32, n_heads=4, n_layers=1)
+    from matchlab_core.pcbas.denoiser import DSTDenoiser
+
+    torch.manual_seed(0)
+    trained = DSTDenoiser(
+        framespan=FRAMESPAN, hidden_dim=32, n_heads=4, n_enc_layers=1, n_dec_layers=1,
+        encoder="attn", attn_order="temporal_first", attn_dim=8, attn_layers=1,
+    )
+    state = {"model": trained.state_dict(), "epoch": 3, "params": p.model_dump()}
+    rebuilt = denoiser_from_state(state, torch.device("cpu"))
+    assert rebuilt.attention_branch is not None
+    assert rebuilt.attention_branch.order == "temporal_first"
+    assert rebuilt.attention_branch.d_p == 8
+
+
+def test_denoise_infer_rebuild_defaults_to_flat_for_legacy_checkpoints():
+    from matchlab_core.pcbas.denoiser import DSTDenoiser
+    from matchlab_train.experiments.pcbas_denoise_infer import denoiser_from_state
+
+    torch.manual_seed(0)
+    trained = DSTDenoiser(framespan=FRAMESPAN, hidden_dim=32, n_heads=4,
+                          n_enc_layers=1, n_dec_layers=1)
+    state = {"model": trained.state_dict(), "epoch": 3,
+             "params": {"framespan": FRAMESPAN, "hidden_dim": 32, "n_heads": 4,
+                        "n_layers": 1}}
+    rebuilt = denoiser_from_state(state, torch.device("cpu"))
+    assert rebuilt.attention_branch is None
