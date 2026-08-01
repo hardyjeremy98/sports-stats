@@ -79,8 +79,9 @@ class TrackletEvidence:
     """Per-tracklet inputs to merging, already reduced from frames.
 
     `xs`/`ys` are pitch positions normalised to [0, 1]; empty when the tracklet
-    has no calibrated frames. `entry_xy`/`exit_xy` are in pitch centimetres and
-    feed the transition prior. Any of them may be absent -- the corresponding
+    has no calibrated frames. `entry_xy`/`exit_xy` are ALSO normalised [0, 1]
+    -- `displacement()` converts to metres itself, and the fitted prior's
+    scales assume that convention -- and feed the transition prior. Any of them may be absent -- the corresponding
     channel simply abstains.
     """
 
@@ -125,6 +126,17 @@ class FusionModel:
     # asserted at all. Appearance is the identity signal; position and timing
     # corroborate it but must never carry a merge on their own.
     required: tuple[str, ...] = ("body",)
+    # Sample-size shrinkage for the occupancy channel: its contribution is
+    # scaled by n_min / (n_min + occupancy_shrink_n0), where n_min is the
+    # smaller side's calibrated-frame count. JS distance between two sparse
+    # footprints is biased high (two 30-frame observations of the SAME player
+    # rarely overlap on a fine grid), so on short clips the channel votes
+    # against every merge. The calibrator was fitted on 45-minute FOOTPASS
+    # halves where n is thousands and the factor is ~1 -- shrinkage changes
+    # nothing in the fitted regime and fades the channel toward neutral
+    # exactly where its evidence is too thin to trust (ADR 003's "missing or
+    # low-quality evidence is neutral", applied continuously). 0.0 disables.
+    occupancy_shrink_n0: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -133,6 +145,7 @@ class FusionModel:
             "weights": dict(self.weights),
             "fps": self.fps,
             "required": list(self.required),
+            "occupancy_shrink_n0": self.occupancy_shrink_n0,
         }
 
     @classmethod
@@ -145,6 +158,7 @@ class FusionModel:
             weights=dict(d.get("weights", {})),
             fps=float(d.get("fps", 25.0)),
             required=tuple(d.get("required", ("body",))),
+            occupancy_shrink_n0=float(d.get("occupancy_shrink_n0", 0.0)),
         )
 
     @classmethod
@@ -184,7 +198,11 @@ class FusionModel:
             cal = self.calibrators.get(name)
             if cal is None or not np.isfinite(value):
                 continue
-            total += self.weights.get(name, 1.0) * float(cal.llr(value))
+            contribution = self.weights.get(name, 1.0) * float(cal.llr(value))
+            if name == "occupancy" and self.occupancy_shrink_n0 > 0.0:
+                n_min = min(a_fp.n_frames, b_fp.n_frames)
+                contribution *= n_min / (n_min + self.occupancy_shrink_n0)
+            total += contribution
 
         if self.prior is not None and b.entry_xy is not None:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])

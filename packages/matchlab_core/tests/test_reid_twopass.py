@@ -276,3 +276,43 @@ def test_three_tracklet_uniform_jersey_is_bit_identical_to_disabled():
             assert fused_by_pair[key] is None
         else:
             assert fused_by_pair[key] == pytest.approx(base_affinity, abs=1e-12)
+
+
+def test_occupancy_shrinkage_fades_sparse_footprints_toward_neutral():
+    """With occupancy_shrink_n0 set, a thin pair's occupancy contribution is
+    scaled by n/(n+n0); in the data-rich regime the factor approaches 1 and
+    the fitted behaviour is unchanged. 0.0 (default) is exactly the old sum."""
+    import numpy as np
+    from matchlab_core.reid.evidence import LLRCalibrator
+    from matchlab_core.reid.threads import ThreadState
+    from matchlab_core.reid.twopass import FusionModel
+
+    cal = LLRCalibrator.fit(
+        np.linspace(0.0, 1.0, 200), np.r_[np.ones(100), np.zeros(100)]
+    )
+    def state(n):
+        xs = np.linspace(0.4, 0.6, n)
+        return ThreadState.from_fragment(
+            xs, xs, embedding=np.array([1.0, 0.0]), start=0, end=n,
+            exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+        )
+    a, b = state(30), state(30)
+    b = ThreadState.from_fragment(
+        np.linspace(0.4, 0.6, 30), np.linspace(0.4, 0.6, 30),
+        embedding=np.array([1.0, 0.0]), start=40, end=70,
+        exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+    )
+    base = FusionModel(calibrators={"body": cal, "occupancy": cal}, weights={})
+    shrunk = FusionModel(
+        calibrators={"body": cal, "occupancy": cal}, weights={},
+        occupancy_shrink_n0=300.0,
+    )
+    s0 = base.score(a, a.footprint(), b, b.footprint())
+    s1 = shrunk.score(a, a.footprint(), b, b.footprint())
+    # body identical; occupancy scaled by 30/330
+    occ = float(cal.llr(0.0))  # identical footprints -> js ~ 0
+    from matchlab_core.reid.occupancy import js_distance
+    occ = float(cal.llr(js_distance(b.footprint(), a.footprint())))
+    assert abs((s0 - s1) - occ * (1 - 30 / 330)) < 1e-9
+    # round-trips through serialisation
+    assert FusionModel.from_dict(shrunk.to_dict()).occupancy_shrink_n0 == 300.0

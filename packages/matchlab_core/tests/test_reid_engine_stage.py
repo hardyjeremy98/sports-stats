@@ -497,3 +497,37 @@ def test_two_pass_never_crosses_a_team_boundary(tmp_path):
         tmp_path, tracklets, teams, ff, _two_pass({"pass1_min_score": -1e9})
     )
     assert sorted(sorted(e.tracklet_ids) for e in entities) == [[1], [2]]
+
+
+def test_tracklet_evidence_endpoints_are_normalised():
+    """Regression: entry_xy/exit_xy must be in the same normalised [0, 1]
+    convention as xs/ys. Feeding raw pitch centimetres made `displacement()`
+    (which multiplies by pitch metres) produce ~1e5 m displacements, so the
+    transition channel saturated at -6 nats for every pair -- a constant tax,
+    not evidence."""
+    from matchlab_core.schemas import Box, Tracklet, TrackletFrame
+    from matchlab_core.stages.associate.reid_engine import _tracklet_evidence
+
+    # Identity-ish homography scaled so a pixel maps to plausible pitch cm.
+    h = np.array([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 1.0]])
+    t = Tracklet(
+        tracklet_id=1,
+        cls=DetectionClass.PLAYER,
+        frames=[
+            TrackletFrame(
+                frame_idx=f,
+                box=Box(x1=500 + 10 * f, y1=300, x2=520 + 10 * f, y2=350),
+                confidence=1.0,
+            )
+            for f in range(3)
+        ],
+    )
+    (ev,) = _tracklet_evidence(
+        [t], features=None, team_by_tid={}, calibration={f: h for f in range(3)},
+        pitch_size_cm=(10500.0, 6800.0),
+    )
+    assert ev.entry_xy is not None and ev.exit_xy is not None
+    for xy in (ev.entry_xy, ev.exit_xy):
+        assert np.all(xy >= 0.0) and np.all(xy <= 1.0)
+    # endpoints agree with the normalised trajectory they bracket
+    assert np.isclose(ev.entry_xy[0], ev.xs[0]) and np.isclose(ev.exit_xy[0], ev.xs[-1])

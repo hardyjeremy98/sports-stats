@@ -319,9 +319,14 @@ def _tracklet_evidence(
                 continue
             xs.append(px / pw)
             ys.append(py / ph)
+            # Normalised like xs/ys: `displacement()` expects [0, 1] endpoints
+            # (that is how the FOOTPASS prior was fitted). Feeding raw
+            # centimetres here made every displacement ~1e5 "metres", so the
+            # transition LLR saturated at -6 nats for EVERY pair -- a constant
+            # -2.82-nat tax instead of evidence (found 2026-08-01).
             if first_xy is None:
-                first_xy = np.array([px, py], dtype=np.float64)
-            last_xy = np.array([px, py], dtype=np.float64)
+                first_xy = np.array([px / pw, py / ph], dtype=np.float64)
+            last_xy = np.array([px / pw, py / ph], dtype=np.float64)
         out.append(
             TrackletEvidence(
                 tracklet_id=t.tracklet_id,
