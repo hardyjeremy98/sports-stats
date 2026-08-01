@@ -215,6 +215,11 @@ COORDS = "rel"
 #: Last-K/first-K absolute observation rows cached per fragment, for endpoint
 #: velocity estimation (item 3). Part of the cache key.
 TAIL_K = 30
+#: Gap-conditioned body calibration: upper edges (seconds) of the gap bins,
+#: each bin getting its own body LLR calibrator, the last (open) bin falling
+#: through to the flat calibrator. () = flat everywhere (historical). Part of
+#: the fit cache key.
+GAP_BINS: tuple[float, ...] = ()
 # The fragmentation the appearance extractor was run at. `fragment_embeddings.pkl`
 # is keyed by position in THAT list, so any other setting must be remapped.
 APPEARANCE_GAP_FRAMES = 2
@@ -539,14 +544,19 @@ def fit_from(matches: list[str]):
     # Cached on the fit-match set: nothing about it varies across operating
     # points, and rebuilding it per sweep is what kept dying under memory
     # pressure from concurrent jobs.
-    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}-{COORDS}.pkl"
+    bins_tok = "b" + "_".join(f"{b:g}" for b in GAP_BINS) if GAP_BINS else "flat"
+    fit_cache = CACHE / (
+        f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}-{COORDS}-{bins_tok}.pkl"
+    )
     if fit_cache.exists():
         cals_d, prior_d, w = pickle.loads(fit_cache.read_bytes())
-        return (
-            {k: LLRCalibrator.from_dict(v) for k, v in cals_d.items()},
-            TransitionPrior.from_dict(prior_d),
-            w,
-        )
+        cals = {k: LLRCalibrator.from_dict(v) for k, v in cals_d.items()
+                if k != "body_by_gap"}
+        if "body_by_gap" in cals_d:
+            cals["body_by_gap"] = [
+                (hi, LLRCalibrator.from_dict(cd)) for hi, cd in cals_d["body_by_gap"]
+            ]
+        return cals, TransitionPrior.from_dict(prior_d), w
 
     rows, labels, episodes = [], [], []
     for m in matches:
@@ -577,6 +587,26 @@ def fit_from(matches: list[str]):
         col = r[:, j]
         ok = ~np.isnan(col)
         cals[name] = LLRCalibrator.fit(col[ok & y], col[ok & ~y], max_bins=200)
+    if GAP_BINS:
+        gaps = r[:, 2]
+        body = r[:, 0]
+        ok = ~np.isnan(body) & ~np.isnan(gaps)
+        lo = 0.0
+        by_gap = []
+        for hi in GAP_BINS:
+            sel = ok & (gaps >= lo) & (gaps < hi)
+            n_same, n_diff = int((sel & y).sum()), int((sel & ~y).sum())
+            print(f"  gap bin [{lo:g},{hi:g})s: same {n_same} diff {n_diff}")
+            # A thin bin gets no calibrator of its own: LLRCalibrator.fit
+            # degrades quietly on scraps, and a noisy per-bin mapping is worse
+            # than the flat one it would shadow.
+            if n_same >= 200 and n_diff >= 200:
+                by_gap.append(
+                    (hi, LLRCalibrator.fit(body[sel & y], body[sel & ~y],
+                                           max_bins=200))
+                )
+            lo = hi
+        cals["body_by_gap"] = by_gap
     prior = TransitionPrior.fit(r[:, 2], r[:, 3], r[:, 4], y)
     llr = channel_llrs(r, cals, prior)
     # One episode = one query fragment against its whole candidate field, which
@@ -585,16 +615,31 @@ def fit_from(matches: list[str]):
     # over several positives at once.
     w = fit_fusion_weights(llr, ep_index, y)
     CACHE.mkdir(parents=True, exist_ok=True)
-    fit_cache.write_bytes(
-        pickle.dumps(({k: v.to_dict() for k, v in cals.items()}, prior.to_dict(), w))
-    )
+    cals_d = {k: v.to_dict() for k, v in cals.items() if k != "body_by_gap"}
+    if "body_by_gap" in cals:
+        cals_d["body_by_gap"] = [(hi, c.to_dict()) for hi, c in cals["body_by_gap"]]
+    fit_cache.write_bytes(pickle.dumps((cals_d, prior.to_dict(), w)))
     return cals, prior, w
 
 
 def channel_llrs(r: np.ndarray, cals, prior) -> np.ndarray:
+    by_gap = cals.get("body_by_gap") or []
+
+    def body_cal(gap: float):
+        for hi, cal in by_gap:
+            if gap < hi:
+                return cal
+        return cals["body"]
+
     cols = []
     for j, name in enumerate(CHANNELS):
         col = r[:, j]
+        if name == "body" and by_gap:
+            cols.append(np.array([
+                body_cal(float(g)).llr(float(v)) if not np.isnan(v) else 0.0
+                for v, g in zip(col, r[:, 2])
+            ]))
+            continue
         cols.append(
             np.array([cals[name].llr(float(v)) if not np.isnan(v) else 0.0 for v in col])
         )

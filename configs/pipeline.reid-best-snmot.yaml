@@ -72,7 +72,12 @@ stages:
       merge_min_margin: 0.5
       pass2_min_margin: 0.0
       occupancy_coords: formation-relative
-      calibration_min_confidence: 0.1
+      # 0.5, NOT the 0.1 the oracle-substrate replays suggested: on REAL
+      # detector+PnLCalib runs the low-confidence homographies are genuinely
+      # bad, and admitting them handed the position channels false positive
+      # evidence (+2 wrong merges on SNMOT-125/126, isolated by ablation
+      # 2026-08-02). The starvation concern stands for the oracle runs only.
+      calibration_min_confidence: 0.5
       anchor_source: none
       jersey_enabled: false
       gmc: true
