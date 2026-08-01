@@ -136,10 +136,13 @@ the calibrator's confidence scale need to be reconciled — flagged, not changed
   (SPO-87 team-slot measurement, uncommitted work in this repo today); diagnostics
   here pinned teams to GT instead so the contamination could not leak in.
 - **Gap-conditioned body calibration** (GHOST-style): requires a FOOTPASS refit;
-  SNMOT cannot validate it. Next candidate once the fusion model is refitted —
-  at which point the transition-units fix means the prior itself should also be
-  refitted (it was fitted through the same `displacement()` path, correctly, but
-  the *weights* were fitted while the product path was saturated).
+  SNMOT cannot validate it.
+- **A fusion-model refit is NOT required by the units bug** (correcting an
+  earlier claim in this session): FOOTPASS tactical X/Y are normalised [0, 1]
+  (verified: value range −0.06..1.03), so `fit_from` fitted the prior, the
+  calibrators, and the weights through `displacement()` in the *correct*
+  convention. The bug lived only in the serving path (`_tracklet_evidence`).
+  The shipped weights are valid as fitted.
 - **Occupancy/transition double-counting:** post-fix autopsies show them voting in
   opposite directions on the wrong merges; no evidence of the double-count yet.
   Re-examine on FOOTPASS.
@@ -151,3 +154,44 @@ Oracle detections (no detection dropout), P=1 features with visibility ≡ 1.0,
 integers — treat the A/B directions as robust (they are monotone across operating
 points) and the exact figures as indicative. Nothing here is validated on a real
 detector substrate (the standing Step-B gap).
+
+## Addendum (2026-08-02): FOOTPASS-scale validation of the margin rule and shrinkage
+
+LOSO over the three FOOTPASS matches (fit on two, evaluate both halves of the
+third; `MAX_GAP_FRAMES=30`, pass 1 only, `min_score 4.0`), 12,595 fragments:
+
+| arm | merges | precision | coverage | wrong |
+|---|---|---|---|---|
+| base (margin 0) | 8,746 | 0.9743 | 0.6849 | 225 |
+| **margin 0.5** | 8,417 | **0.9815** | 0.6640 | 156 |
+| **margin 1.0** | 7,886 | **0.9888** | 0.6268 | 88 |
+| shrink n0=250 | 8,551 | 0.9704 | 0.6670 | 253 |
+| shrink n0=750 | 8,502 | 0.9685 | 0.6618 | 268 |
+| threshold 4.5 (margin 0) | 8,293 | 0.9796 | 0.6530 | 169 |
+| threshold 5.0 | 7,797 | 0.9808 | 0.6147 | 150 |
+| threshold 6.0 | 6,803 | 0.9832 | 0.5377 | 114 |
+
+Two findings, both decisive:
+
+1. **The winner-margin rule strictly dominates the absolute-threshold
+   frontier.** Margin 0.5 beats threshold 4.5 on BOTH precision and coverage;
+   margin 1.0 beats every threshold up to 6.0 on both axes (−61% wrong merges
+   vs base for −5.8 pts coverage). Tightening the threshold discards
+   uncontested-but-moderate evidence while keeping contested-but-strong pairs;
+   the margin bar does the reverse, which is the correct direction — it is the
+   candidate-relative denominator the decision was missing. The two-pass engine
+   already plumbs `min_margin` (pass 1); the shipped default is 0.0.
+   Recommendation: 0.5–1.0 for full-match footage. Not flipped here — default
+   changes are Jeremy's call.
+
+2. **Occupancy shrinkage is HARMFUL at FOOTPASS scale**: wrong merges rise
+   225→253/268 while coverage falls. FOOTPASS query fragments are only ~200
+   frames, so n0=250–750 mutes the channel throughout — and on full halves
+   occupancy's negative evidence does real veto work that shrinkage silences.
+   Combined with the SNMOT result (tuning +3 right, held-out flat), the honest
+   status is: direction unproven, keep `occupancy_shrink_n0=0.0` (off). If the
+   clip-regime miscalibration is worth fixing, the right form is a calibrator
+   conditioned on n (refit), not a post-hoc scale on the LLR.
+
+Margin in pass 2 remains unplumbed and unmeasured (the harness arms here are
+pass-1 only).
