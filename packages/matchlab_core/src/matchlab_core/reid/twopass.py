@@ -195,6 +195,16 @@ class FusionModel:
     # artefacts load unchanged (and unchecked -- add the contract when
     # refitting).
     contract: dict = field(default_factory=dict)
+    # Gap-conditioned channel WEIGHTS: {"edges": [hi_s, ...], "weights":
+    # [{channel: w}, ...]} with len(weights) == len(edges) + 1 (last bin
+    # open). A pair is scored with the weight vector of ITS OWN gap bin.
+    # Distinct from calibrators_by_gap (a per-bin offset in the fused sum):
+    # this rescales what a channel's margin is WORTH per bin (a slope), which
+    # is the experiment the calibrator form could not express. Measured above
+    # the flat frontier on FOOTPASS LOSO at matched coverage (5/20 s edges:
+    # ~25 fewer wrong at coverage 0.649; audit report 2026-08-02). Empty =
+    # flat `weights`.
+    weights_by_gap: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -210,6 +220,7 @@ class FusionModel:
                 for k, bins in self.calibrators_by_gap.items()
             },
             "contract": dict(self.contract),
+            "weights_by_gap": dict(self.weights_by_gap),
         }
 
     @classmethod
@@ -229,6 +240,7 @@ class FusionModel:
                 for k, bins in d.get("calibrators_by_gap", {}).items()
             },
             contract=dict(d.get("contract", {})),
+            weights_by_gap=dict(d.get("weights_by_gap", {})),
         )
 
     @classmethod
@@ -371,6 +383,19 @@ class FusionModel:
                 return cal
         return self.calibrators.get(name)
 
+    def _weight_for(self, name: str, gap_s: float) -> float:
+        wbg = self.weights_by_gap
+        if wbg:
+            i = 0
+            for hi in wbg["edges"]:
+                if gap_s < float(hi):
+                    break
+                i += 1
+            w = wbg["weights"][i].get(name)
+            if w is not None:
+                return float(w)
+        return self.weights.get(name, 1.0)
+
     def score_channels(
         self, a: ThreadState, a_fp, b: ThreadState, b_fp
     ) -> tuple[float | None, list[dict]]:
@@ -405,7 +430,7 @@ class FusionModel:
             for name in ("body", "occupancy", "gap", "transition"):
                 channels.append({
                     "name": name, "raw": raw.get(name), "llr": None,
-                    "weight": self.weights.get(name, 1.0), "contribution": 0.0,
+                    "weight": self._weight_for(name, gap_s), "contribution": 0.0,
                 })
             return None, channels
 
@@ -413,7 +438,7 @@ class FusionModel:
         for name in ("body", "occupancy", "gap"):
             value = raw.get(name)
             cal = self._calibrator_for(name, gap_s)
-            weight = self.weights.get(name, 1.0)
+            weight = self._weight_for(name, gap_s)
             if value is None or cal is None or not np.isfinite(value):
                 channels.append({"name": name, "raw": value, "llr": None,
                                  "weight": weight, "contribution": 0.0})
@@ -427,7 +452,7 @@ class FusionModel:
             channels.append({"name": name, "raw": value, "llr": llr,
                              "weight": weight, "contribution": contribution})
 
-        t_weight = self.weights.get("transition", 1.0)
+        t_weight = self._weight_for("transition", gap_s)
         t_llr = None
         if self.prior is not None and b.entry_xy is not None:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])

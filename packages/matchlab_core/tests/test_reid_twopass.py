@@ -501,3 +501,28 @@ def test_serving_diagnostics_flags_units_broken_endpoints():
     # sides so a reader can compare them.
     assert good["body"]["served_n"] > 0
     assert "fitted_lo" in good["body"] and "served_median" in good["body"]
+
+
+def test_weights_by_gap_selects_bin_and_round_trips():
+    m = _model()
+    m.weights_by_gap = {
+        "edges": [5.0],
+        "weights": [{"body": 2.0}, {"body": 0.5}],
+    }
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.weights_by_gap == m.weights_by_gap
+    assert m2._weight_for("body", 1.0) == 2.0
+    assert m2._weight_for("body", 10.0) == 0.5
+    # A channel absent from the bin's dict falls through to the flat weights.
+    assert m2._weight_for("gap", 1.0) == m2.weights.get("gap", 1.0)
+    # Scoring uses the per-bin weight: same pair, short vs long gap.
+    e = np.array([1.0, 0.0])
+    a = _ev(1, 0, 10, e).to_state()
+    short = _ev(2, 20, 30, e).to_state()
+    long_ = _ev(3, 400, 410, e).to_state()
+    fa, fs, fl = a.footprint(), short.footprint(), long_.footprint()
+    llr = m2.calibrators["body"].llr(1.0)
+    s_short, _ = m2.score_channels(a, fa, short, fs)
+    s_long, _ = m2.score_channels(a, fa, long_, fl)
+    assert abs(s_short - 2.0 * llr) < 1e-9
+    assert abs(s_long - 0.5 * llr) < 1e-9

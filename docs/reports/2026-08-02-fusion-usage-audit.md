@@ -121,3 +121,60 @@ per-channel LLR contributions, rank, margin, GT answer — to
 | per-bin channel WEIGHTS | not on SNMOT (0 wrong, misses evidence-dead); yes on FOOTPASS (8k+ merges) | run on FOOTPASS LOSO |
 | global assignment under roster closure | no substrate: 0 wrong merges, unexplained-thread breakdown empty | **unresolved, not negative** — revisit when a substrate shows wrong merges |
 | visibility-conditioned none prior | target-domain (fixed-camera) footage does not exist yet; tuning it on broadcast coverage is explicitly wrong | **blocked on data**, recorded, not attempted |
+
+## Phase C — re-litigation
+
+**1. Mis-served occupancy (from Phase A):** already re-measured in both
+directions in round 2; formation-relative stands, now contract-enforced.
+
+**2. Per-bin channel WEIGHTS (the slope experiment the per-bin-calibrator
+negative could not express):** landed in the harness
+(`WEIGHT_GAP_BINS`/`apply_weights`, one conditional logit over
+block-expanded features) and in the engine (`FusionModel.weights_by_gap`,
+per-pair bin selection), model exported as
+`configs/reid/fusion-footpass-v3-wbins.json`.
+
+- FOOTPASS LOSO pass-1 frontier (margin 0.5): **above the flat frontier at
+  matched coverage** through the operating band — at coverage 0.649 flat
+  interpolates to ~0.9825 precision vs binned 0.9849 (≈25 fewer wrong);
+  +0.13 pts at 0.703; converging to a tie at the strict end. A finer 4-bin
+  split (2/7/30 s) adds nothing over 2 bins.
+- The fitted structure is the interesting part: **body's weight is flat
+  (~2.0 in every bin)** — appearance's slope does NOT vary with gap,
+  a second independent contradiction of the GHOST/SportsSUSHI-derived
+  expectation on this stack. The gain is entirely the gap/position channels
+  re-weighting (gap weight −3.3 under 5 s → +1.1 over 20 s).
+- SNMOT gap-site check: pass-1 identical (3/0, recall 0.375) and ranking
+  improves to 8/8 top-1. **But the final entity graph loses one correct
+  pass-2 link** (5/0/3 → 4/0/4, merge F1 0.769 → 0.667): the short-gap
+  bin's negative gap weight pushes one previously-recovered pass-2 pair
+  below its bar.
+
+**Verdict: positive-and-resolvable on FOOTPASS (the substrate it is fitted
+for), negative transfer to the clip substrate — NOT adopted.** The shipped
+best config keeps flat v1. Same lesson as the calibration-confidence floor:
+a FOOTPASS/oracle win must be re-ablated end-to-end on real runs before it
+touches a config, and this one fails that gate. v3 exists, contract-carrying,
+for FOOTPASS-scale work.
+
+**3. Global assignment under roster closure:** the gating breakdown is empty
+— zero wrong merges on the substrate, so "winner's own thread left
+unexplained" has no instances. **Unresolved, not negative**; revisit when a
+substrate (full-match real-tracker runs) produces wrong merges to explain.
+
+**4. Visibility-conditioned none/unseen prior:** target-domain fixed-camera
+footage does not exist yet, and round-1 D3 measured broadcast camera
+coverage at 5–15% — tuning the term against broadcast coverage is exactly
+what the task brief warns against. **Blocked on data, not attempted.**
+
+## Scoreboard
+
+| phase | outcome |
+|---|---|
+| A audit | 2 mismatches found and fixed (default occupancy pairing; latent fps); everything else coherent post round-1/2 fixes |
+| A standing check | contract + distributional diagnostics landed, on by default, verified live |
+| B noise floor | clip metric: precision 95% lower bound 0.29 at 3 events; stated per metric |
+| B gap-site harness | landed; candidate recall 1.00, ranking 7/8, misses = bar-refusals pass 2 recovers or evidence-dead links |
+| C per-bin weights | FOOTPASS-positive above frontier / clip-negative transfer → not adopted |
+| C global assignment | unresolved — no substrate |
+| C visibility prior | blocked on target-domain data |
