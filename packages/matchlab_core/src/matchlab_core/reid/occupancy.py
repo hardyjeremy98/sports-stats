@@ -12,6 +12,19 @@ Observability discipline: callers must pass positions only from frames where
 the player was visible. Position known while off-camera is information the
 deployed system never has (see `matchlab_train.datasets.footpass`).
 
+Half-time caveat (2026-08-02): attack direction reverses at half-time and
+formation-relative footprints reverse with it (a 180-degree rotation, see
+`mirrored`). Cross-half same-player comparisons on the raw statistic are
+ANTI-informative (AUC 0.34-0.38 vs 0.74-0.80 rotated), which makes the
+channel net dead weight over a whole match (fused LOMO AUC 0.855 without
+occupancy, 0.854 with it served raw, 0.888 with an explicit per-half flip).
+The explicit flip is the adopted fix and a measured performance boost, but it
+is DEFERRED: it requires a half-boundary / attack-direction estimate, which
+belongs to the planned pre-run calibration sequence. Until that lands, this
+module scores what it is given; do not paper over the gap with
+min-of-both-orientations -- that form was measured to collapse cross-flank
+impostors (LB vs rot180(RB)) below the genuine median.
+
 Pure: arrays in, values out. No I/O, no config.
 """
 
@@ -85,6 +98,21 @@ def js_distance(a: Footprint, b: Footprint) -> float:
     m = 0.5 * (p + q)
     div = 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
     return float(np.sqrt(max(0.0, min(1.0, div))))
+
+
+def mirrored(fp: Footprint) -> Footprint:
+    """The footprint under a 180-degree rotation of the pitch (x and y negated).
+
+    Attack direction flips at half-time, and formation-relative coordinates
+    inherit that flip: the same player's first- and second-half footprints are
+    related by this rotation, not by identity. Scored raw, cross-half
+    same-player pairs are ANTI-informative (AUC 0.357 vs 0.820 mirrored,
+    FOOTPASS val 2026-08-02). A rotation -- both axes -- is the correct
+    transform: reflecting one axis alone would change the formation's
+    handedness (a left back does not become a right back's mirror image
+    mid-match).
+    """
+    return Footprint(grid=np.flip(fp.grid, axis=(0, 1)).copy(), n_frames=fp.n_frames)
 
 
 def bimodality(fp: Footprint) -> float:

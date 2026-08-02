@@ -60,7 +60,11 @@ class ThreadState:
     embedding_sum: np.ndarray | None
     n_embedded: int
     last_end: int
-    exit_xy: np.ndarray
+    # None when the fragment had no calibrated frames. Kept None -- never
+    # fabricated -- so the transition channel can abstain (ADR 003). The
+    # previous zeros-substitution scored a fabricated pitch-corner endpoint as
+    # the channel's MAXIMUM positive evidence whenever both sides were missing.
+    exit_xy: np.ndarray | None
     first_start: int
     entry_xy: np.ndarray | None = None
 
@@ -78,7 +82,9 @@ class ThreadState:
         grid: tuple[int, int] = DEFAULT_GRID,
     ) -> ThreadState:
         emb = None if embedding is None else np.asarray(embedding, dtype=np.float64)
-        entry = np.asarray(exit_xy if entry_xy is None else entry_xy, dtype=np.float64)
+        # A missing endpoint stays missing. The old entry<-exit fallback (and
+        # the zeros substitution that used to sit in TrackletEvidence.to_state)
+        # manufactured geometry the transition prior then scored as real.
         return cls(
             counts=_counts(xs, ys, grid),
             n_frames=int(len(np.asarray(xs).ravel())),
@@ -86,9 +92,9 @@ class ThreadState:
             embedding_sum=emb,
             n_embedded=0 if emb is None else 1,
             last_end=int(end),
-            exit_xy=np.asarray(exit_xy, dtype=np.float64),
+            exit_xy=None if exit_xy is None else np.asarray(exit_xy, dtype=np.float64),
             first_start=int(start),
-            entry_xy=entry,
+            entry_xy=None if entry_xy is None else np.asarray(entry_xy, dtype=np.float64),
         )
 
     def merged_with(self, other: ThreadState) -> ThreadState:

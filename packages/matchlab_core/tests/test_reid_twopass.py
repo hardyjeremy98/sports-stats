@@ -311,13 +311,13 @@ def test_score_channels_sums_to_score_and_names_abstentions():
     assert by_name["occupancy"]["llr"] is None
     assert by_name["occupancy"]["contribution"] == 0.0
 
-    # Transition does NOT abstain here, and that is worth pinning: ThreadState
-    # defaults an absent entry/exit position to (0, 0) rather than None, so the
-    # prior is asked about a player who "did not move" instead of being told
-    # there is no position at all. On an uncalibrated run that is a fabricated
-    # measurement, not evidence. Asserted so the behaviour is visible and any
-    # future change to it is deliberate.
-    assert by_name["transition"]["llr"] is not None
+    # Transition abstains: with no calibrated frames there are no entry/exit
+    # positions, and the old (0, 0) substitution scored a fabricated
+    # "player who did not move" as the prior's maximum positive evidence.
+    # raw is None too, distinguishing "no endpoints" from "gap-gated".
+    assert by_name["transition"]["llr"] is None
+    assert by_name["transition"]["raw"] is None
+    assert by_name["transition"]["contribution"] == 0.0
 
 
 def test_two_pass_records_channels_for_a_rejected_best_candidate():
@@ -526,3 +526,172 @@ def test_weights_by_gap_selects_bin_and_round_trips():
     s_long, _ = m2.score_channels(a, fa, long_, fl)
     assert abs(s_short - 2.0 * llr) < 1e-9
     assert abs(s_long - 0.5 * llr) < 1e-9
+
+
+def test_pass2_merges_are_recorded_as_decisions():
+    """Every merge must have a decision row behind it, whichever pass made it.
+
+    Regression for the Lab showing "Correct merges · 1" and "No merged
+    decisions" side by side (2026-08-02): only pass 1 was instrumented, so a
+    thread-to-thread merge landed in the association trail with no decision and
+    no channel working to explain it.
+    """
+    import numpy as np
+    from matchlab_core.reid.twopass import merge_threads_two_pass
+
+    a = np.array([1.0, 0.0])
+    # Three fragments of one appearance. Pass 1 is causal and can only grow one
+    # thread at a time, so the later pair is left for pass 2 to join.
+    ev = [
+        _ev(1, 0, 10, a),
+        _ev(2, 100, 110, a),
+        _ev(3, 200, 210, a),
+    ]
+    res = merge_threads_two_pass(
+        ev, model=_model(), min_score=1e6, pass2_score=-1e6
+    )
+
+    merged_pairs = [p for p in res.pairs if p.decision == "merged"]
+    assert merged_pairs, "expected pass 2 to merge something"
+
+    merged_decisions = [d for d in res.decisions if d["decision"] == "merged"]
+    assert len(merged_decisions) == len(merged_pairs), (
+        "every merge needs a decision row -- otherwise the Lab reports a merge "
+        "it cannot explain"
+    )
+    assert all(d["pass_no"] == 2 for d in merged_decisions)
+    # And the working is there, reconciling with the recorded total.
+    for d in merged_decisions:
+        chosen = [c for c in d["candidates"] if c["partner"] == d["chosen"]]
+        assert chosen, "the chosen partner must appear among the candidates"
+        assert chosen[0]["total"] == pytest.approx(d["total"])
+    assert any(b["pass_no"] == 2 for b in res.channel_breakdowns)
+
+
+def _prior():
+    from matchlab_core.reid.transition import DiffusionScale, TransitionPrior
+
+    return TransitionPrior(
+        x=DiffusionScale(sigma_inf=29.0, tau=34.0),
+        y=DiffusionScale(sigma_inf=15.0, tau=20.0),
+        impostor_x=32.0,
+        impostor_y=21.0,
+    )
+
+
+def _scored_transition(model, a_ev, b_ev):
+    sa, sb = a_ev.to_state(), b_ev.to_state()
+    total, channels = model.score_channels(
+        sa, sa.footprint(), sb, sb.footprint()
+    )
+    return total, {c["name"]: c for c in channels}
+
+
+def test_transition_abstains_without_endpoints_instead_of_fabricating_them():
+    """Two tracklets with no calibrated frames used to score displacement 0
+    from substituted (0, 0) endpoints -- the prior's MAXIMUM positive evidence,
+    from data that never existed."""
+    model = _model(transition=1.0)
+    model.prior = _prior()
+    emb = np.array([1.0, 0.0])
+    _, by_name = _scored_transition(
+        model, _ev(1, 0, 10, emb), _ev(2, 20, 30, emb)
+    )
+    assert by_name["transition"]["llr"] is None
+    assert by_name["transition"]["raw"] is None
+    assert by_name["transition"]["contribution"] == 0.0
+
+
+def test_transition_abstains_when_only_one_endpoint_is_missing():
+    model = _model(transition=1.0)
+    model.prior = _prior()
+    emb = np.array([1.0, 0.0])
+    a = TrackletEvidence(
+        tracklet_id=1, start=0, end=10, team=0, embedding=emb,
+        exit_xy=np.array([0.5, 0.5]),
+    )
+    b = _ev(2, 20, 30, emb)  # no entry_xy
+    _, by_name = _scored_transition(model, a, b)
+    assert by_name["transition"]["llr"] is None
+    # And the mirror case: a has no exit, b has an entry.
+    a2 = _ev(1, 0, 10, emb)
+    b2 = TrackletEvidence(
+        tracklet_id=2, start=20, end=30, team=0, embedding=emb,
+        entry_xy=np.array([0.5, 0.5]),
+    )
+    _, by_name = _scored_transition(model, a2, b2)
+    assert by_name["transition"]["llr"] is None
+
+
+def test_transition_votes_with_real_endpoints_and_reports_the_true_gap():
+    model = _model(transition=1.0)
+    model.prior = _prior()
+    emb = np.array([1.0, 0.0])
+    a = TrackletEvidence(
+        tracklet_id=1, start=0, end=10, team=0, embedding=emb,
+        exit_xy=np.array([0.5, 0.5]),
+    )
+    b = TrackletEvidence(
+        tracklet_id=2, start=20, end=30, team=0, embedding=emb,
+        entry_xy=np.array([0.52, 0.5]),
+    )
+    _, by_name = _scored_transition(model, a, b)
+    assert by_name["transition"]["llr"] is not None
+    assert by_name["transition"]["llr"] > 0.0  # 2.1 m in 0.4 s: plausible
+    assert by_name["transition"]["raw"] == pytest.approx((20 - 10) / 25.0)
+
+
+def test_transition_abstains_on_non_positive_gap_even_with_endpoints():
+    """Interleaved pass-2 threads reach scoring with a negative envelope gap;
+    dt <= 0 floors the diffusion sigma at millimetres and the sign of the
+    saturated output is an artifact of the floor, not evidence."""
+    from matchlab_core.reid.threads import ThreadState
+
+    model = _model(transition=1.0)
+    model.prior = _prior()
+    emb = np.array([1.0, 0.0])
+    # Thread a spans [0, 100]; thread b's first member starts at 50 (inside
+    # a's envelope) -- members disjoint, envelope gap negative.
+    a = ThreadState.from_fragment(
+        np.array([0.5]), np.array([0.5]), embedding=emb, start=0, end=100,
+        exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+    )
+    b = ThreadState.from_fragment(
+        np.array([0.5]), np.array([0.5]), embedding=emb, start=50, end=60,
+        exit_xy=np.array([0.5, 0.5]), entry_xy=np.array([0.5, 0.5]),
+    )
+    total, channels = model.score_channels(a, a.footprint(), b, b.footprint())
+    by_name = {c["name"]: c for c in channels}
+    assert by_name["transition"]["llr"] is None
+    assert by_name["transition"]["raw"] == pytest.approx(-2.0)  # true gap kept
+    assert by_name["gap"]["raw"] == 0.0  # gap channel serves the fitted clamp
+
+
+def test_merged_thread_endpoint_goes_missing_with_an_uncalibrated_tail():
+    """A thread whose temporally-last fragment had no calibrated frames has no
+    honest exit point; propagating the earlier fragment's stale exit would be
+    wrong evidence, so the merge propagates None."""
+    emb = np.array([1.0, 0.0])
+    with_xy = _ev(1, 0, 10, emb)
+    with_xy = TrackletEvidence(
+        tracklet_id=1, start=0, end=10, team=0, embedding=emb,
+        exit_xy=np.array([0.3, 0.3]), entry_xy=np.array([0.3, 0.3]),
+    )
+    without = _ev(2, 20, 30, emb)
+    merged = with_xy.to_state().merged_with(without.to_state())
+    assert merged.exit_xy is None  # later fragment's (missing) exit wins
+    assert merged.entry_xy is not None  # earlier fragment's real entry kept
+
+
+def test_clip_transition_default_matches_saturate_and_neg_clamp_bounds():
+    from matchlab_core.reid.evidence import clip_transition, saturate
+
+    x = np.array([-5000.0, -3.0, -0.5, 0.0, 0.5, 3.0, 5000.0])
+    assert clip_transition(x) == pytest.approx(saturate(x))
+    clipped = clip_transition(x, 1.0)
+    assert clipped.min() >= -1.0
+    assert clipped[x >= 0] == pytest.approx(saturate(x)[x >= 0])
+    assert np.all(np.diff(clipped) >= 0)  # monotone: ordering survives
+    zeroed = clip_transition(x, 0.0)
+    assert np.all(zeroed[x < 0] == 0.0)
+    assert zeroed[x >= 0] == pytest.approx(saturate(x)[x >= 0])

@@ -28,11 +28,39 @@ ENABLING merges -- "you re-entered exactly where the diffusion predicts" -- at
 block against 31 blocks of merges that were correct. The half of the channel this
 docstring advertised is the half that costs.
 
-That also explains why bounding helps rather than hurts. Saturation truncates the
-veto side hard (values reach -3754 nats) and the enabling side barely at all (it
-caps near +3.6 by construction), so it preferentially removes the harmful half.
-Consumers must bound this before fusing it -- see `channel_llrs` in
-`matchlab_train/experiments/bootstrap_threads.py`.
+ADOPTED (2026-08-03, after a triple-cold-reviewed audit): consumers bound this
+with `evidence.clip_transition` -- positive side saturated at +LOG_CLAMP,
+negative side bounded at the model-carried `FusionModel.transition_neg_clamp`.
+The shipped fusion-footpass-v2 artefact sets the negative clamp to 0.0 (vetoes
+flattened), which won the FOOTPASS LOMO sweep at matched coverage while a
+transition-off control was strictly worse -- the enabling half is real, the
+veto half was not. Serving also abstains (never fabricates) when either
+endpoint is missing or dt <= 0: the sigma floor at dt <= 0 makes the output an
+artifact, and the old (0,0)-endpoint substitution scored "did not move" as the
+prior's maximum positive evidence.
+
+OUTSTANDING ISSUES (documented, deliberately not yet fixed):
+1. The impostor density is dt-INDEPENDENT: `fit` pools all impostor
+   displacements into one static Gaussian (~the full-pitch spread). Real
+   short-gap impostors are camera-frustum-confined and much tighter, so the
+   LLR is plausibly anti-conservative (pro-merge) exactly in the short-gap
+   regime where the channel's value lives -- and it awards near-ceiling credit
+   to the canonical occlusion-swap case, where the impostor also re-enters
+   nearby. Unmeasured; fix would be dt-banded impostor scales.
+2. The fitted sigma/tau encode CAMERA-RETURN statistics, not player physics:
+   endpoints are where the camera lost/found the player, and dt is off-camera
+   (not off-pitch) time. Self-consistent on FOOTPASS, but the prior must be
+   refit for any other camera style (static phone camera, different broadcast
+   director), and the "60 m in 1 s is not football" framing above overstates
+   what was fitted.
+3. Zero-mean diffusion from the exit point is the wrong generative model at
+   long gaps -- players mean-revert to formation zones -- but sigma_inf
+   converging to the impostor spread mutes the channel there anyway
+   (support_ceiling ~ +0.4 nats); long-gap position belongs to occupancy, not
+   to an OU rebuild of this prior.
+4. Substitutions are a systematic false-positive risk for the surviving
+   (enabling) half: the replacement enters near where the tired player exited,
+   in the same kit. A dead-ball/substitution-window mask is the candidate fix.
 
 Pure: arrays in, values out. No I/O, no config.
 """

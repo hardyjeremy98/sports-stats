@@ -1032,6 +1032,81 @@ Measured local findings recorded by the repository guidance:
   impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
   `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
   No shipped default was changed.
+- **Occupancy serves nothing over a whole match until the half-time flip lands; the flip is
+  measured, adopted as direction, and deferred (2026-08-02; FOOTPASS val, whole-match
+  frozen-input harness `matchlab_train/experiments/footpass_match_harness.py`).** Attack
+  direction reverses at half-time and formation-relative footprints reverse with it (a 180°
+  rotation, not a reflection), so raw cross-half same-player occupancy is **anti-informative**
+  (AUC 0.34–0.38, i.e. worse than chance; rotated, 0.74–0.80). Every prior calibration was
+  per-half and structurally could not see this. Fused leave-one-match-out (body + gap +
+  transition, logistic weights, ~5M pairs/game): **no occupancy 0.855 / occupancy served raw
+  (the shipped form) 0.854 — the channel is dead weight over full matches** — / occupancy with
+  an **explicit per-half flip 0.888** (cross-half 0.824 / 0.813 / 0.873). The explicit flip is
+  the adopted fix but **deferred**: it needs a half-boundary / attack-direction estimate, which
+  belongs to the planned pre-run calibration sequence, not the associate stage. A boundary-free
+  `min(JS, JS∘rot180)` form is implemented (`FusionModel.occupancy_mirror="min"`, model-carried
+  and validated) but **rejected as a default by a cold-review-prescribed check**: the min
+  collapses within-half cross-flank impostors (LB↔RB, LW↔RW median JS 0.72–0.78 → 0.45–0.49,
+  *below* the genuine median ~0.53), because rot180 maps a right back's zone onto the left
+  back's. Also landed: `occupancy_zoom` and `min_centroid_teammates` as contract-checked engine
+  params (defaults 1.0 / 3 reproduce prior behaviour; the fitted v1 model predates the contract
+  keys, so refits should stamp them), and mirror-aware `serving_diagnostics`. Supporting
+  finding: footprints genuinely encode player zone (within-match 1-NN role retrieval 0.41–0.56
+  player-half accuracy vs 0.06 chance; cross-match role-line centroid transfer 0.64–0.76 vs
+  0.33) — but the encoding is *pitch geometry* (flank/corridor), not tactical line, which is
+  exactly why rot180 aliases cross-flank roles. FOOTPASS gotcha recorded here because two
+  harnesses hit it: **the tactical `TEAM` column encodes pitch side and flips at half-time**;
+  club identity must be reconstructed by voting over shared player ids
+  (`footpass_match_harness.club_of_side`).
+- **Negative gaps were fabricating merge evidence for interleaved threads; serving now clamps
+  gap at 0 and the transition prior abstains at dt ≤ 0 (2026-08-03; core
+  `twopass.py::score_channels`, tests `test_reid_gap_fixes.py`).** Interleaved-but-disjoint
+  threads (which `members_disjoint` deliberately allows) serve `gap_s < 0` in **both** passes —
+  outside every calibrator's fitted support (the fit side clamps at 0, `pair_features.py`), where
+  the logistic backbone extrapolates a same-player bonus up to +6 nats and the transition prior's
+  floored dt degenerates to a saturated ±6; `serving_diagnostics` skips overlapping pairs so the
+  drift monitor was blind there. On the FOOTPASS GT-fragment substrate (g30, LOMO over the 3 val
+  games, core engine at min_score = pass2_score = 4.0) the path is **very live**: 7,638 of the
+  legacy run's candidate scorings carried a negative gap. Fix at the same threshold: wrong merges
+  282 → 243, precision 0.9712 → 0.9742, coverage 0.7651 → 0.7362 — the removed merges had 90.2%
+  marginal precision, well below the operating point, so they were disproportionately the bad
+  ones (matched-precision comparison still open; the threshold can be lowered to rebuy
+  coverage). Gap-channel ablation under fixed scoring: without gap, +354 correct / +69 wrong
+  (marginal precision 83.7%) — gap is a precision-positive, coverage-negative filter at fixed
+  threshold, consistent with the audit's finding that its calibrated LLR spans only ~0.21 nats
+  over 0–30 s (a tracker-fragmentation prior, not identity evidence; see the gap-channel audit,
+  2026-08-02).
+- **Transition endpoints are no longer fabricated, and the channel's veto half is now a
+  swept model parameter (2026-08-03; triple-cold-reviewed audit + fix; harness
+  `bootstrap_threads`, FOOTPASS GT fragments g30 LOMO, accum+p2@4).** Three confirmed serving
+  defects: (1) `TrackletEvidence.to_state()` substituted `(0,0)` for missing entry/exit, so
+  the `score_channels` abstention guard was dead — a pair of zero-calibrated-frame tracklets
+  scored displacement 0, the prior's *maximum positive* evidence (~+1.8 fused nats at 0.5 s),
+  from data that never existed, precisely where occupancy also abstains; (2) pass-2
+  interleaved threads reached the prior with dt ≤ 0 (see the negative-gap entry above); (3)
+  the symmetric ±6 bound gave the veto half (measured 1 correct / 31 harmful blocks,
+  `transition.py` 2026-07-28) −2.8 fused nats of reach — enough to cancel a typical body
+  vote. Fixes: endpoints stay `None` end-to-end (`ThreadState` Optional, no entry←exit
+  fallback) and transition abstains without both endpoints (`raw=None` distinguishes missing
+  endpoints from gap-gating); `evidence.clip_transition` bounds the negative side at a
+  model-carried `FusionModel.transition_neg_clamp` (default 6.0 = bit-identical to the
+  historical `saturate`; harness fit-cache keyed). Measured (fit/serve coherent, weights
+  refit per clamp): the bug-fix-only arm (clamp 6) is ~frontier-neutral vs the legacy code;
+  **clamp 0 (vetoes flattened) is the best arm** — at thr 4 precision 0.9725 / coverage
+  0.7595 vs legacy 0.9701 / 0.7639 (267 vs 293 wrong), with frontier headroom to coverage
+  0.8142 at thr 2; the **transition-off control is strictly worse** (0.9704 / 0.7202), so the
+  enabling half carries real value even after the fabrication fix. **ADOPTED (same day):**
+  `configs/reid/fusion-footpass-v2.json` refits all channels on the clamp-0 clipped column
+  (fitted on all three val games, weights body 2.088 / occupancy 0.395 / gap 0.769 /
+  transition 0.782, `transition_neg_clamp: 0.0` carried in the artefact and contract) and is
+  now the engine default (`reid_engine.Params.fusion_model`) and referenced by the best/live
+  configs; v1 remains on disk and loads unchanged for reproduction. The
+  endpoint-fabrication fix is verified by unit test only —
+  the GT substrate always has endpoints, so FOOTPASS deltas measure (2)+(3) alone. Model-form
+  caveats recorded by the review, unfixed: the impostor density is dt-independent (pooled,
+  plausibly anti-conservative pro-merge at short gaps — unmeasured) and the fitted
+  sigma/tau encode broadcast camera-return statistics, not player physics, so the prior must
+  be refit per camera style.
 - **Goalkeepers and referees were never separated for re-ID: `tdlp-full` loses the detection
   class (2026-07-30; report
   [`2026-07-30-detection-class-recovery.json`](reports/2026-07-30-detection-class-recovery.json)).**

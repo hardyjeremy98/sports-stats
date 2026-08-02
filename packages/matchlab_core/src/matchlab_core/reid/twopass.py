@@ -33,10 +33,10 @@ from pathlib import Path
 
 import numpy as np
 
-from matchlab_core.reid.evidence import LLRCalibrator, saturate
+from matchlab_core.reid.evidence import LLRCalibrator, clip_transition
 from matchlab_core.reid.jersey import pair_llr
 from matchlab_core.reid.merge import AssociationPair, MergeResult
-from matchlab_core.reid.occupancy import js_distance
+from matchlab_core.reid.occupancy import js_distance, mirrored
 from matchlab_core.reid.threads import ThreadState
 from matchlab_core.reid.transition import TransitionPrior, displacement
 from matchlab_core.schemas import AssociationRejectReason
@@ -61,6 +61,7 @@ def _decision_row(
     threshold: float,
     candidates: list[dict],
     max_candidates: int,
+    pass_no: int = 1,
 ) -> dict:
     """One tracklet's merge decision, with the alternatives it was weighed
     against. `decision` is "merged" or "abstained" -- abstained covers both "no
@@ -69,6 +70,7 @@ def _decision_row(
     ranked = sorted(candidates, key=lambda c: -c["total"])
     return {
         "tracklet_id": int(tracklet_id),
+        "pass_no": pass_no,
         "decision": decision,
         "chosen": chosen,
         "total": None if total is None or not np.isfinite(total) else float(total),
@@ -133,14 +135,17 @@ class TrackletEvidence:
     def to_state(self) -> ThreadState:
         xs = np.empty(0) if self.xs is None else np.asarray(self.xs)
         ys = np.empty(0) if self.ys is None else np.asarray(self.ys)
-        zero = np.zeros(2, dtype=np.float64)
+        # Missing endpoints stay None so the transition channel abstains.
+        # The old zeros substitution planted both endpoints at the pitch
+        # corner, and a pair of such tracklets scored displacement 0 -- the
+        # prior's maximum positive evidence -- from data that never existed.
         return ThreadState.from_fragment(
             xs, ys,
             embedding=self.embedding,
             start=self.start,
             end=self.end,
-            exit_xy=zero if self.exit_xy is None else self.exit_xy,
-            entry_xy=zero if self.entry_xy is None else self.entry_xy,
+            exit_xy=self.exit_xy,
+            entry_xy=self.entry_xy,
         )
 
 
@@ -175,6 +180,34 @@ class FusionModel:
     # Dirichlet pseudo-count per footprint cell (threads.footprint alpha).
     # Applied by merge_threads_two_pass when it builds footprints; 0.0 = off.
     occupancy_alpha: float = 0.0
+    # "min": occupancy raw = min(JS(a,b), JS(a, rot180(b))) -- attack direction
+    # flips at half-time and formation-relative footprints flip with it, so the
+    # raw JS scores cross-half same-player pairs as impostors (AUC 0.357 vs
+    # 0.820 mirrored, FOOTPASS val 2026-08-02). A model field, not a serving
+    # knob: the calibrator must be fitted on the same statistic it serves, so
+    # the choice ships inside the artefact and cannot diverge.
+    #
+    # "off" is the default and "min" must NOT become one: cold review predicted
+    # and measurement confirmed that the min collapses within-half cross-flank
+    # impostors (rot180 maps a right back's formation-relative zone onto the
+    # left back's; LB<->RB / LW<->RW median JS 0.72-0.78 -> 0.45-0.49, BELOW
+    # the genuine median ~0.53). The adopted fix is an EXPLICIT per-half flip
+    # -- rotate one half's footprints once the half boundary is known -- worth
+    # +3.4 points fused LOMO AUC (0.855 -> 0.888) with within-half impostor
+    # separation untouched. That flip is DEFERRED: half-boundary /
+    # attack-direction estimation belongs to the planned pre-run calibration
+    # sequence, and this engine should consume its output rather than guess.
+    # Until then occupancy is measured to be ~neutral over whole matches
+    # (fused 0.854 vs 0.855 without it); see docs/implementation-status.md
+    # (2026-08-02 occupancy entry).
+    occupancy_mirror: str = "off"
+    # Negative-side bound (nats) for the transition channel's LLR; the
+    # positive side keeps the global LOG_CLAMP. A model field, not a serving
+    # knob: the fused weights are fitted on the clipped column, so the clip
+    # must ship with them. 6.0 (the default) is bit-identical to the
+    # historical symmetric `saturate`. See evidence.clip_transition for the
+    # measured rationale (veto half 1 good / 31 harmful blocks).
+    transition_neg_clamp: float = 6.0
     # Gap-conditioned calibrators: {channel: [[gap_hi_s, calibrator], ...]},
     # bins tried in order, first with gap_s < gap_hi_s wins, falling through to
     # the flat calibrator in `calibrators` past the last edge. Appearance
@@ -215,6 +248,8 @@ class FusionModel:
             "required": list(self.required),
             "occupancy_shrink_n0": self.occupancy_shrink_n0,
             "occupancy_alpha": self.occupancy_alpha,
+            "occupancy_mirror": self.occupancy_mirror,
+            "transition_neg_clamp": self.transition_neg_clamp,
             "calibrators_by_gap": {
                 k: [[hi, cal.to_dict()] for hi, cal in bins]
                 for k, bins in self.calibrators_by_gap.items()
@@ -235,6 +270,8 @@ class FusionModel:
             required=tuple(d.get("required", ("body",))),
             occupancy_shrink_n0=float(d.get("occupancy_shrink_n0", 0.0)),
             occupancy_alpha=float(d.get("occupancy_alpha", 0.0)),
+            occupancy_mirror=str(d.get("occupancy_mirror", "off")),
+            transition_neg_clamp=float(d.get("transition_neg_clamp", 6.0)),
             calibrators_by_gap={
                 k: [(float(hi), LLRCalibrator.from_dict(cd)) for hi, cd in bins]
                 for k, bins in d.get("calibrators_by_gap", {}).items()
@@ -248,7 +285,12 @@ class FusionModel:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def validate_serving(
-        self, *, occupancy_coords: str | None = None, embedding_dim: int | None = None
+        self,
+        *,
+        occupancy_coords: str | None = None,
+        embedding_dim: int | None = None,
+        occupancy_zoom: float | None = None,
+        min_centroid_teammates: int | None = None,
     ) -> None:
         """Hard-fail when the serving configuration contradicts the contract.
 
@@ -270,6 +312,29 @@ class FusionModel:
                 "2026-08-02 (rel-fitted calibrator scored on absolute "
                 "footprints); pair the model with its fitted convention or "
                 "refit."
+            )
+        if (
+            occupancy_zoom is not None
+            and "occupancy_zoom" in c
+            and abs(float(c["occupancy_zoom"]) - float(occupancy_zoom)) > 1e-9
+        ):
+            raise ValueError(
+                f"fusion model fitted with occupancy_zoom={c['occupancy_zoom']} "
+                f"but the engine is serving zoom={occupancy_zoom}. Zoomed and "
+                "unzoomed footprints are different feature spaces; pair the "
+                "model with its fitted zoom or refit."
+            )
+        if (
+            min_centroid_teammates is not None
+            and "min_centroid_teammates" in c
+            and int(c["min_centroid_teammates"]) != int(min_centroid_teammates)
+        ):
+            raise ValueError(
+                f"fusion model fitted with min_centroid_teammates="
+                f"{c['min_centroid_teammates']} but the engine is serving "
+                f"{min_centroid_teammates}. The centroid floor changes which "
+                "frames enter every footprint (fit side had no floor before "
+                "2026-08-02); pair or refit."
             )
         if (
             embedding_dim is not None
@@ -322,9 +387,11 @@ class FusionModel:
                 a, b = evidence[int(i)], evidence[int(j)]
                 if b.start < a.start:
                     a, b = b, a
-                # Only pairs the engine could actually score: overlapping
-                # tracklets are gated out before any channel sees them, so a
-                # negative gap is not part of the served distribution.
+                # Tracklet-level sample only. Pass-2 THREAD pairs can
+                # legitimately interleave and reach score_channels with a
+                # negative envelope gap (transition abstains there; the gap
+                # channel serves the clamped 0), so this diagnostic
+                # under-covers that regime by construction.
                 if b.start <= a.end:
                     continue
                 for e in (a, b):
@@ -338,7 +405,7 @@ class FusionModel:
                     served["body"].append(float(sa.prototype @ sb.prototype))
                 if sa.n_frames and sb.n_frames:
                     served["occupancy"].append(
-                        float(js_distance(fps[b.tracklet_id], fps[a.tracklet_id]))
+                        self._occupancy_raw(fps[a.tracklet_id], fps[b.tracklet_id])
                     )
                 served["gap"].append((sb.first_start - sa.last_end) / self.fps)
                 if a.exit_xy is not None and b.entry_xy is not None:
@@ -376,6 +443,17 @@ class FusionModel:
             }
         out["transition"] = t_row
         return out
+
+    def _occupancy_raw(self, a_fp, b_fp) -> float:
+        """The occupancy statistic this model was fitted on (see occupancy_mirror)."""
+        if self.occupancy_mirror not in ("off", "min"):
+            # A typo silently degrading to "off" would be a fit/serve divergence
+            # of exactly the class this field exists to prevent.
+            raise ValueError(f"unknown occupancy_mirror {self.occupancy_mirror!r}")
+        d = float(js_distance(b_fp, a_fp))
+        if self.occupancy_mirror == "min":
+            d = min(d, float(js_distance(mirrored(b_fp), a_fp)))
+        return d
 
     def _calibrator_for(self, name: str, gap_s: float) -> LLRCalibrator | None:
         for hi, cal in self.calibrators_by_gap.get(name, ()):
@@ -419,8 +497,14 @@ class FusionModel:
         if pa is not None and pb is not None:
             raw["body"] = float(pa @ pb)
         if a.n_frames and b.n_frames:
-            raw["occupancy"] = float(js_distance(b_fp, a_fp))
-        gap_s = (b.first_start - a.last_end) / self.fps
+            raw["occupancy"] = self._occupancy_raw(a_fp, b_fp)
+        # Interleaved-but-disjoint threads make this negative, a region no
+        # calibrator was fitted on (the fit side clamps at 0, pair_features.py)
+        # and where the backbone extrapolates a same-player bonus. Clamping
+        # serves the fitted convention; the true (possibly negative) value is
+        # kept for the transition gate below.
+        gap_true_s = (b.first_start - a.last_end) / self.fps
+        gap_s = max(0.0, gap_true_s)
         raw["gap"] = gap_s
 
         if self.required and not any(
@@ -454,14 +538,23 @@ class FusionModel:
 
         t_weight = self._weight_for("transition", gap_s)
         t_llr = None
-        if self.prior is not None and b.entry_xy is not None:
+        has_endpoints = a.exit_xy is not None and b.entry_xy is not None
+        # dt <= 0 floors the diffusion sigma at millimetres, so the prior's
+        # output there is a saturated artifact of the floor, not evidence.
+        if self.prior is not None and has_endpoints and gap_true_s > 0.0:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
-            candidate = float(np.ravel(saturate(self.prior.llr(np.array([gap_s]), dx, dy)))[0])
+            candidate = float(np.ravel(
+                clip_transition(self.prior.llr(np.array([gap_s]), dx, dy),
+                                self.transition_neg_clamp)
+            )[0])
             if np.isfinite(candidate):
                 t_llr = candidate
                 total += t_weight * candidate
         channels.append({
-            "name": "transition", "raw": gap_s, "llr": t_llr, "weight": t_weight,
+            # raw=None distinguishes "no endpoints" from "gap-gated": an
+            # abstention with a real gap means the pair was interleaved.
+            "name": "transition", "raw": gap_true_s if has_endpoints else None,
+            "llr": t_llr, "weight": t_weight,
             "contribution": 0.0 if t_llr is None else t_weight * t_llr,
         })
         return total, channels
@@ -657,7 +750,7 @@ def merge_threads_two_pass(
                 a=tid[partner], b=tid[i], decision="merged", affinity=best_s
             ))
             breakdowns.append({
-                "a": tid[partner], "b": tid[i], "pass": 1, "decision": "merged",
+                "a": tid[partner], "b": tid[i], "pass_no": 1, "decision": "merged",
                 "total": float(best_s), "threshold": float(min_score),
                 "channels": best_chans,
             })
@@ -679,7 +772,7 @@ def merge_threads_two_pass(
                     reason=AssociationRejectReason.EMBED_TOO_FAR,
                 ))
                 breakdowns.append({
-                    "a": tid[partner], "b": tid[i], "pass": 1,
+                    "a": tid[partner], "b": tid[i], "pass_no": 1,
                     "decision": "rejected", "total": float(best_s),
                     "threshold": float(min_score), "channels": best_chans,
                 })
@@ -715,15 +808,35 @@ def merge_threads_two_pass(
                     cands.append((x, y))
             if not cands:
                 break
-            scored = [
-                (s + jersey_bonus(t_jersey[x], t_jersey[y]), x, y)
-                for s, x, y in (
-                    (model.score(threads[x], t_fp[x], threads[y], t_fp[y]), x, y)
-                    for x, y in cands
+            # Channels, not just the total: a pass-2 merge is a decision like
+            # any other and has to be explicable in the Lab. Recording only
+            # pass 1 left a merge visible in the verdict lists with no decision
+            # row behind it -- the panel said "no merged decisions" while the
+            # run had merged.
+            scored = []
+            for x, y in cands:
+                s, chans = model.score_channels(
+                    threads[x], t_fp[x], threads[y], t_fp[y]
                 )
-                if s is not None
-            ]
+                if s is None:
+                    continue
+                bonus = jersey_bonus(t_jersey[x], t_jersey[y])
+                s += bonus
+                chans = [*chans, {
+                    "name": "jersey", "raw": None,
+                    "llr": None if jersey_weight <= 0.0 else bonus / max(jersey_weight, 1e-9),
+                    "weight": jersey_weight, "contribution": bonus,
+                }]
+                scored.append((s, x, y, chans))
             scored.sort(key=lambda r: -r[0])
+            # Every alternative each thread was weighed against this round.
+            alts: dict[int, list[dict]] = {}
+            for s_, x_, y_, ch_ in scored:
+                for me, other in ((x_, y_), (y_, x_)):
+                    partner = max(t_members[other], key=lambda m: start[m])
+                    alts.setdefault(me, []).append({
+                        "partner": int(tid[partner]), "total": float(s_), "channels": ch_,
+                    })
             # Winner-margin in pass 2, same rationale as pass 1's `min_margin`:
             # a thread pair merges only when its score beats each side's best
             # ALTERNATIVE partner by the bar. Measured on FOOTPASS pass 1 the
@@ -735,7 +848,7 @@ def merge_threads_two_pass(
             # is its top score if this pair is not it, else its second-best.
             top2: dict[int, list[float]] = {}
             if pass2_min_margin > 0.0:
-                for s, x, y in scored:
+                for s, x, y, _ch in scored:
                     for k in (x, y):
                         t = top2.setdefault(k, [])
                         t.append(s)
@@ -743,7 +856,7 @@ def merge_threads_two_pass(
                         del t[2:]
             used: set[int] = set()
             merged_any = False
-            for s, x, y in scored:
+            for s, x, y, chans in scored:
                 if s < pass2_score:
                     break
                 if x in used or y in used:
@@ -764,6 +877,15 @@ def merge_threads_two_pass(
                 b_start = min(t_members[y], key=lambda m: start[m])
                 pairs.append(AssociationPair(
                     a=tid[a_end], b=tid[b_start], decision="merged", affinity=s
+                ))
+                breakdowns.append({
+                    "a": tid[a_end], "b": tid[b_start], "pass_no": 2,
+                    "decision": "merged", "total": float(s),
+                    "threshold": float(pass2_score), "channels": chans,
+                })
+                decisions.append(_decision_row(
+                    tid[b_start], "merged", int(tid[a_end]), s, -np.inf,
+                    pass2_score, alts.get(y, []), max_candidates, pass_no=2,
                 ))
                 edges.append((tid[a_end], tid[b_start]))
                 threads[x] = threads[x].merged_with(threads[y])
