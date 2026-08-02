@@ -126,13 +126,13 @@ def replay_associate(run_dir: Path, params: dict, tmp: Path) -> tuple[dict, dict
     Returns (reid_detail, association) dicts. Imports are local so the module
     can be inspected without a synced core environment.
     """
+    import matchlab_core.stages  # noqa: F401
     from matchlab_core.artifacts import ArtifactStore
     from matchlab_core.config import PipelineConfig
     from matchlab_core.interfaces import StageContext
     from matchlab_core.registry import build
     from matchlab_core.schemas import ArtifactName, TeamAssignment, Tracklet
     from matchlab_core.schemas.run import StageKind, VideoMeta
-    import matchlab_core.stages  # noqa: F401
 
     if tmp.exists():
         shutil.rmtree(tmp)
