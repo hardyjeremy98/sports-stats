@@ -68,7 +68,13 @@ stages:
       merge_strategy: two-pass
       fusion_model: configs/reid/fusion-footpass-v1.json
       pass1_min_score: 4.0
-      pass2_min_score: 2.0
+      # 3.0, raised from 2.0 on 2026-08-02: the 2.0 point was selected while a
+      # zero-sentinel bug fed the transition prior fabricated corner-distance
+      # penalties on position-less pairs. Under honest scoring (sentinel fixed,
+      # missing endpoints abstain) 2.0 admits two body-only wrong merges at
+      # 2.35/2.62 nats; 3.0 restores 5/0/3 with a stable band (2.75-3.5
+      # identical).
+      pass2_min_score: 3.0
       merge_min_margin: 0.5
       pass2_min_margin: 0.0
       occupancy_coords: formation-relative

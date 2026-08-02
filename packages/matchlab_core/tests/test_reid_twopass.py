@@ -311,13 +311,13 @@ def test_score_channels_sums_to_score_and_names_abstentions():
     assert by_name["occupancy"]["llr"] is None
     assert by_name["occupancy"]["contribution"] == 0.0
 
-    # Transition does NOT abstain here, and that is worth pinning: ThreadState
-    # defaults an absent entry/exit position to (0, 0) rather than None, so the
-    # prior is asked about a player who "did not move" instead of being told
-    # there is no position at all. On an uncalibrated run that is a fabricated
-    # measurement, not evidence. Asserted so the behaviour is visible and any
-    # future change to it is deliberate.
-    assert by_name["transition"]["llr"] is not None
+    # Transition abstains too: absent entry/exit positions are None now, not
+    # a (0, 0) sentinel. The previous pin documented the sentinel as a known
+    # wart ("any future change to it is deliberate") -- this is that
+    # deliberate change (2026-08-02 motion-gate work): a missing position must
+    # never reach the prior as "did not move".
+    assert by_name["transition"]["llr"] is None
+    assert by_name["transition"]["contribution"] == 0.0
 
 
 def test_two_pass_records_channels_for_a_rejected_best_candidate():
@@ -526,3 +526,134 @@ def test_weights_by_gap_selects_bin_and_round_trips():
     s_long, _ = m2.score_channels(a, fa, long_, fl)
     assert abs(s_short - 2.0 * llr) < 1e-9
     assert abs(s_long - 0.5 * llr) < 1e-9
+
+
+def _ev_pos(tid, start, end, emb, entry, exit_, team=0):
+    # Enough calibrated positions that the gate's starved-side guard
+    # (gate_min_positions) does not abstain -- these tests exercise the
+    # speed logic, not the quality gate.
+    has_pos = entry is not None or exit_ is not None
+    anchor = entry if entry is not None else exit_
+    return TrackletEvidence(
+        tracklet_id=tid, start=start, end=end, team=team,
+        embedding=np.asarray(emb, dtype=float),
+        xs=np.full(6, anchor[0]) if has_pos else None,
+        ys=np.full(6, anchor[1]) if has_pos else None,
+        entry_xy=None if entry is None else np.asarray(entry, dtype=float),
+        exit_xy=None if exit_ is None else np.asarray(exit_, dtype=float),
+    )
+
+
+def test_motion_gate_vetoes_physically_impossible_pairs():
+    """60 m in 1 s (60 m/s) is not football: vetoed with a recorded reason.
+    The same displacement over 8 s (7.5 m/s) is a jog: merged."""
+    a = [1.0, 0.0]
+    for gap_frames, expect_merge in ((25, False), (200, True)):
+        ev = [
+            _ev_pos(1, 0, 10, a, (0.2, 0.5), (0.2, 0.5)),
+            # 60/105 of the pitch width to the right = 60 m displacement
+            _ev_pos(2, 10 + gap_frames, 10 + gap_frames + 10, a,
+                    (0.2 + 60 / 105, 0.5), (0.2 + 60 / 105, 0.5)),
+        ]
+        res = merge_threads_two_pass(ev, model=_model(), min_score=0.0,
+                                     pass2_score=None)
+        merged = [1, 2] in res.groups
+        assert merged == expect_merge, (gap_frames, res.groups)
+        if not expect_merge:
+            reasons = {p.reason for p in res.pairs if p.decision == "rejected"}
+            assert any(r == "motion_infeasible" for r in map(str, reasons)) or any(
+                getattr(r, "value", r) == "motion_infeasible" for r in reasons
+            )
+
+
+def test_motion_gate_abstains_without_positions():
+    """No calibrated endpoints = no veto (ADR 003: missing evidence is
+    neutral). A strong body match must still merge."""
+    a = [1.0, 0.0]
+    ev = [_ev_pos(1, 0, 10, a, None, None), _ev_pos(2, 20, 30, a, None, None)]
+    res = merge_threads_two_pass(ev, model=_model(), min_score=0.0, pass2_score=None)
+    assert [1, 2] in res.groups
+
+
+def test_motion_gate_slack_absorbs_endpoint_noise_at_short_gaps():
+    """2.5 m apparent displacement over 0.04 s is 62 m/s raw -- but 2.5 m is
+    calibration noise, not motion, and must NOT veto. 20 m over the same gap
+    is beyond any noise allowance and must."""
+    a = [1.0, 0.0]
+    for jump_m, expect_merge in ((2.5, True), (20.0, False)):
+        ev = [
+            _ev_pos(1, 0, 10, a, (0.2, 0.5), (0.2, 0.5)),
+            _ev_pos(2, 11, 21, a, (0.2 + jump_m / 105, 0.5),
+                    (0.2 + jump_m / 105, 0.5)),
+        ]
+        res = merge_threads_two_pass(ev, model=_model(), min_score=0.0,
+                                     pass2_score=None)
+        assert ([1, 2] in res.groups) == expect_merge, (jump_m, res.groups)
+
+
+def test_motion_gate_applies_in_pass_2():
+    """Two threads whose facing ends imply 60 m/s must not agglomerate; the
+    same threads with a feasible gap must."""
+    a, b = [1.0, 0.0], [0.0, 1.0]
+    for gap_frames, expect in ((25, False), (500, True)):
+        ev = [
+            _ev_pos(1, 0, 10, a, (0.1, 0.5), (0.1, 0.5)),
+            # dissimilar tracklet so pass 1 keeps them as separate threads
+            _ev_pos(3, 15, 20, b, None, None),
+            _ev_pos(2, 20 + gap_frames, 30 + gap_frames, a,
+                    (0.1 + 60 / 105, 0.5), (0.1 + 60 / 105, 0.5)),
+        ]
+        res = merge_threads_two_pass(ev, model=_model(), min_score=100.0,
+                                     pass2_score=0.0)
+        assert ([1, 2] in res.groups) == expect, (gap_frames, res.groups)
+
+
+def test_missing_endpoints_never_score_transition_against_pitch_corner():
+    """A tracklet with no calibrated frames used to serve entry/exit as a
+    ZERO vector -- the pitch corner -- and the transition prior scored real
+    displacement evidence against it. Missing must mean absent."""
+    m = _model()
+    m.prior = __import__(
+        "matchlab_core.reid.transition", fromlist=["TransitionPrior"]
+    ).TransitionPrior.from_dict({
+        "x": {"sigma_inf": 20.0, "tau": 30.0},
+        "y": {"sigma_inf": 10.0, "tau": 20.0},
+        "impostor_x": 30.0, "impostor_y": 20.0,
+    })
+    m.weights["transition"] = 1.0
+    with_pos = _ev_pos(1, 0, 10, [1.0, 0.0], (0.9, 0.9), (0.9, 0.9)).to_state()
+    no_pos = _ev_pos(2, 20, 30, [1.0, 0.0], None, None).to_state()
+    _, chans = m.score_channels(
+        with_pos, with_pos.footprint(), no_pos, no_pos.footprint()
+    )
+    t = next(c for c in chans if c["name"] == "transition")
+    assert t["llr"] is None and t["contribution"] == 0.0
+
+
+def test_motion_gate_uses_observation_time_not_span_gap():
+    """Sparse calibration: the exit position was OBSERVED 5 s before the
+    tracklet ended. 45 m over the 1 s span gap looks like 45 m/s, but over
+    the true 6 s since the observation it is 7.5 m/s -- a jog. The gate must
+    divide by observation time, or ordinary running on sparsely-calibrated
+    runs gets vetoed."""
+    a = [1.0, 0.0]
+    ev = [
+        TrackletEvidence(
+            tracklet_id=1, start=0, end=150, team=0,
+            embedding=np.asarray(a, dtype=float),
+            xs=np.full(6, 0.2), ys=np.full(6, 0.5),
+            exit_xy=np.array([0.2, 0.5]), entry_xy=np.array([0.2, 0.5]),
+            exit_frame=25,  # observed 125 frames (5 s) before the span end
+            entry_frame=0,
+        ),
+        TrackletEvidence(
+            tracklet_id=2, start=175, end=200, team=0,
+            embedding=np.asarray(a, dtype=float),
+            xs=np.full(6, 0.2 + 45 / 105), ys=np.full(6, 0.5),
+            entry_xy=np.array([0.2 + 45 / 105, 0.5]),
+            exit_xy=np.array([0.2 + 45 / 105, 0.5]),
+            entry_frame=175, exit_frame=200,
+        ),
+    ]
+    res = merge_threads_two_pass(ev, model=_model(), min_score=0.0, pass2_score=None)
+    assert [1, 2] in res.groups, res.groups

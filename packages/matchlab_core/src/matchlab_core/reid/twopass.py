@@ -129,18 +129,30 @@ class TrackletEvidence:
     embedding: np.ndarray | None = None
     entry_xy: np.ndarray | None = None
     exit_xy: np.ndarray | None = None
+    # Frames entry_xy/exit_xy were observed at (see ThreadState). None = the
+    # span edges, which is exact when calibration covers the endpoints.
+    entry_frame: int | None = None
+    exit_frame: int | None = None
+    # Calibrated observations backing entry/exit (see ThreadState.n_positions).
+    # None = len(xs).
+    n_positions: int | None = None
 
     def to_state(self) -> ThreadState:
         xs = np.empty(0) if self.xs is None else np.asarray(self.xs)
         ys = np.empty(0) if self.ys is None else np.asarray(self.ys)
-        zero = np.zeros(2, dtype=np.float64)
+        # Missing endpoints stay None. A zero sentinel here is the pitch
+        # corner, and it used to reach the transition prior as if it were a
+        # real observation.
         return ThreadState.from_fragment(
             xs, ys,
             embedding=self.embedding,
             start=self.start,
             end=self.end,
-            exit_xy=zero if self.exit_xy is None else self.exit_xy,
-            entry_xy=zero if self.entry_xy is None else self.entry_xy,
+            exit_xy=self.exit_xy,
+            entry_xy=self.entry_xy,
+            exit_frame=self.exit_frame,
+            entry_frame=self.entry_frame,
+            n_positions=self.n_positions,
         )
 
 
@@ -454,7 +466,7 @@ class FusionModel:
 
         t_weight = self._weight_for("transition", gap_s)
         t_llr = None
-        if self.prior is not None and b.entry_xy is not None:
+        if self.prior is not None and a.exit_xy is not None and b.entry_xy is not None:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
             candidate = float(np.ravel(saturate(self.prior.llr(np.array([gap_s]), dx, dy)))[0])
             if np.isfinite(candidate):
@@ -519,6 +531,9 @@ def merge_threads_two_pass(
     min_margin: float = 0.0,
     pass2_min_margin: float = 0.0,
     rounds: int = 8,
+    max_speed_ms: float = 15.0,
+    speed_slack_m: float = 3.0,
+    gate_min_positions: int = 5,
     pair_filter=None,
     anchor_by_tid: dict[int, str] | None = None,
     jersey_likelihood_by_tid: dict[int, np.ndarray] | None = None,
@@ -580,6 +595,44 @@ def merge_threads_two_pass(
         b = {anchors[tid[m]] for m in my if anchors.get(tid[m]) is not None}
         return bool(a and b and not (a & b))
 
+    def infeasible(a: ThreadState, b: ThreadState) -> bool:
+        """Physically-certain motion gate: could ANY player have covered the
+        exit->entry displacement in the gap?
+
+        `max_speed_ms` is set well above human sprint (world-class peak is
+        ~12.4 m/s; the default 15 leaves margin), so a true continuation can
+        never trip it -- unlike the old feasibility veto, which used
+        realistic speed caps and was measured to block far more correct
+        merges than wrong ones. `speed_slack_m` absorbs endpoint noise
+        (calibration jitter of a couple of metres reads as an enormous
+        "speed" over a sub-second gap and is not motion). Missing endpoints
+        or non-positive gaps (interleaved threads) abstain -- a gate may only
+        fire on evidence it actually has (ADR 003).
+        """
+        if max_speed_ms <= 0 or a.exit_xy is None or b.entry_xy is None:
+            return False
+        # Quality gate on the gate itself: a side whose position evidence is
+        # a handful of calibrated frames cannot support a hard veto. Measured
+        # concretely (best2-120, gt 3): a 3-frame tracklet's endpoints sat
+        # ~47 m from its true continuation -- systematic projection error
+        # across a camera pan, not motion -- and would have been the gate's
+        # only false veto on either substrate. ADR 003 applies to vetoes too:
+        # low-quality evidence abstains, it does not disqualify.
+        if a.n_positions < gate_min_positions or b.n_positions < gate_min_positions:
+            return False
+        # Elapsed time between the OBSERVATIONS, not between the span edges:
+        # with sparse calibration the exit position can be seconds older than
+        # the tracklet's end, and dividing its displacement by the span gap
+        # alone manufactures impossible speeds out of ordinary running.
+        exit_f = a.last_end if a.exit_frame is None else a.exit_frame
+        entry_f = b.first_start if b.entry_frame is None else b.entry_frame
+        gap_s = (entry_f - exit_f) / model.fps
+        if gap_s <= 0:
+            return False
+        dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
+        dist_m = float(np.hypot(dx[0], dy[0]))
+        return dist_m > max_speed_ms * gap_s + speed_slack_m
+
     def eligible(i: int, k: int) -> bool:
         if team[i] is not None and t_team[k] is not None and team[i] != t_team[k]:
             return False
@@ -612,6 +665,12 @@ def merge_threads_two_pass(
             ):
                 anchor_k = k
                 break
+            if infeasible(threads[k], states[i]):
+                pairs.append(AssociationPair(
+                    a=tid[partner], b=tid[i], decision="rejected",
+                    reason=AssociationRejectReason.MOTION_INFEASIBLE,
+                ))
+                continue
             s, chans = model.score_channels(threads[k], t_fp[k], states[i], q_fp)
             if s is None:
                 pairs.append(AssociationPair(
@@ -711,6 +770,8 @@ def merge_threads_two_pass(
                         allowed.get((m, n), True)
                         for m in t_members[x] for n in t_members[y]
                     ):
+                        continue
+                    if infeasible(threads[x], threads[y]):
                         continue
                     cands.append((x, y))
             if not cands:

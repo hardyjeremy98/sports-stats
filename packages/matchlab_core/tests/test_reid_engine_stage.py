@@ -580,3 +580,76 @@ def test_formation_relative_occupancy_subtracts_team_centroid_with_guard():
     )
     assert all(len(e.xs) == 1 for e in evs3)
     assert np.isclose(evs3[0].xs[0], evs3[0].entry_xy[0])
+
+
+def _tracklet_at(tid: int, frames: list[int], x_px: float, y_px: float) -> Tracklet:
+    """Tracklet whose box bottom-centre sits at (x_px, y_px) every frame."""
+    return Tracklet(
+        tracklet_id=tid,
+        cls=DetectionClass.PLAYER,
+        frames=[
+            TrackletFrame(
+                frame_idx=fi,
+                box=Box(x1=x_px - 5, y1=y_px - 20, x2=x_px + 5, y2=y_px),
+                confidence=1.0,
+            )
+            for fi in frames
+        ],
+    )
+
+
+def test_motion_gate_end_to_end_through_real_calibration(tmp_path):
+    """The whole chain the gate depends on, pinned: pixel box bottom-centre ->
+    homography (px -> pitch CENTIMETRES) -> normalised [0,1] -> displacement
+    in metres -> speed vs gap. H is a pure 100x scale, so 1 px = 1 m and the
+    expected distances are hand-computable: two tracklets 60 m apart merge at
+    an 8 s gap (7.5 m/s) and are vetoed with reason motion_infeasible at a
+    1 s gap (60 m/s). A units or projection regression anywhere in the chain
+    moves the computed speed by orders of magnitude and breaks both arms."""
+    from matchlab_core.schemas import FrameCalibration
+
+    same = [1.0, 0.0]
+    scale_h = [[100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 1.0]]
+    for gap_frames, expect_merge in ((200, True), (25, False)):
+        # >= 6 calibrated frames per side: the gate's starved-side guard
+        # (motion_gate_min_positions=5) must not be the reason either arm
+        # passes.
+        t1_frames, t2_start = list(range(0, 11, 2)), 10 + gap_frames
+        t2_frames = [t2_start + d for d in range(0, 11, 2)]
+        tracklets = [
+            _tracklet_at(1, t1_frames, x_px=10.0, y_px=30.0),
+            _tracklet_at(2, t2_frames, x_px=70.0, y_px=30.0),  # 60 m away
+        ]
+        teams = [
+            TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0)
+            for t in (1, 2)
+        ]
+        features = _features(
+            [(1, fi, same) for fi in t1_frames] + [(2, fi, same) for fi in t2_frames]
+        )
+        ctx = _FakeCtx(store=ArtifactStore(tmp_path / f"run-{gap_frames}"))
+        features.save(ctx.store.path(ArtifactName.FRAME_FEATURES))
+        ctx.store.write_jsonl(
+            ArtifactName.CALIBRATION,
+            [
+                FrameCalibration(frame_idx=fi, t=fi / FPS, homography=scale_h,
+                                 confidence=0.9)
+                for fi in (*t1_frames, *t2_frames)
+            ],
+        )
+        stage = build(
+            StageKind.ASSOCIATE, "reid-engine",
+            _two_pass({"pass1_min_score": 0.0, "pass2_min_score": None,
+                       "gmc": False}),
+        )
+        entities = stage.associate(ctx, tracklets, teams)
+        merged = any(set(e.tracklet_ids) == {1, 2} for e in entities)
+        assert merged == expect_merge, (gap_frames, [e.tracklet_ids for e in entities])
+        if not expect_merge:
+            report = AssociationReport.model_validate_json(
+                ctx.store.path(ArtifactName.ASSOCIATION).read_text()
+            )
+            assert any(
+                p.reason == AssociationRejectReason.MOTION_INFEASIBLE
+                for p in report.pairs
+            ), report.pairs

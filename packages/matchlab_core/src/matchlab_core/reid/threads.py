@@ -60,9 +60,25 @@ class ThreadState:
     embedding_sum: np.ndarray | None
     n_embedded: int
     last_end: int
-    exit_xy: np.ndarray
+    # None = the fragment had no calibrated frames there. None, not a zero
+    # vector: (0, 0) is the pitch corner, and serving it as a position let
+    # the transition prior score real evidence against a sentinel.
+    exit_xy: np.ndarray | None
     first_start: int
     entry_xy: np.ndarray | None = None
+    # Frame indices the endpoint positions were OBSERVED at. With sparse
+    # calibration the last calibrated frame can sit seconds before the
+    # tracklet's end; elapsed-time reasoning about the endpoints (the motion
+    # gate) must use these, not the span edges, or it undercounts the time
+    # and manufactures impossible speeds. None = same as the span edge.
+    exit_frame: int | None = None
+    entry_frame: int | None = None
+    # Calibrated observations backing the endpoints. NOT n_frames: under
+    # formation-relative occupancy the footprint legitimately drops frames
+    # below the teammate floor, so n_frames can be 0 on a densely-calibrated
+    # tracklet -- and the motion gate's quality guard must count calibration,
+    # not footprint membership.
+    n_positions: int = 0
 
     @classmethod
     def from_fragment(
@@ -75,10 +91,14 @@ class ThreadState:
         end: int,
         exit_xy,
         entry_xy=None,
+        exit_frame: int | None = None,
+        entry_frame: int | None = None,
+        n_positions: int | None = None,
         grid: tuple[int, int] = DEFAULT_GRID,
     ) -> ThreadState:
         emb = None if embedding is None else np.asarray(embedding, dtype=np.float64)
-        entry = np.asarray(exit_xy if entry_xy is None else entry_xy, dtype=np.float64)
+        ex = None if exit_xy is None else np.asarray(exit_xy, dtype=np.float64)
+        entry = ex if entry_xy is None else np.asarray(entry_xy, dtype=np.float64)
         return cls(
             counts=_counts(xs, ys, grid),
             n_frames=int(len(np.asarray(xs).ravel())),
@@ -86,22 +106,27 @@ class ThreadState:
             embedding_sum=emb,
             n_embedded=0 if emb is None else 1,
             last_end=int(end),
-            exit_xy=np.asarray(exit_xy, dtype=np.float64),
+            exit_xy=ex,
             first_start=int(start),
             entry_xy=entry,
+            exit_frame=None if exit_frame is None else int(exit_frame),
+            entry_frame=None if entry_frame is None else int(entry_frame),
+            n_positions=int(
+                len(np.asarray(xs).ravel()) if n_positions is None else n_positions
+            ),
         )
 
     def merged_with(self, other: ThreadState) -> ThreadState:
         """Pool two threads. Commutative and associative in everything that is
         read back, so greedy merge order cannot change what a thread means."""
         if other.last_end > self.last_end:
-            last_end, exit_xy = other.last_end, other.exit_xy
+            last_end, exit_xy, exit_frame = other.last_end, other.exit_xy, other.exit_frame
         else:
-            last_end, exit_xy = self.last_end, self.exit_xy
+            last_end, exit_xy, exit_frame = self.last_end, self.exit_xy, self.exit_frame
         if other.first_start < self.first_start:
-            entry_xy = other.entry_xy
+            entry_xy, entry_frame = other.entry_xy, other.entry_frame
         else:
-            entry_xy = self.entry_xy
+            entry_xy, entry_frame = self.entry_xy, self.entry_frame
         if self.embedding_sum is None:
             emb = other.embedding_sum
         elif other.embedding_sum is None:
@@ -119,6 +144,9 @@ class ThreadState:
             exit_xy=exit_xy,
             first_start=min(self.first_start, other.first_start),
             entry_xy=entry_xy,
+            exit_frame=exit_frame,
+            entry_frame=entry_frame,
+            n_positions=self.n_positions + other.n_positions,
         )
 
     def footprint(self, *, sigma: float = 1.0, alpha: float = 0.0) -> Footprint:
