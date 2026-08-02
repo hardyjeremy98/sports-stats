@@ -112,3 +112,8 @@ class ReidDetailReport(BaseModel):
     # Per-tracklet decisions with their ranked candidates -- the merge
     # inspector's primary view. Empty under the pairwise engine.
     decisions: list[MergeDecision] = Field(default_factory=list)
+    # Fit/serve coherence report (FusionModel.serving_diagnostics): per channel
+    # the served raw-value distribution next to the fitted one its calibrator
+    # encodes, with `flag: true` where the drift exceeds anything a legitimate
+    # substrate change has produced. Empty under the pairwise engine.
+    coherence: dict = Field(default_factory=dict)

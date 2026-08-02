@@ -1084,5 +1084,17 @@
  "fps": 25.0,
  "required": [
   "body"
- ]
+ ],
+ "contract": {
+  "occupancy_coords": "absolute",
+  "endpoint_units": "normalised [0,1] pitch fraction",
+  "position_units": "normalised [0,1] pitch fraction",
+  "embedding_dim": 256,
+  "embedding_model": "prtreid",
+  "fitted_fps": 25.0,
+  "grid": [
+   12,
+   8
+  ]
+ }
 }

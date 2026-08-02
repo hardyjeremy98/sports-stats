@@ -171,12 +171,17 @@ class Params(BaseModel):
     # FOOTPASS pass 1 the margin rule strictly dominates absolute thresholds
     # (2026-08-01 report, addendum); pass-2 validation pending.
     pass2_min_margin: float = 0.0
-    # Occupancy coordinate convention fed to the footprints. "absolute" is the
-    # engine's historical behaviour and matches fusion-footpass-v2-abs.json;
-    # "formation-relative" mirrors the harness's relative_coords (per-frame
-    # observable team centroid subtracted, +0.5) and must be paired with a
-    # relative-fitted model. Measured before trusting either pairing.
-    occupancy_coords: str = "absolute"
+    # Occupancy coordinate convention fed to the footprints. Must match the
+    # fusion model's fitted convention (checked via the model's contract):
+    # "formation-relative" pairs with fusion-footpass-v1.json (the default
+    # model, fitted on relative coords), "absolute" with
+    # fusion-footpass-v2-abs.json. The default WAS "absolute", which paired
+    # the rel-fitted default model with abs serving -- the 2026-08-02 fit/serve
+    # bug, fixed in the best config but left in these defaults until the
+    # coherence audit caught it. Formation-relative is also the measured
+    # winner on both substrates (FOOTPASS 0.9815/0.664 vs 0.9770/0.659;
+    # SNMOT replay right 10 -> 14 at equal wrong, round-2 report).
+    occupancy_coords: str = "formation-relative"
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -525,22 +530,42 @@ class ReidEngineAssociator(Associator):
                 ):
                     calibration[row.frame_idx] = np.asarray(row.homography)
 
+        coherence: dict = {}
         if p.merge_strategy == "two-pass":
             features_obj = (
                 FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
                 if ctx.store.exists(ArtifactName.FRAME_FEATURES)
                 else None
             )
+            model = FusionModel.load(p.fusion_model)
+            # The model's fps is a fit-corpus fact; served gaps must be in
+            # seconds of THIS video. At any fps other than the fitted 25 the
+            # gap and transition channels were silently mis-scaled (latent --
+            # every substrate so far happens to be 25 fps).
+            if ctx.video.fps:
+                model.fps = float(ctx.video.fps)
+            evidence = _tracklet_evidence(
+                tracklets,
+                features=features_obj,
+                team_by_tid=team_by_tid,
+                calibration=calibration,
+                pitch_size_cm=tuple(p.pitch_size_cm),
+                occupancy_coords=p.occupancy_coords,
+            )
+            emb_dim = next(
+                (len(e.embedding) for e in evidence if e.embedding is not None), None
+            )
+            # Fit/serve coherence: declarative mismatches are a loud error,
+            # distributional drift is recorded (reid_detail.json `coherence`)
+            # for reading, never a run-killer -- sparse clips shift
+            # distributions legitimately (ADR 003 abstention still applies).
+            model.validate_serving(
+                occupancy_coords=p.occupancy_coords, embedding_dim=emb_dim
+            )
+            coherence = model.serving_diagnostics(evidence)
             result = merge_threads_two_pass(
-                _tracklet_evidence(
-                    tracklets,
-                    features=features_obj,
-                    team_by_tid=team_by_tid,
-                    calibration=calibration,
-                    pitch_size_cm=tuple(p.pitch_size_cm),
-                    occupancy_coords=p.occupancy_coords,
-                ),
-                model=FusionModel.load(p.fusion_model),
+                evidence,
+                model=model,
                 min_score=p.pass1_min_score,
                 pass2_score=p.pass2_min_score,
                 min_margin=p.merge_min_margin,
@@ -658,7 +683,8 @@ class ReidEngineAssociator(Associator):
             ),
         )
         self._write_reid_detail(
-            ctx, reps, breakdowns, result.channel_breakdowns, result.decisions
+            ctx, reps, breakdowns, result.channel_breakdowns, result.decisions,
+            coherence,
         )
         return entities
 
@@ -666,6 +692,7 @@ class ReidEngineAssociator(Associator):
         self, ctx: StageContext, reps: dict, breakdowns: dict,
         channel_breakdowns: list[dict] | None = None,
         decisions: list[dict] | None = None,
+        coherence: dict | None = None,
     ) -> None:
         """reid_detail.json: the engine's working (prototype provenance +
         pair breakdowns + rankings) for the Lab's merge inspector."""
@@ -716,6 +743,7 @@ class ReidEngineAssociator(Associator):
                 decisions=[
                     MergeDecision.model_validate(row) for row in (decisions or [])
                 ],
+                coherence=coherence or {},
             ),
         )
 

@@ -454,3 +454,50 @@ def test_gap_binned_calibrators_select_by_gap_and_round_trip():
     assert m2._calibrator_for("body", 1.0).llr(0.8) == m._calibrator_for(
         "body", 1.0
     ).llr(0.8)
+
+
+def test_contract_round_trips_and_validate_serving_gates_mismatches():
+    m = _model()
+    m.contract = {"occupancy_coords": "formation-relative", "embedding_dim": 2}
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.contract == m.contract
+    # Matching serving passes; absent keys are never blocked.
+    m2.validate_serving(occupancy_coords="formation-relative", embedding_dim=2)
+    m2.validate_serving()
+    FusionModel(calibrators={}, weights={}).validate_serving(
+        occupancy_coords="absolute", embedding_dim=999
+    )
+    with pytest.raises(ValueError, match="occupancy_coords"):
+        m2.validate_serving(occupancy_coords="absolute")
+    with pytest.raises(ValueError, match="dim"):
+        m2.validate_serving(embedding_dim=256)
+
+
+def test_serving_diagnostics_flags_units_broken_endpoints():
+    """The 2026-08-01 transition units bug (endpoints in cm, not [0,1]) must
+    trip the physical-displacement flag; correctly-normalised endpoints must
+    not."""
+    m = _model()
+    rng = np.random.default_rng(2)
+
+    def ev(units: float):
+        out = []
+        for i in range(12):
+            xy = rng.random(2) * units
+            out.append(TrackletEvidence(
+                tracklet_id=i, start=i * 100, end=i * 100 + 50, team=0,
+                embedding=rng.normal(size=4),
+                xs=rng.random(5), ys=rng.random(5),
+                entry_xy=xy, exit_xy=xy,
+            ))
+        return out
+
+    good = m.serving_diagnostics(ev(1.0), max_pairs=200)
+    bad = m.serving_diagnostics(ev(10500.0), max_pairs=200)
+    assert good["transition"]["flag"] is False
+    assert bad["transition"]["flag"] is True
+    # Body cosines from a 4-dim gaussian are nowhere near the fitted 0.9/0.1
+    # bimodal pool's support edges -- but the report must still carry both
+    # sides so a reader can compare them.
+    assert good["body"]["served_n"] > 0
+    assert "fitted_lo" in good["body"] and "served_median" in good["body"]

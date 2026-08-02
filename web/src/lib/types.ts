@@ -824,6 +824,9 @@ export interface ReidDetailReport {
   // Empty under the pairwise engine, which scores one similarity and has no
   // channels to break down.
   pair_channels?: PairChannels[];
+  // Fit/serve coherence report: per-channel served vs fitted raw-value
+  // distributions, `flag: true` on anomalous drift. Empty under pairwise.
+  coherence?: Record<string, Record<string, number | boolean>>;
   // Per-tracklet decisions with ranked candidates — the merge inspector's
   // primary view. Empty under the pairwise engine.
   decisions?: MergeDecision[];
