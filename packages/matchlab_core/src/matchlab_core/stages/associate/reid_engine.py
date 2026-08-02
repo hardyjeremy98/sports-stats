@@ -171,6 +171,17 @@ class Params(BaseModel):
     # FOOTPASS pass 1 the margin rule strictly dominates absolute thresholds
     # (2026-08-01 report, addendum); pass-2 validation pending.
     pass2_min_margin: float = 0.0
+    # Occupancy coordinate convention fed to the footprints. Must match the
+    # fusion model's fitted convention (checked via the model's contract):
+    # "formation-relative" pairs with fusion-footpass-v1.json (the default
+    # model, fitted on relative coords), "absolute" with
+    # fusion-footpass-v2-abs.json. The default WAS "absolute", which paired
+    # the rel-fitted default model with abs serving -- the 2026-08-02 fit/serve
+    # bug, fixed in the best config but left in these defaults until the
+    # coherence audit caught it. Formation-relative is also the measured
+    # winner on both substrates (FOOTPASS 0.9815/0.664 vs 0.9770/0.659;
+    # SNMOT replay right 10 -> 14 at equal wrong, round-2 report).
+    occupancy_coords: str = "formation-relative"
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -280,6 +291,13 @@ class Params(BaseModel):
     # pair), not a bug; don't read "bounded-influence" as "safe across the
     # whole range" when reasoning about this weight elsewhere.
     jersey_weight_twopass: float = 1.0
+    # Candidates retained per merge decision in reid_detail.json. The default
+    # keeps the artifact readable (winner + near-misses); the gap-site
+    # evaluation harness raises it to keep the FULL scored hypothesis set,
+    # which is the substrate for candidate-recall vs ranking-failure analysis
+    # (a truncated list cannot distinguish "true link absent" from "true link
+    # ranked 9th").
+    reid_detail_max_candidates: int = 8
 
 
 def _tracklet_evidence(
@@ -289,6 +307,8 @@ def _tracklet_evidence(
     team_by_tid: dict,
     calibration: dict[int, np.ndarray],
     pitch_size_cm: tuple[float, float],
+    occupancy_coords: str = "absolute",
+    min_centroid_teammates: int = 3,
 ) -> list[TrackletEvidence]:
     """Reduce pipeline artifacts to the per-tracklet inputs merging needs.
 
@@ -314,18 +334,60 @@ def _tracklet_evidence(
 
     out: list[TrackletEvidence] = []
     pw, ph = pitch_size_cm
+
+    # Per-frame projected positions, computed once. Needed twice when
+    # occupancy_coords="formation-relative": each tracklet's own trajectory,
+    # and the per-frame per-team centroid it is measured against.
+    pos_by_tid: dict[int, dict[int, tuple[float, float]]] = {}
     for t in tracklets:
-        xs, ys = [], []
-        first_xy = last_xy = None
+        d: dict[int, tuple[float, float]] = {}
         for fr in t.frames:
             h = calibration.get(fr.frame_idx)
             if h is None:
                 continue
             px, py = _project(h, (fr.box.bottom_center.x, fr.box.bottom_center.y))
-            if not (np.isfinite(px) and np.isfinite(py)):
+            if np.isfinite(px) and np.isfinite(py):
+                d[fr.frame_idx] = (px / pw, py / ph)
+        pos_by_tid[t.tracklet_id] = d
+
+    centroid: dict[tuple[int, object], tuple[float, float, int]] = {}
+    if occupancy_coords == "formation-relative":
+        for t in tracklets:
+            team = team_by_tid.get(t.tracklet_id)
+            if team is None:
                 continue
-            xs.append(px / pw)
-            ys.append(py / ph)
+            for f, (x, y) in pos_by_tid[t.tracklet_id].items():
+                sx, sy, n = centroid.get((f, team), (0.0, 0.0, 0))
+                centroid[(f, team)] = (sx + x, sy + y, n + 1)
+
+    for t in tracklets:
+        xs, ys = [], []
+        first_xy = last_xy = None
+        team = team_by_tid.get(t.tracklet_id)
+        for fr in t.frames:
+            if fr.frame_idx not in pos_by_tid[t.tracklet_id]:
+                continue
+            px_n, py_n = pos_by_tid[t.tracklet_id][fr.frame_idx]
+            px, py = px_n * pw, py_n * ph
+            if occupancy_coords == "formation-relative":
+                # Mirrors matchlab_train position_evidence.relative_coords:
+                # subtract the team's OBSERVABLE centroid (self included) and
+                # recentre on 0.5. Below the teammate floor the frame carries
+                # no usable formation signal and is dropped from the footprint
+                # (abstention, ADR 003) -- on sparse clips a 1-2 player
+                # "centroid" is mostly the query itself.
+                c = centroid.get((fr.frame_idx, team))
+                if team is None or c is None or c[2] < min_centroid_teammates:
+                    ox = oy = None
+                else:
+                    ox = px_n - c[0] / c[2] + 0.5
+                    oy = py_n - c[1] / c[2] + 0.5
+                if ox is not None:
+                    xs.append(ox)
+                    ys.append(oy)
+            else:
+                xs.append(px / pw)
+                ys.append(py / ph)
             # Normalised like xs/ys: `displacement()` expects [0, 1] endpoints
             # (that is how the FOOTPASS prior was fitted). Feeding raw
             # centimetres here made every displacement ~1e5 "metres", so the
@@ -475,21 +537,42 @@ class ReidEngineAssociator(Associator):
                 ):
                     calibration[row.frame_idx] = np.asarray(row.homography)
 
+        coherence: dict = {}
         if p.merge_strategy == "two-pass":
             features_obj = (
                 FrameFeatures.load(ctx.store.path(ArtifactName.FRAME_FEATURES))
                 if ctx.store.exists(ArtifactName.FRAME_FEATURES)
                 else None
             )
+            model = FusionModel.load(p.fusion_model)
+            # The model's fps is a fit-corpus fact; served gaps must be in
+            # seconds of THIS video. At any fps other than the fitted 25 the
+            # gap and transition channels were silently mis-scaled (latent --
+            # every substrate so far happens to be 25 fps).
+            if ctx.video.fps:
+                model.fps = float(ctx.video.fps)
+            evidence = _tracklet_evidence(
+                tracklets,
+                features=features_obj,
+                team_by_tid=team_by_tid,
+                calibration=calibration,
+                pitch_size_cm=tuple(p.pitch_size_cm),
+                occupancy_coords=p.occupancy_coords,
+            )
+            emb_dim = next(
+                (len(e.embedding) for e in evidence if e.embedding is not None), None
+            )
+            # Fit/serve coherence: declarative mismatches are a loud error,
+            # distributional drift is recorded (reid_detail.json `coherence`)
+            # for reading, never a run-killer -- sparse clips shift
+            # distributions legitimately (ADR 003 abstention still applies).
+            model.validate_serving(
+                occupancy_coords=p.occupancy_coords, embedding_dim=emb_dim
+            )
+            coherence = model.serving_diagnostics(evidence)
             result = merge_threads_two_pass(
-                _tracklet_evidence(
-                    tracklets,
-                    features=features_obj,
-                    team_by_tid=team_by_tid,
-                    calibration=calibration,
-                    pitch_size_cm=tuple(p.pitch_size_cm),
-                ),
-                model=FusionModel.load(p.fusion_model),
+                evidence,
+                model=model,
                 min_score=p.pass1_min_score,
                 pass2_score=p.pass2_min_score,
                 min_margin=p.merge_min_margin,
@@ -500,6 +583,7 @@ class ReidEngineAssociator(Associator):
                 jersey_likelihood_by_tid=jersey_likelihood if p.jersey_enabled else None,
                 jersey_prior=jersey_prior if p.jersey_enabled else None,
                 jersey_weight=p.jersey_weight_twopass,
+                max_candidates=p.reid_detail_max_candidates,
             )
         else:
             result = merge_tracklets(
@@ -607,7 +691,8 @@ class ReidEngineAssociator(Associator):
             ),
         )
         self._write_reid_detail(
-            ctx, reps, breakdowns, result.channel_breakdowns, result.decisions
+            ctx, reps, breakdowns, result.channel_breakdowns, result.decisions,
+            coherence,
         )
         return entities
 
@@ -615,6 +700,7 @@ class ReidEngineAssociator(Associator):
         self, ctx: StageContext, reps: dict, breakdowns: dict,
         channel_breakdowns: list[dict] | None = None,
         decisions: list[dict] | None = None,
+        coherence: dict | None = None,
     ) -> None:
         """reid_detail.json: the engine's working (prototype provenance +
         pair breakdowns + rankings) for the Lab's merge inspector."""
@@ -665,6 +751,7 @@ class ReidEngineAssociator(Associator):
                 decisions=[
                     MergeDecision.model_validate(row) for row in (decisions or [])
                 ],
+                coherence=coherence or {},
             ),
         )
 

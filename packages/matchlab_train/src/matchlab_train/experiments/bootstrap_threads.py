@@ -201,6 +201,33 @@ def corrupt_fragments(frags, embeddings: dict, c: Corruption):
 
 
 CACHE = Path("data/experiments/bootstrap-cache")
+
+# Cache-variant knobs. These MUST appear in every cache filename that depends
+# on them: the caches were previously keyed only by (key, MAX_GAP_FRAMES), so
+# changing the coordinate convention or adding per-fragment data silently
+# returned stale pickles fitted under the old semantics -- the exact failure
+# class of the positional-cache alignment bug (2026-07-27) and the occupancy
+# fit/serve mismatch this revision exists to fix.
+#: "rel" = formation-relative xs/ys (the historical harness behaviour; what
+#: fusion-footpass-v1 was fitted on), "abs" = absolute pitch coordinates (what
+#: reid_engine actually serves).
+COORDS = "rel"
+#: Last-K/first-K absolute observation rows cached per fragment, for endpoint
+#: velocity estimation (item 3). Part of the cache key.
+TAIL_K = 30
+#: Gap-conditioned body calibration: upper edges (seconds) of the gap bins,
+#: each bin getting its own body LLR calibrator, the last (open) bin falling
+#: through to the flat calibrator. () = flat everywhere (historical). Part of
+#: the fit cache key.
+GAP_BINS: tuple[float, ...] = ()
+#: Gap-conditioned channel WEIGHTS (upper edges, seconds; one open last bin).
+#: Distinct from GAP_BINS (per-bin body CALIBRATORS): a jointly-weighted gap
+#: channel can shift the decision boundary per bin (an offset in the fused
+#: sum) but cannot rescale how many nats an appearance margin is WORTH per
+#: bin (a slope). Per-bin weights are that slope experiment. Fitted as one
+#: conditional logit over block-expanded features (llr x bin indicator), so
+#: bins share episodes and normalisation. () = one global weight vector.
+WEIGHT_GAP_BINS: tuple[float, ...] = ()
 # The fragmentation the appearance extractor was run at. `fragment_embeddings.pkl`
 # is keyed by position in THAT list, so any other setting must be remapped.
 APPEARANCE_GAP_FRAMES = 2
@@ -243,14 +270,15 @@ def half_frames(key: str):
     fragment -- 2,500 full-array scans per half -- which was both slow and the
     reason this died under memory pressure.
     """
-    cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}.pkl"
+    cache = CACHE / f"{key}-g{MAX_GAP_FRAMES}-{COORDS}-t{TAIL_K}.pkl"
     if cache.exists():
         frags, first_xy, last_xy = pickle.loads(cache.read_bytes())
         return frags, first_xy, last_xy, appearance_for(key, frags)
 
     half = load_half(VAL_H5, key)
     frags = build_fragments(
-        half, max_gap_frames=MAX_GAP_FRAMES, min_frames=50, relative=True
+        half, max_gap_frames=MAX_GAP_FRAMES, min_frames=50,
+        relative=(COORDS == "rel"),
     )
     rows = half.rows
     obs = rows[~np.isnan(rows[:, COL.ROI_X])]
@@ -268,6 +296,13 @@ def half_frames(key: str):
         b = lo + int(np.searchsorted(block, f.end, "right"))
         first_xy.append(obs[a, [COL.X, COL.Y]].astype(float))
         last_xy.append(obs[b - 1, [COL.X, COL.Y]].astype(float))
+        # Absolute-coordinate endpoint tails for velocity estimation: the
+        # fragment's own xs/ys may be formation-relative (COORDS="rel"), whose
+        # derivative is player-minus-centroid velocity -- wrong for a
+        # transition prediction. (frame, x, y) rows, real timestamps, because
+        # spans can contain gaps up to MAX_GAP_FRAMES.
+        f.tail_xy = obs[max(b - TAIL_K, a):b][:, [COL.FRAME, COL.X, COL.Y]].astype(float)
+        f.head_xy = obs[a:min(a + TAIL_K, b)][:, [COL.FRAME, COL.X, COL.Y]].astype(float)
     first_xy, last_xy = np.array(first_xy), np.array(last_xy)
 
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -437,7 +472,7 @@ def agglomerate(
         rows = np.array(
             [thread_pair_row(threads[x], t_fp[x], threads[y], t_fp[y]) for x, y in cands]
         )
-        scores = channel_llrs(rows, cals, prior) @ w
+        scores = apply_weights(channel_llrs(rows, cals, prior), rows[:, 2], w)
         order = np.argsort(-scores)
         used: set[int] = set()
         n_merged = 0
@@ -517,14 +552,21 @@ def fit_from(matches: list[str]):
     # Cached on the fit-match set: nothing about it varies across operating
     # points, and rebuilding it per sweep is what kept dying under memory
     # pressure from concurrent jobs.
-    fit_cache = CACHE / f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}.pkl"
+    bins_tok = "b" + "_".join(f"{b:g}" for b in GAP_BINS) if GAP_BINS else "flat"
+    if WEIGHT_GAP_BINS:
+        bins_tok += "-wb" + "_".join(f"{b:g}" for b in WEIGHT_GAP_BINS)
+    fit_cache = CACHE / (
+        f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}-{COORDS}-{bins_tok}.pkl"
+    )
     if fit_cache.exists():
         cals_d, prior_d, w = pickle.loads(fit_cache.read_bytes())
-        return (
-            {k: LLRCalibrator.from_dict(v) for k, v in cals_d.items()},
-            TransitionPrior.from_dict(prior_d),
-            w,
-        )
+        cals = {k: LLRCalibrator.from_dict(v) for k, v in cals_d.items()
+                if k != "body_by_gap"}
+        if "body_by_gap" in cals_d:
+            cals["body_by_gap"] = [
+                (hi, LLRCalibrator.from_dict(cd)) for hi, cd in cals_d["body_by_gap"]
+            ]
+        return cals, TransitionPrior.from_dict(prior_d), w
 
     rows, labels, episodes = [], [], []
     for m in matches:
@@ -555,24 +597,92 @@ def fit_from(matches: list[str]):
         col = r[:, j]
         ok = ~np.isnan(col)
         cals[name] = LLRCalibrator.fit(col[ok & y], col[ok & ~y], max_bins=200)
+    if GAP_BINS:
+        gaps = r[:, 2]
+        body = r[:, 0]
+        ok = ~np.isnan(body) & ~np.isnan(gaps)
+        lo = 0.0
+        by_gap = []
+        for hi in GAP_BINS:
+            sel = ok & (gaps >= lo) & (gaps < hi)
+            n_same, n_diff = int((sel & y).sum()), int((sel & ~y).sum())
+            print(f"  gap bin [{lo:g},{hi:g})s: same {n_same} diff {n_diff}")
+            # A thin bin gets no calibrator of its own: LLRCalibrator.fit
+            # degrades quietly on scraps, and a noisy per-bin mapping is worse
+            # than the flat one it would shadow.
+            if n_same >= 200 and n_diff >= 200:
+                by_gap.append(
+                    (hi, LLRCalibrator.fit(body[sel & y], body[sel & ~y],
+                                           max_bins=200))
+                )
+            lo = hi
+        cals["body_by_gap"] = by_gap
     prior = TransitionPrior.fit(r[:, 2], r[:, 3], r[:, 4], y)
     llr = channel_llrs(r, cals, prior)
     # One episode = one query fragment against its whole candidate field, which
     # is what the conditional logit expects. This was `arange(n) // 64`, a fixed
     # block size that straddled 2-3 unrelated queries and normalised the softmax
     # over several positives at once.
-    w = fit_fusion_weights(llr, ep_index, y)
+    if WEIGHT_GAP_BINS:
+        # One conditional logit over block-expanded features: row i's LLRs sit
+        # in the column block of its own gap bin, zeros elsewhere. Episodes
+        # (query fields) are unchanged, so candidates at different gaps still
+        # compete inside one softmax -- which is the decision being modelled.
+        wb = _weight_bin(r[:, 2], WEIGHT_GAP_BINS)
+        n_bins = len(WEIGHT_GAP_BINS) + 1
+        n_ch = llr.shape[1]
+        expanded = np.zeros((len(llr), n_bins * n_ch))
+        for b in range(n_bins):
+            sel = wb == b
+            expanded[sel, b * n_ch:(b + 1) * n_ch] = llr[sel]
+            print(f"  weight bin {b}: same {int((sel & y).sum())} "
+                  f"diff {int((sel & ~y).sum())}")
+        w_flat = fit_fusion_weights(expanded, ep_index, y)
+        w = {"edges": tuple(WEIGHT_GAP_BINS),
+             "w": w_flat.reshape(n_bins, n_ch)}
+    else:
+        w = fit_fusion_weights(llr, ep_index, y)
     CACHE.mkdir(parents=True, exist_ok=True)
-    fit_cache.write_bytes(
-        pickle.dumps(({k: v.to_dict() for k, v in cals.items()}, prior.to_dict(), w))
-    )
+    cals_d = {k: v.to_dict() for k, v in cals.items() if k != "body_by_gap"}
+    if "body_by_gap" in cals:
+        cals_d["body_by_gap"] = [(hi, c.to_dict()) for hi, c in cals["body_by_gap"]]
+    fit_cache.write_bytes(pickle.dumps((cals_d, prior.to_dict(), w)))
     return cals, prior, w
 
 
+def _weight_bin(gaps: np.ndarray, edges: tuple[float, ...]) -> np.ndarray:
+    """Row -> weight-bin index (0..len(edges)); the last bin is open."""
+    return np.searchsorted(np.asarray(edges, dtype=float), gaps, side="right")
+
+
+def apply_weights(llr: np.ndarray, gaps: np.ndarray, w) -> np.ndarray:
+    """Fused score per row: global (`w` is a vector) or gap-binned (`w` is
+    {"edges": ..., "w": (n_bins, n_channels)} -- each pair scored with the
+    weight vector of ITS OWN gap bin)."""
+    if not isinstance(w, dict):
+        return llr @ w
+    wb = _weight_bin(np.asarray(gaps, dtype=float), tuple(w["edges"]))
+    return np.einsum("ij,ij->i", llr, np.asarray(w["w"])[wb])
+
+
 def channel_llrs(r: np.ndarray, cals, prior) -> np.ndarray:
+    by_gap = cals.get("body_by_gap") or []
+
+    def body_cal(gap: float):
+        for hi, cal in by_gap:
+            if gap < hi:
+                return cal
+        return cals["body"]
+
     cols = []
     for j, name in enumerate(CHANNELS):
         col = r[:, j]
+        if name == "body" and by_gap:
+            cols.append(np.array([
+                body_cal(float(g)).llr(float(v)) if not np.isnan(v) else 0.0
+                for v, g in zip(col, r[:, 2])
+            ]))
+            continue
         cols.append(
             np.array([cals[name].llr(float(v)) if not np.isnan(v) else 0.0 for v in col])
         )
@@ -650,7 +760,7 @@ def thread_half(
                     for k in live
                 ]
             )
-            scores = channel_llrs(r, cals, prior) @ w
+            scores = apply_weights(channel_llrs(r, cals, prior), r[:, 2], w)
             o = np.argsort(-scores)
             best_k, best_s = live[o[0]], float(scores[o[0]])
             runner = float(scores[o[1]]) if len(o) > 1 else -np.inf
@@ -746,8 +856,12 @@ def main() -> None:
         others = [m for m in MATCHES if m != held_out]
         print(f"fit on {others} -> evaluate {held_out}", flush=True)
         cals, prior, w = fit_from(others)
-        print(f"  weights {dict(zip((*CHANNELS, 'transition'), w.round(3), strict=True))}",
-              flush=True)
+        if isinstance(w, dict):
+            print(f"  gap-binned weights (edges {w['edges']}):\n{np.round(w['w'], 3)}",
+                  flush=True)
+        else:
+            print(f"  weights {dict(zip((*CHANNELS, 'transition'), w.round(3), strict=True))}",
+                  flush=True)
         for ms in args.min_score:
             for cont in args.contaminate:
                 corr = None if cont <= 0 else Corruption(contaminate=cont, seed=0)

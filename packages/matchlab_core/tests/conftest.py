@@ -12,6 +12,7 @@ reference it by name without a duplicate-registration error.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from matchlab_core.stages.associate.embedders import BodyEmbedder, register_embedder
 
 
@@ -40,3 +41,29 @@ class FakeEmbedder(BodyEmbedder):
             quals.append(b / 255.0)
         quality = np.array(quals, dtype=np.float32) if self.use_model_quality else None
         return np.stack(embs).astype(np.float32), quality
+
+
+@pytest.fixture(autouse=True)
+def _contract_free_default_fusion_model(request, monkeypatch, tmp_path):
+    """Point the engine's DEFAULT fusion model at a contract-free copy of v1.
+
+    The shipped artefact now carries a feature contract (embedding_dim=256,
+    occupancy_coords) and `validate_serving` hard-fails on mismatch -- which is
+    the production guarantee, but these unit tests exercise merge MECHANICS on
+    2-4-dim toy embeddings that no fitted artefact could ever match. Stripping
+    the contract keeps them tests of the engine rather than of the fixture.
+    The contract/validation behaviour itself has dedicated tests in
+    test_reid_twopass.py, which build models directly and are unaffected.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from matchlab_core.reid.twopass import FusionModel as _FM
+
+    def _load_nocontract(path):
+        d = _json.loads(_Path(path).read_text())
+        d.pop("contract", None)
+        return _FM.from_dict(d)
+
+    monkeypatch.setattr(_FM, "load", _load_nocontract)
+    yield

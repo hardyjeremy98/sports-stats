@@ -172,6 +172,39 @@ class FusionModel:
     # exactly where its evidence is too thin to trust (ADR 003's "missing or
     # low-quality evidence is neutral", applied continuously). 0.0 disables.
     occupancy_shrink_n0: float = 0.0
+    # Dirichlet pseudo-count per footprint cell (threads.footprint alpha).
+    # Applied by merge_threads_two_pass when it builds footprints; 0.0 = off.
+    occupancy_alpha: float = 0.0
+    # Gap-conditioned calibrators: {channel: [[gap_hi_s, calibrator], ...]},
+    # bins tried in order, first with gap_s < gap_hi_s wins, falling through to
+    # the flat calibrator in `calibrators` past the last edge. Appearance
+    # reliability varies enormously with the gap (fine-tuned soccer re-ID drops
+    # ~99% -> 62% from 1-frame to 12 s gaps); one global body calibrator
+    # averages regimes that share nothing but a name. Empty dict = flat.
+    calibrators_by_gap: dict[str, list[tuple[float, LLRCalibrator]]] = field(
+        default_factory=dict
+    )
+    # Feature contract: the representation this model's artefacts were FITTED
+    # on, recorded so serving can be checked against it. Two silent fit/serve
+    # divergences have already shipped (transition endpoints in cm vs the
+    # fitted [0,1] convention, 2026-08-01; occupancy served absolute against a
+    # formation-relative fit, 2026-08-02) -- both invisible to every test and
+    # both only found by manual diffing. Keys are declarative facts about the
+    # fitted features; `validate_serving` hard-fails on any that the serving
+    # configuration contradicts. Unknown/absent keys are skipped, so old
+    # artefacts load unchanged (and unchecked -- add the contract when
+    # refitting).
+    contract: dict = field(default_factory=dict)
+    # Gap-conditioned channel WEIGHTS: {"edges": [hi_s, ...], "weights":
+    # [{channel: w}, ...]} with len(weights) == len(edges) + 1 (last bin
+    # open). A pair is scored with the weight vector of ITS OWN gap bin.
+    # Distinct from calibrators_by_gap (a per-bin offset in the fused sum):
+    # this rescales what a channel's margin is WORTH per bin (a slope), which
+    # is the experiment the calibrator form could not express. Measured above
+    # the flat frontier on FOOTPASS LOSO at matched coverage (5/20 s edges:
+    # ~25 fewer wrong at coverage 0.649; audit report 2026-08-02). Empty =
+    # flat `weights`.
+    weights_by_gap: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -181,6 +214,13 @@ class FusionModel:
             "fps": self.fps,
             "required": list(self.required),
             "occupancy_shrink_n0": self.occupancy_shrink_n0,
+            "occupancy_alpha": self.occupancy_alpha,
+            "calibrators_by_gap": {
+                k: [[hi, cal.to_dict()] for hi, cal in bins]
+                for k, bins in self.calibrators_by_gap.items()
+            },
+            "contract": dict(self.contract),
+            "weights_by_gap": dict(self.weights_by_gap),
         }
 
     @classmethod
@@ -194,11 +234,167 @@ class FusionModel:
             fps=float(d.get("fps", 25.0)),
             required=tuple(d.get("required", ("body",))),
             occupancy_shrink_n0=float(d.get("occupancy_shrink_n0", 0.0)),
+            occupancy_alpha=float(d.get("occupancy_alpha", 0.0)),
+            calibrators_by_gap={
+                k: [(float(hi), LLRCalibrator.from_dict(cd)) for hi, cd in bins]
+                for k, bins in d.get("calibrators_by_gap", {}).items()
+            },
+            contract=dict(d.get("contract", {})),
+            weights_by_gap=dict(d.get("weights_by_gap", {})),
         )
 
     @classmethod
     def load(cls, path: str | Path) -> FusionModel:
         return cls.from_dict(json.loads(Path(path).read_text()))
+
+    def validate_serving(
+        self, *, occupancy_coords: str | None = None, embedding_dim: int | None = None
+    ) -> None:
+        """Hard-fail when the serving configuration contradicts the contract.
+
+        Only keys PRESENT in both the contract and the call are compared, so an
+        artefact without a contract (or a caller that cannot know a value yet)
+        is never blocked -- the check tightens as artefacts are refitted with
+        contracts, it never loosens an existing guarantee.
+        """
+        c = self.contract
+        if (
+            occupancy_coords is not None
+            and "occupancy_coords" in c
+            and c["occupancy_coords"] != occupancy_coords
+        ):
+            raise ValueError(
+                f"fusion model fitted with occupancy_coords="
+                f"{c['occupancy_coords']!r} but the engine is serving "
+                f"{occupancy_coords!r}. This exact mismatch shipped silently on "
+                "2026-08-02 (rel-fitted calibrator scored on absolute "
+                "footprints); pair the model with its fitted convention or "
+                "refit."
+            )
+        if (
+            embedding_dim is not None
+            and "embedding_dim" in c
+            and int(c["embedding_dim"]) != int(embedding_dim)
+        ):
+            raise ValueError(
+                f"fusion model's body calibrator was fitted on "
+                f"{c['embedding_dim']}-dim embeddings but the run serves "
+                f"{embedding_dim}-dim ones -- cosines from a different "
+                "embedding space are not the fitted score."
+            )
+
+    def serving_diagnostics(
+        self,
+        evidence: list[TrackletEvidence],
+        *,
+        max_pairs: int = 2000,
+        seed: int = 0,
+    ) -> dict:
+        """Distributional fit/serve check: served raw channel values against the
+        fitted distribution each calibrator encodes.
+
+        A calibrator's `edges` are quantiles of its pooled fitting scores, so
+        the fitted distribution ships inside every artefact already -- no refit
+        needed. Per channel this reports the served range/median next to the
+        fitted one and the fraction of served values outside the fitted
+        support. Transition has no histogram calibrator, so its check is
+        physical: endpoint displacements beyond `max_plausible_m` (a pitch is
+        ~120 m corner to corner) mean the endpoints are not in the fitted
+        [0, 1] convention -- the 2026-08-01 units bug served ~1e5 "metres".
+
+        Diagnostic, not a gate: sparse clips legitimately shift distributions
+        (a 30-frame footprint's JS distance is biased high), so out-of-range
+        fractions FLAG for a human reading the run, they must not kill it.
+        `flag` is True where the shift is beyond what any legitimate substrate
+        change has produced.
+        """
+        rng = np.random.default_rng(seed)
+        n = len(evidence)
+        served: dict[str, list[float]] = {"body": [], "occupancy": [], "gap": []}
+        disp: list[float] = []
+        if n >= 2:
+            n_pairs = min(max_pairs, n * (n - 1) // 2)
+            idx = rng.integers(0, n, size=(int(2.5 * n_pairs) + 8, 2))
+            idx = idx[idx[:, 0] != idx[:, 1]][:n_pairs]
+            states = {}
+            fps = {}
+            for i, j in idx:
+                a, b = evidence[int(i)], evidence[int(j)]
+                if b.start < a.start:
+                    a, b = b, a
+                # Only pairs the engine could actually score: overlapping
+                # tracklets are gated out before any channel sees them, so a
+                # negative gap is not part of the served distribution.
+                if b.start <= a.end:
+                    continue
+                for e in (a, b):
+                    if e.tracklet_id not in states:
+                        states[e.tracklet_id] = e.to_state()
+                        fps[e.tracklet_id] = states[e.tracklet_id].footprint(
+                            alpha=self.occupancy_alpha
+                        )
+                sa, sb = states[a.tracklet_id], states[b.tracklet_id]
+                if sa.prototype is not None and sb.prototype is not None:
+                    served["body"].append(float(sa.prototype @ sb.prototype))
+                if sa.n_frames and sb.n_frames:
+                    served["occupancy"].append(
+                        float(js_distance(fps[b.tracklet_id], fps[a.tracklet_id]))
+                    )
+                served["gap"].append((sb.first_start - sa.last_end) / self.fps)
+                if a.exit_xy is not None and b.entry_xy is not None:
+                    dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
+                    disp.append(float(np.hypot(dx[0], dy[0])))
+
+        out: dict[str, dict] = {}
+        for name, vals in served.items():
+            cal = self.calibrators.get(name)
+            row: dict = {"served_n": len(vals)}
+            if vals:
+                v = np.asarray(vals)
+                row |= {
+                    "served_median": float(np.median(v)),
+                    "served_lo": float(v.min()),
+                    "served_hi": float(v.max()),
+                }
+            if cal is not None and len(cal.edges) >= 3:
+                lo, hi = float(cal.edges[0]), float(cal.edges[-1])
+                med = float(cal.edges[len(cal.edges) // 2])
+                row |= {"fitted_lo": lo, "fitted_hi": hi, "fitted_median": med}
+                if vals:
+                    v = np.asarray(vals)
+                    frac_out = float(np.mean((v < lo) | (v > hi)))
+                    row["frac_outside_fitted"] = frac_out
+                    row["flag"] = bool(frac_out > 0.5)
+            out[name] = row
+        t_row: dict = {"served_n": len(disp), "max_plausible_m": 150.0}
+        if disp:
+            d = np.asarray(disp)
+            t_row |= {
+                "served_median_m": float(np.median(d)),
+                "served_max_m": float(d.max()),
+                "flag": bool(np.median(d) > 150.0),
+            }
+        out["transition"] = t_row
+        return out
+
+    def _calibrator_for(self, name: str, gap_s: float) -> LLRCalibrator | None:
+        for hi, cal in self.calibrators_by_gap.get(name, ()):
+            if gap_s < hi:
+                return cal
+        return self.calibrators.get(name)
+
+    def _weight_for(self, name: str, gap_s: float) -> float:
+        wbg = self.weights_by_gap
+        if wbg:
+            i = 0
+            for hi in wbg["edges"]:
+                if gap_s < float(hi):
+                    break
+                i += 1
+            w = wbg["weights"][i].get(name)
+            if w is not None:
+                return float(w)
+        return self.weights.get(name, 1.0)
 
     def score_channels(
         self, a: ThreadState, a_fp, b: ThreadState, b_fp
@@ -228,20 +424,21 @@ class FusionModel:
         raw["gap"] = gap_s
 
         if self.required and not any(
-            n in raw and self.calibrators.get(n) is not None for n in self.required
+            n in raw and self._calibrator_for(n, gap_s) is not None
+            for n in self.required
         ):
             for name in ("body", "occupancy", "gap", "transition"):
                 channels.append({
                     "name": name, "raw": raw.get(name), "llr": None,
-                    "weight": self.weights.get(name, 1.0), "contribution": 0.0,
+                    "weight": self._weight_for(name, gap_s), "contribution": 0.0,
                 })
             return None, channels
 
         total = 0.0
         for name in ("body", "occupancy", "gap"):
             value = raw.get(name)
-            cal = self.calibrators.get(name)
-            weight = self.weights.get(name, 1.0)
+            cal = self._calibrator_for(name, gap_s)
+            weight = self._weight_for(name, gap_s)
             if value is None or cal is None or not np.isfinite(value):
                 channels.append({"name": name, "raw": value, "llr": None,
                                  "weight": weight, "contribution": 0.0})
@@ -255,7 +452,7 @@ class FusionModel:
             channels.append({"name": name, "raw": value, "llr": llr,
                              "weight": weight, "contribution": contribution})
 
-        t_weight = self.weights.get("transition", 1.0)
+        t_weight = self._weight_for("transition", gap_s)
         t_llr = None
         if self.prior is not None and b.entry_xy is not None:
             dx, dy = displacement(a.exit_xy[None, :], b.entry_xy[None, :])
@@ -403,7 +600,7 @@ def merge_threads_two_pass(
         # A merge decision is only explicable next to the alternatives it beat
         # -- and an abstention only next to the ones that were not good enough.
         cand_rows: list[dict] = []
-        q_fp = states[i].footprint()
+        q_fp = states[i].footprint(alpha=model.occupancy_alpha)
         q_jersey = jersey_by_tid.get(tid[i])
         anchor_k = None
         for k in live:
@@ -470,7 +667,7 @@ def merge_threads_two_pass(
             ))
             edges.append((tid[partner], tid[i]))
             threads[best_k] = threads[best_k].merged_with(states[i])
-            t_fp[best_k] = threads[best_k].footprint()
+            t_fp[best_k] = threads[best_k].footprint(alpha=model.occupancy_alpha)
             t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey)
             t_members[best_k].append(i)
         else:
@@ -491,7 +688,7 @@ def merge_threads_two_pass(
                 runner, min_score, cand_rows, max_candidates,
             ))
             threads.append(states[i])
-            t_fp.append(states[i].footprint())
+            t_fp.append(states[i].footprint(alpha=model.occupancy_alpha))
             t_members.append([i])
             t_team.append(team[i])
             t_jersey.append(q_jersey)
@@ -570,7 +767,7 @@ def merge_threads_two_pass(
                 ))
                 edges.append((tid[a_end], tid[b_start]))
                 threads[x] = threads[x].merged_with(threads[y])
-                t_fp[x] = threads[x].footprint()
+                t_fp[x] = threads[x].footprint(alpha=model.occupancy_alpha)
                 t_jersey[x] = _pool_jersey(t_jersey[x], t_jersey[y])
                 t_members[x] = t_members[x] + t_members[y]
                 threads[y] = None

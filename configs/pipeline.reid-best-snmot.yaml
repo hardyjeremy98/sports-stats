@@ -1,0 +1,101 @@
+# TIER: BENCHMARK (see configs/README.md)
+# The round-2 best-measured re-ID merging system (2026-08-02, branch
+# reid-round2), assembled from measured winners only:
+#   - two-pass merge engine, transition units fix (742fc50)
+#   - pass-1 winner-margin 0.5 (FOOTPASS: strictly dominates every absolute
+#     threshold; SNMOT tuning: insensitive across p1 in [1.0, 4.0])
+#   - formation-relative occupancy serving paired with the relative-fitted
+#     fusion model (fit/serve coherence; FOOTPASS 0.9815/0.664 vs absolute
+#     0.9770/0.659; SNMOT replay right 10 -> 14 at equal wrong)
+#   - calibration_min_confidence 0.1: the PnLCalib confidence scale lives in
+#     0.15-0.40, the old 0.5 default kept ~3% of frames and starved every
+#     position channel
+#   - anchorless (ADR 001 posture; oracle anchors leak GT into entity metrics)
+#   - jersey OCR OFF here deliberately: this config isolates the merge
+#     engine's own evidence stack so its numbers attribute to re-ID merging,
+#     not to the OCR channel. Flip jersey_enabled for the fused system.
+# Measured NON-winners deliberately absent: occupancy_alpha (no effect at clip
+# scale, harmful sibling at FOOTPASS scale), pass2_min_margin (on-frontier
+# only), velocity/moving-mean transition (loses on both substrates),
+# gap-binned body calibrators (see round-2 report).
+name: reid-best-snmot
+description: >
+  Round-2 best re-ID merging system on the real-detector TDLP substrate:
+  mobadam detector, TDLP-full tracker with PRTreID features, PnLCalib,
+  two-pass merge with margin rule and coherent formation-relative occupancy.
+sport: soccer
+pitch: fifa
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection-mobadam.pt
+      imgsz: 960
+      confidence: 0.4
+  track:
+    impl: tdlp-full
+    params:
+      device: cuda:0
+      timeout_s: 7200.0
+      keep_work: false
+      reid_model: prtreid
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: pnlcalib
+    params:
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
+  associate:
+    impl: reid-engine
+    params:
+      merge_strategy: two-pass
+      fusion_model: configs/reid/fusion-footpass-v1.json
+      pass1_min_score: 4.0
+      pass2_min_score: 2.0
+      merge_min_margin: 0.5
+      pass2_min_margin: 0.0
+      occupancy_coords: formation-relative
+      # 0.5, NOT the 0.1 the oracle-substrate replays suggested: on REAL
+      # detector+PnLCalib runs the low-confidence homographies are genuinely
+      # bad, and admitting them handed the position channels false positive
+      # evidence (+2 wrong merges on SNMOT-125/126, isolated by ablation
+      # 2026-08-02). The starvation concern stands for the oracle runs only.
+      calibration_min_confidence: 0.5
+      anchor_source: none
+      jersey_enabled: false
+      gmc: true
+      gmc_downscale: 2
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

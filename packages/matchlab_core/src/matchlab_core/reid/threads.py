@@ -121,7 +121,7 @@ class ThreadState:
             entry_xy=entry_xy,
         )
 
-    def footprint(self, *, sigma: float = 1.0) -> Footprint:
+    def footprint(self, *, sigma: float = 1.0, alpha: float = 0.0) -> Footprint:
         """Where this identity has been seen, pooled over every fragment.
 
         Frames -- not fragments -- carry the weight: a 40-frame observation says
@@ -129,6 +129,13 @@ class ThreadState:
         per-fragment footprints would give them equal say.
         """
         g = _blur(self.counts, sigma)
+        # Dirichlet pseudo-counts: `alpha` per cell before normalising. A thin
+        # observation's footprint is pulled toward uniform in proportion to how
+        # thin it is (posterior mean of a Dirichlet(alpha) prior), so JS
+        # distances between two smudges stop reading as confidently disjoint.
+        # 0.0 (default) is bit-identical to the historical footprint.
+        if alpha > 0.0:
+            g = g + alpha
         total = g.sum()
         g = g / total if total > 0 else np.full_like(g, 1.0 / g.size)
         return Footprint(grid=g, n_frames=self.n_frames)

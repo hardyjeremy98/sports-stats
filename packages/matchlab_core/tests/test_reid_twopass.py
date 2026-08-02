@@ -412,3 +412,117 @@ def test_pass2_margin_blocks_contested_merges_only():
         pass2_min_margin=0.5,
     )
     assert [1, 2] in res1.groups and [3] in res1.groups
+
+
+def test_footprint_alpha_zero_is_identical_and_positive_pulls_uniform():
+    import numpy as np
+    from matchlab_core.reid.threads import ThreadState
+
+    s = ThreadState.from_fragment(
+        np.array([0.5]), np.array([0.5]), embedding=None, start=0, end=1,
+        exit_xy=np.zeros(2), entry_xy=np.zeros(2),
+    )
+    base = s.footprint()
+    assert np.array_equal(s.footprint(alpha=0.0).grid, base.grid)
+    smoothed = s.footprint(alpha=1.0).grid
+    uniform = np.full_like(base.grid, 1.0 / base.grid.size)
+    # strictly closer to uniform than the raw single-cell footprint
+    assert np.abs(smoothed - uniform).sum() < np.abs(base.grid - uniform).sum()
+    assert np.isclose(smoothed.sum(), 1.0)
+
+
+def test_gap_binned_calibrators_select_by_gap_and_round_trip():
+    import numpy as np
+    from matchlab_core.reid.evidence import LLRCalibrator
+    from matchlab_core.reid.twopass import FusionModel
+
+    rng = np.random.default_rng(0)
+    hi = LLRCalibrator.fit(rng.normal(0.9, 0.05, 2000), rng.normal(0.1, 0.05, 2000))
+    lo = LLRCalibrator.fit(rng.normal(0.6, 0.05, 2000), rng.normal(0.4, 0.05, 2000))
+    m = FusionModel(
+        calibrators={"body": lo},
+        calibrators_by_gap={"body": [(2.0, hi)]},
+        weights={"body": 1.0},
+    )
+    # short gap -> sharp calibrator; long gap falls through to the flat one
+    assert m._calibrator_for("body", 1.0) is hi
+    assert m._calibrator_for("body", 10.0) is lo
+    assert m._calibrator_for("occupancy", 1.0) is None
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.occupancy_alpha == 0.0
+    assert len(m2.calibrators_by_gap["body"]) == 1
+    assert m2._calibrator_for("body", 1.0).llr(0.8) == m._calibrator_for(
+        "body", 1.0
+    ).llr(0.8)
+
+
+def test_contract_round_trips_and_validate_serving_gates_mismatches():
+    m = _model()
+    m.contract = {"occupancy_coords": "formation-relative", "embedding_dim": 2}
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.contract == m.contract
+    # Matching serving passes; absent keys are never blocked.
+    m2.validate_serving(occupancy_coords="formation-relative", embedding_dim=2)
+    m2.validate_serving()
+    FusionModel(calibrators={}, weights={}).validate_serving(
+        occupancy_coords="absolute", embedding_dim=999
+    )
+    with pytest.raises(ValueError, match="occupancy_coords"):
+        m2.validate_serving(occupancy_coords="absolute")
+    with pytest.raises(ValueError, match="dim"):
+        m2.validate_serving(embedding_dim=256)
+
+
+def test_serving_diagnostics_flags_units_broken_endpoints():
+    """The 2026-08-01 transition units bug (endpoints in cm, not [0,1]) must
+    trip the physical-displacement flag; correctly-normalised endpoints must
+    not."""
+    m = _model()
+    rng = np.random.default_rng(2)
+
+    def ev(units: float):
+        out = []
+        for i in range(12):
+            xy = rng.random(2) * units
+            out.append(TrackletEvidence(
+                tracklet_id=i, start=i * 100, end=i * 100 + 50, team=0,
+                embedding=rng.normal(size=4),
+                xs=rng.random(5), ys=rng.random(5),
+                entry_xy=xy, exit_xy=xy,
+            ))
+        return out
+
+    good = m.serving_diagnostics(ev(1.0), max_pairs=200)
+    bad = m.serving_diagnostics(ev(10500.0), max_pairs=200)
+    assert good["transition"]["flag"] is False
+    assert bad["transition"]["flag"] is True
+    # Body cosines from a 4-dim gaussian are nowhere near the fitted 0.9/0.1
+    # bimodal pool's support edges -- but the report must still carry both
+    # sides so a reader can compare them.
+    assert good["body"]["served_n"] > 0
+    assert "fitted_lo" in good["body"] and "served_median" in good["body"]
+
+
+def test_weights_by_gap_selects_bin_and_round_trips():
+    m = _model()
+    m.weights_by_gap = {
+        "edges": [5.0],
+        "weights": [{"body": 2.0}, {"body": 0.5}],
+    }
+    m2 = FusionModel.from_dict(m.to_dict())
+    assert m2.weights_by_gap == m.weights_by_gap
+    assert m2._weight_for("body", 1.0) == 2.0
+    assert m2._weight_for("body", 10.0) == 0.5
+    # A channel absent from the bin's dict falls through to the flat weights.
+    assert m2._weight_for("gap", 1.0) == m2.weights.get("gap", 1.0)
+    # Scoring uses the per-bin weight: same pair, short vs long gap.
+    e = np.array([1.0, 0.0])
+    a = _ev(1, 0, 10, e).to_state()
+    short = _ev(2, 20, 30, e).to_state()
+    long_ = _ev(3, 400, 410, e).to_state()
+    fa, fs, fl = a.footprint(), short.footprint(), long_.footprint()
+    llr = m2.calibrators["body"].llr(1.0)
+    s_short, _ = m2.score_channels(a, fa, short, fs)
+    s_long, _ = m2.score_channels(a, fa, long_, fl)
+    assert abs(s_short - 2.0 * llr) < 1e-9
+    assert abs(s_long - 0.5 * llr) < 1e-9

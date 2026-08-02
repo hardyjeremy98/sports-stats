@@ -1077,12 +1077,31 @@
   "transition": 0.47072770818712467
  },
  "fps": 25.0,
- "provenance": {
-  "fitted_on": "FOOTPASS val game_18+game_24+game_47, 6 halves",
-  "substrate": "GT observability spans, max_gap_frames=30 (1.2 s), min_frames=50",
-  "appearance": "prtreid embeddings, remapped to the g30 fragmentation",
-  "date": "2026-07-31",
-  "caveat": "fitted on broadcast footage with oracle pitch coordinates and oracle team labels; expect a domain gap on other footage"
+ "weights_by_gap": {
+  "edges": [
+   5.0,
+   20.0
+  ],
+  "weights": [
+   {
+    "body": 1.9796286448452687,
+    "occupancy": 0.16103461206778322,
+    "gap": -3.2964213186627878,
+    "transition": 0.5948905653361706
+   },
+   {
+    "body": 1.9783428034769173,
+    "occupancy": 0.4639104868603366,
+    "gap": 0.31729075385400163,
+    "transition": 0.5030755519131795
+   },
+   {
+    "body": 2.006892116126554,
+    "occupancy": 0.32527591466019645,
+    "gap": 1.089352574449149,
+    "transition": 0.2606433250593144
+   }
+  ]
  },
  "contract": {
   "occupancy_coords": "formation-relative",
@@ -1095,5 +1114,14 @@
    12,
    8
   ]
+ },
+ "provenance": {
+  "fitted_on": "FOOTPASS val game_18+game_24+game_47, 6 halves",
+  "substrate": "GT observability spans, max_gap_frames=30 (1.2 s), min_frames=50",
+  "appearance": "prtreid embeddings, remapped to the g30 fragmentation",
+  "weights": "gap-binned (edges 5/20 s), conditional logit over block-expanded features",
+  "date": "2026-08-02",
+  "measured": "FOOTPASS LOSO pass-1 frontier: above flat at matched coverage in the 0.63-0.70 band (audit report 2026-08-02)",
+  "caveat": "fitted on broadcast footage with oracle pitch coordinates and oracle team labels"
  }
 }

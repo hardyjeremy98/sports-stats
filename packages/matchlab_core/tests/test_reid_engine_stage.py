@@ -531,3 +531,52 @@ def test_tracklet_evidence_endpoints_are_normalised():
         assert np.all(xy >= 0.0) and np.all(xy <= 1.0)
     # endpoints agree with the normalised trajectory they bracket
     assert np.isclose(ev.entry_xy[0], ev.xs[0]) and np.isclose(ev.exit_xy[0], ev.xs[-1])
+
+
+def test_formation_relative_occupancy_subtracts_team_centroid_with_guard():
+    """Three same-team tracklets visible in one calibrated frame: each one's
+    relative coordinate is its position minus the team centroid, +0.5, exactly
+    the harness's relative_coords convention. With only two teammates visible
+    the frame is dropped (guard), and entry/exit stay ABSOLUTE regardless."""
+    from matchlab_core.schemas import Box, Team, Tracklet, TrackletFrame
+    from matchlab_core.stages.associate.reid_engine import _tracklet_evidence
+
+    h = np.array([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 1.0]])
+    def trk(tid, x):
+        return Tracklet(
+            tracklet_id=tid, cls=DetectionClass.PLAYER,
+            frames=[TrackletFrame(frame_idx=0,
+                                  box=Box(x1=x, y1=300, x2=x + 20, y2=350),
+                                  confidence=1.0)],
+        )
+    tracklets = [trk(1, 100), trk(2, 300), trk(3, 500)]
+    team = {1: Team.HOME, 2: Team.HOME, 3: Team.HOME}
+    evs = _tracklet_evidence(
+        tracklets, features=None, team_by_tid=team, calibration={0: h},
+        pitch_size_cm=(10500.0, 6800.0),
+        occupancy_coords="formation-relative", min_centroid_teammates=3,
+    )
+    # centroid x of bottom-centres: ((110+310+510)*10)/3 cm; each rel x is
+    # own - centroid + 0.5 in normalised units
+    xs_cm = [(100 + 10) * 10, (300 + 10) * 10, (500 + 10) * 10]
+    cx = sum(xs_cm) / 3 / 10500.0
+    for ev, x_cm in zip(evs, xs_cm):
+        assert ev.xs is not None and len(ev.xs) == 1
+        assert np.isclose(ev.xs[0], x_cm / 10500.0 - cx + 0.5)
+        # entry/exit remain absolute normalised
+        assert np.isclose(ev.entry_xy[0], x_cm / 10500.0)
+
+    # guard: only two visible teammates -> frame dropped from footprints
+    evs2 = _tracklet_evidence(
+        tracklets[:2], features=None, team_by_tid=team, calibration={0: h},
+        pitch_size_cm=(10500.0, 6800.0),
+        occupancy_coords="formation-relative", min_centroid_teammates=3,
+    )
+    assert all(e.xs is None for e in evs2)
+    # absolute mode unchanged by the restructure
+    evs3 = _tracklet_evidence(
+        tracklets, features=None, team_by_tid=team, calibration={0: h},
+        pitch_size_cm=(10500.0, 6800.0),
+    )
+    assert all(len(e.xs) == 1 for e in evs3)
+    assert np.isclose(evs3[0].xs[0], evs3[0].entry_xy[0])
