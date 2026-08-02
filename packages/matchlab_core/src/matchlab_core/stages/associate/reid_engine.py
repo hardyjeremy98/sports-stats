@@ -291,6 +291,13 @@ class Params(BaseModel):
     # pair), not a bug; don't read "bounded-influence" as "safe across the
     # whole range" when reasoning about this weight elsewhere.
     jersey_weight_twopass: float = 1.0
+    # Candidates retained per merge decision in reid_detail.json. The default
+    # keeps the artifact readable (winner + near-misses); the gap-site
+    # evaluation harness raises it to keep the FULL scored hypothesis set,
+    # which is the substrate for candidate-recall vs ranking-failure analysis
+    # (a truncated list cannot distinguish "true link absent" from "true link
+    # ranked 9th").
+    reid_detail_max_candidates: int = 8
 
 
 def _tracklet_evidence(
@@ -576,6 +583,7 @@ class ReidEngineAssociator(Associator):
                 jersey_likelihood_by_tid=jersey_likelihood if p.jersey_enabled else None,
                 jersey_prior=jersey_prior if p.jersey_enabled else None,
                 jersey_weight=p.jersey_weight_twopass,
+                max_candidates=p.reid_detail_max_candidates,
             )
         else:
             result = merge_tracklets(

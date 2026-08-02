@@ -60,3 +60,64 @@ the same mismatch round 2 already re-measured in both directions (report
 2026-08-02, item 4) — that evaluation stands and is what justified the default
 flip. The fps fix is a no-op on every existing substrate (all 25 fps),
 asserted rather than re-measured.
+
+## Phase B — evaluation power
+
+### The noise floor, numerically
+
+Clip-level merge metric over the six best2 runs: 5 right / 0 wrong / 3 missed
+final links; pass-1 judged merges 3/0. With 3 events and 0 wrong, the exact
+95% lower bound on merge precision is 0.29 (Clopper-Pearson) — the clip
+benchmark cannot distinguish a perfect merger from one that is wrong a third
+of the time. Site-level linkable recall 0.375 has a bootstrap 95% CI of
+[0.0, 0.75]: an intervention must flip ≥ ~3 of the 8 linkable sites to be
+detectable at all. Verdict on the symptom list: the flat threshold × margin
+sweep was PARTLY an eval-resolution artefact and partly real — see below.
+
+### Gap-site harness (landed: `matchlab_train/experiments/gapsite_eval.py`)
+
+Unit of evaluation moved from clips to decisions. The engine now retains the
+FULL scored hypothesis set per pass-1 decision
+(`reid_detail_max_candidates`, default 8, harness sets ∞); the harness
+replays associate over frozen best2 artifacts, GT-labels tracklets (IoU
+majority, purity ≥ 0.8), and persists per-site rows — every candidate, its
+per-channel LLR contributions, rank, margin, GT answer — to
+`data/experiments/gapsite-eval/<run>.json`. 172 sites, 8 GT-linkable.
+
+### What the substrate says (best-v2 operating point, real substrate)
+
+- **Candidate recall 1.00**: the true link was in the candidate set at every
+  linkable site. Zero recall failures — candidate generation is not the
+  bottleneck on this substrate.
+- **Ranking 7/8 top-1** given present. The one out-ranked site is
+  evidence-dead (true candidate total −9.8 nats, top −9.7 — body votes
+  against both).
+- **All other misses are the BAR refusing a correctly-ranked true link**:
+  4 sites top-1-true below pass-1's 4.0/0.5 bar, two of them comfortably
+  positive (2.78, 3.10 nats) with 5–6-nat margins.
+- **Offline sweep over the retained sets** (no replay needed): wrong merges
+  only appear below ~0 nats; [1.0, 2.7] is a wide safe band. Sequential
+  replay at `pass1_min_score=2.0` confirms: pass-1 judged merges 3→5 at
+  0 wrong, linkable recall 0.375→0.625.
+- **…but the final entity graph is IDENTICAL** (5/0/3, F1 0.769, mean entity
+  IDF1 0.7798 at both 4.0 and 2.0): pass 2 (bar 2.0) already recovers
+  exactly the sites pass-1 refuses. The earlier "insensitive sweep" was the
+  two-pass architecture's genuine robustness to the pass-1 bar in [2, 4] on
+  this substrate, compounded by 8-event sparsity. No config change warranted.
+- **Wrong merges: zero**, so the close-runner-up and
+  chosen-thread-unexplained breakdowns are EMPTY — there is no substrate here
+  for a global-assignment layer, and no evidence one is needed.
+- The 3 remaining missed links are **evidence-limited** (true candidates'
+  own fused totals −0.02, −7.7, −9.8 nats): no threshold, denominator, or
+  assignment change can rescue a link the evidence votes against.
+  Consistent with the standing finding that re-ID here is evidence-limited,
+  not search-limited.
+
+### Consequence for Phase C
+
+| candidate | resolvable? | action |
+|---|---|---|
+| mis-served channel re-run (occupancy) | yes | already re-measured in round 2 (both directions); stands |
+| per-bin channel WEIGHTS | not on SNMOT (0 wrong, misses evidence-dead); yes on FOOTPASS (8k+ merges) | run on FOOTPASS LOSO |
+| global assignment under roster closure | no substrate: 0 wrong merges, unexplained-thread breakdown empty | **unresolved, not negative** — revisit when a substrate shows wrong merges |
+| visibility-conditioned none prior | target-domain (fixed-camera) footage does not exist yet; tuning it on broadcast coverage is explicitly wrong | **blocked on data**, recorded, not attempted |
