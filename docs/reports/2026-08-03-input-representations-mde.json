@@ -1,0 +1,61 @@
+{
+  "folds": {
+    "game_18": {
+      "rows": 32955,
+      "episodes": 4417,
+      "positives": 4402,
+      "clusters": 50,
+      "halves": [
+        "game_18_H1",
+        "game_18_H2"
+      ],
+      "operating_coverage": 0.9600181735574739,
+      "precision_at_coverage": 0.9800556586270872,
+      "paired_ci_width_player": 0.0,
+      "paired_ci_width_half": 0.0,
+      "precision_ci_width_player": 0.012734366502217598,
+      "precision_ci_width_half": 0.010398509127566458,
+      "mde_player": 0.012734366502217598,
+      "unreachable_frac": 0.0
+    },
+    "game_24": {
+      "rows": 30817,
+      "episodes": 4336,
+      "positives": 4325,
+      "clusters": 52,
+      "halves": [
+        "game_24_H1",
+        "game_24_H2"
+      ],
+      "operating_coverage": 0.8279768786127167,
+      "precision_at_coverage": 0.9802901724609909,
+      "paired_ci_width_player": 0.0,
+      "paired_ci_width_half": 0.0,
+      "precision_ci_width_player": 0.013101141402271255,
+      "precision_ci_width_half": 0.00873553693669793,
+      "mde_player": 0.013101141402271255,
+      "unreachable_frac": 0.0
+    },
+    "game_47": {
+      "rows": 24913,
+      "episodes": 3726,
+      "positives": 3714,
+      "clusters": 52,
+      "halves": [
+        "game_47_H1",
+        "game_47_H2"
+      ],
+      "operating_coverage": 0.968228325255789,
+      "precision_at_coverage": 0.9806381238069266,
+      "paired_ci_width_player": 0.0,
+      "paired_ci_width_half": 0.0,
+      "precision_ci_width_player": 0.015677873201288328,
+      "precision_ci_width_half": 0.02563577248753046,
+      "mde_player": 0.015677873201288328,
+      "unreachable_frac": 0.0
+    }
+  },
+  "mde_player_max": 0.015677873201288328,
+  "v3_effect_size": 0.0024,
+  "can_resolve_v3_sized_effect": false
+}

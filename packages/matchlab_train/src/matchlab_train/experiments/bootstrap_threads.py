@@ -445,9 +445,23 @@ def thread_pair_row(a: ThreadState, a_fp, b: ThreadState, b_fp):
     ]
 
 
+def _fuse(rows, cals, prior, w, scorer, ctx_builder):
+    """Fused score per candidate row: the incumbent, or a plug-in scorer.
+
+    The plug-in exists so that arms testing a richer INPUT representation share
+    this module's decision rule, candidate generation, gates and accounting
+    verbatim -- otherwise a frontier difference is not attributable to the
+    representation. `scorer=None` is the incumbent and is bit-identical to it
+    (test_edge_scorer.py), so the default path is unchanged.
+    """
+    if scorer is None:
+        return apply_weights(channel_llrs(rows, cals, prior), rows[:, 2], w)
+    return scorer.score(rows, ctx_builder())
+
+
 def agglomerate(
     threads, t_fp, t_team, t_members, pid, start, end, cals, prior, w, *,
-    min_score, rounds=8, gate="members", jersey=None
+    min_score, rounds=8, gate="members", jersey=None, scorer=None
 ):
     """Repeatedly merge the best-scoring compatible pair of THREADS.
 
@@ -488,7 +502,30 @@ def agglomerate(
         rows = np.array(
             [thread_pair_row(threads[x], t_fp[x], threads[y], t_fp[y]) for x, y in cands]
         )
-        scores = apply_weights(channel_llrs(rows, cals, prior), rows[:, 2], w)
+
+        def _ctx(cands=cands, threads=threads):
+            # Pass 2 has no per-query field: `cands` is a global pool of every
+            # compatible thread pair. The field a cohort-normalising arm needs
+            # is therefore defined PER THREAD -- the pairs sharing thread x --
+            # which is the closest well-defined analogue of pass 1's field.
+            from matchlab_train.experiments.edge_scorer import ScoreContext
+
+            owner = np.array([x for x, _ in cands], dtype=np.int64)
+            size = np.bincount(owner, minlength=owner.max() + 1)[owner].astype(float)
+            return ScoreContext(
+                episode=owner,
+                n_frames_a=np.array([threads[x].n_frames for x, _ in cands], float),
+                n_frames_b=np.array([threads[y].n_frames for _, y in cands], float),
+                n_fragments_a=np.array(
+                    [threads[x].n_fragments for x, _ in cands], float
+                ),
+                n_fragments_b=np.array(
+                    [threads[y].n_fragments for _, y in cands], float
+                ),
+                field_size=size,
+            )
+
+        scores = _fuse(rows, cals, prior, w, scorer, _ctx)
         if t_jersey is not None:
             scores = scores + j_weight * np.array(
                 [pair_llr(t_jersey[x], t_jersey[y], j_prior) for x, y in cands]
@@ -748,6 +785,7 @@ def thread_half(
     pass2_score: float = 4.0,
     gate: str = "members",
     jersey: tuple[list, np.ndarray, float] | None = None,
+    scorer=None,
 ) -> dict:
     """Greedy sequential threading.
 
@@ -810,7 +848,22 @@ def thread_half(
                     for k in live
                 ]
             )
-            scores = apply_weights(channel_llrs(r, cals, prior), r[:, 2], w)
+            def _ctx(live=live, i=i):
+                from matchlab_train.experiments.edge_scorer import ScoreContext
+
+                n = len(live)
+                return ScoreContext(
+                    episode=np.zeros(n, dtype=np.int64),  # one decision
+                    n_frames_a=np.array([threads[k].n_frames for k in live], float),
+                    n_frames_b=np.full(n, float(states[int(i)].n_frames)),
+                    n_fragments_a=np.array(
+                        [threads[k].n_fragments for k in live], float
+                    ),
+                    n_fragments_b=np.ones(n),
+                    field_size=np.full(n, float(n)),
+                )
+
+            scores = _fuse(r, cals, prior, w, scorer, _ctx)
             if q_jersey is not None:
                 scores = scores + j_weight * np.array(
                     [pair_llr(t_jersey[k], q_jersey[i], j_prior) for k in live]
@@ -855,6 +908,7 @@ def thread_half(
             threads, t_fp, t_team, t_members, pid, start, end,
             cals, prior, w, min_score=pass2_score, gate=gate,
             jersey=(t_jersey, j_prior, j_weight) if q_jersey is not None else None,
+            scorer=scorer,
         )
 
     sizes = [len(m) for m in t_members]
