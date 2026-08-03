@@ -181,7 +181,33 @@ class Params(BaseModel):
     # coherence audit caught it. Formation-relative is also the measured
     # winner on both substrates (FOOTPASS 0.9815/0.664 vs 0.9770/0.659;
     # SNMOT replay right 10 -> 14 at equal wrong, round-2 report).
+    # DEFERRED performance boost (2026-08-02): formation-relative footprints
+    # rotate 180 degrees at half-time with the attack direction, so over a
+    # whole match the occupancy channel currently nets ~nothing (fused LOMO
+    # AUC 0.854 with vs 0.855 without). An explicit per-half flip recovers
+    # +3.4 points (0.888). It needs a half-boundary / attack-direction
+    # estimate, which will come from the planned pre-run calibration sequence;
+    # when that exists, rotate one half's footprint coords here (or feed the
+    # boundary to the fusion layer) and refit the model. Do NOT reach for
+    # FusionModel.occupancy_mirror="min" as a stopgap default -- measured to
+    # collapse cross-flank impostors (see twopass.py field comment).
     occupancy_coords: str = "formation-relative"
+    # Scale applied to formation-relative offsets about grid centre before
+    # binning: x' = 0.5 + zoom * (x - centroid_x). At zoom 1.0 the p95
+    # formation-relative offset spans only ~1.7 of 12 x-cells (audit
+    # 2026-08-02) -- the 12x8 grid and sigma=1 blur were sized for absolute
+    # coordinates, so at 1.0 adjacent roles are sub-cell. Checked against the
+    # fusion model's contract; only meaningful with formation-relative coords.
+    # Note the resolution ceiling: offsets beyond +/-0.5/zoom saturate onto
+    # border cells (footprint binning clips to [0,1]), so large zooms trade
+    # central resolution for artificial shared mass at the edges -- sweep,
+    # don't crank.
+    occupancy_zoom: float = 1.0
+    # Frames whose observable same-team pool (self included) is below this
+    # floor are dropped from footprints: a 1-2 player "centroid" is mostly the
+    # query itself. Was hard-coded at 3; now a contract-checked param because
+    # the fit side historically had NO floor and the mismatch was invisible.
+    min_centroid_teammates: int = 3
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -309,6 +335,7 @@ def _tracklet_evidence(
     pitch_size_cm: tuple[float, float],
     occupancy_coords: str = "absolute",
     min_centroid_teammates: int = 3,
+    occupancy_zoom: float = 1.0,
 ) -> list[TrackletEvidence]:
     """Reduce pipeline artifacts to the per-tracklet inputs merging needs.
 
@@ -380,8 +407,8 @@ def _tracklet_evidence(
                 if team is None or c is None or c[2] < min_centroid_teammates:
                     ox = oy = None
                 else:
-                    ox = px_n - c[0] / c[2] + 0.5
-                    oy = py_n - c[1] / c[2] + 0.5
+                    ox = 0.5 + occupancy_zoom * (px_n - c[0] / c[2])
+                    oy = 0.5 + occupancy_zoom * (py_n - c[1] / c[2])
                 if ox is not None:
                     xs.append(ox)
                     ys.append(oy)
@@ -558,6 +585,8 @@ class ReidEngineAssociator(Associator):
                 calibration=calibration,
                 pitch_size_cm=tuple(p.pitch_size_cm),
                 occupancy_coords=p.occupancy_coords,
+                min_centroid_teammates=p.min_centroid_teammates,
+                occupancy_zoom=p.occupancy_zoom,
             )
             emb_dim = next(
                 (len(e.embedding) for e in evidence if e.embedding is not None), None
@@ -567,7 +596,10 @@ class ReidEngineAssociator(Associator):
             # for reading, never a run-killer -- sparse clips shift
             # distributions legitimately (ADR 003 abstention still applies).
             model.validate_serving(
-                occupancy_coords=p.occupancy_coords, embedding_dim=emb_dim
+                occupancy_coords=p.occupancy_coords,
+                embedding_dim=emb_dim,
+                occupancy_zoom=p.occupancy_zoom,
+                min_centroid_teammates=p.min_centroid_teammates,
             )
             coherence = model.serving_diagnostics(evidence)
             result = merge_threads_two_pass(
