@@ -85,8 +85,10 @@ shipping boundary — don't undo it, but don't read product meaning into it eith
   SoccerNet NDA password. Acquisition needs a Hugging Face **read** token *plus* a per-account
   access grant on the restricted `SoccerNet/SN-PCBAS-2026` repo (401 = token/scope, 403 = not
   on the authorized list). The tactical zips are not encrypted — the NDA password is not needed
-  for that tier. Tactical data is on disk and schema-verified; no video downloaded. See
-  `docs/reference/footpass-setup.md`.
+  for that tier. On disk: tactical data (schema-verified, all splits), all 50 full matches at
+  352×640, and the 3 val matches (game_18/24/47) in fullHD — full ~100-minute broadcasts
+  pairing with `tactical/val_tactical_data.h5` GT. Note the tactical `TEAM` column encodes
+  pitch side, not club — it flips at half-time. See `docs/reference/footpass-setup.md`.
 - **T-DEED (real action spotter) is GPL-3.0 code + SoccerNet-trained weights, isolated in a
   sibling `external-spotters/` env, reached via a subprocess CLI** — same env-isolation
   pattern as `ultralytics`/`external-trackers/`. The `tdeed` spotting stage runs against a

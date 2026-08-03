@@ -67,10 +67,11 @@ class PairChannels(BaseModel):
     decision: str  # merged | rejected
     total: float
     threshold: float
-    pass_: int = Field(default=1, alias="pass")
+    # Not `pass` (a Python keyword) and not an alias for it: an alias only
+    # applies on input, so the artifact silently serialised as `pass_` and the
+    # UI read undefined. An explicit name avoids the whole trap.
+    pass_no: int = 1
     channels: list[ChannelScore] = Field(default_factory=list)
-
-    model_config = {"populate_by_name": True}
 
 
 class CandidateEvidence(BaseModel):
@@ -91,6 +92,10 @@ class MergeDecision(BaseModel):
     """
 
     tracklet_id: int
+    # Which pass decided it: 1 = tracklet joins an accumulated thread,
+    # 2 = whole thread against whole thread. Pass-2 merges were previously
+    # unrecorded, so a run could merge and still report "no merged decisions".
+    pass_no: int = 1
     decision: str
     chosen: int | None = None  # partner tracklet id when merged
     total: float | None = None  # best candidate's score

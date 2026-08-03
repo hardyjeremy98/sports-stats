@@ -791,7 +791,7 @@ export interface PairChannels {
   decision: string; // merged | rejected
   total: number;
   threshold: number;
-  pass: number;
+  pass_no: number;
   channels: ChannelScore[];
 }
 
@@ -806,6 +806,10 @@ export interface CandidateEvidence {
 // means "nothing was even eligible" — a bare count cannot tell those apart.
 export interface MergeDecision {
   tracklet_id: number;
+  // 1 = tracklet joined an accumulated thread; 2 = whole thread merged into
+  // another. Pass-2 merges were once unrecorded, which made the panel claim
+  // "no merged decisions" on a run that had merged.
+  pass_no: number;
   decision: string; // merged | abstained
   chosen: number | null;
   total: number | null;
