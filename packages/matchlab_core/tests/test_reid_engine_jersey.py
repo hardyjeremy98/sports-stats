@@ -118,14 +118,18 @@ def test_jersey_disabled_produces_no_provenance(tmp_path):
     assert stage.provenance() == []
 
 
-def test_jersey_default_on_degrades_without_ocr_stack(tmp_path):
-    """Default ON: on a box without pytorch_lightning / the checkpoints the
-    stage must still complete, recording that the channel did not serve
-    rather than crashing or silently pretending it did."""
+def test_jersey_enabled_degrades_without_ocr_stack(tmp_path):
+    """Enabled but unsupported: on a box without pytorch_lightning / the
+    checkpoints the stage must still complete, recording that the channel did
+    not serve rather than crashing or silently pretending it did.
+
+    The channel ships OFF by default (ADR 001), so this arm has to ask for it.
+    """
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
-    _, stage, _ = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.9})
+    _, stage, _ = _run_stage(tmp_path, tracklets, teams, ff,
+                             {"min_similarity": 0.9, "jersey_enabled": True})
     assert stage.params.jersey_enabled is True
     # Either the OCR stack was present and served, or the degradation marker
     # says exactly why it did not -- there is no third, silent state.
