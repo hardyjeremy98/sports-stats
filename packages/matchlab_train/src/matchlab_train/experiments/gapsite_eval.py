@@ -51,7 +51,7 @@ MIN_PURITY = 0.8
 #: replay would dominate the runtime.
 BEST_PARAMS = {
     "merge_strategy": "two-pass",
-    "fusion_model": "configs/reid/fusion-footpass-v1.json",
+    "fusion_model": "configs/reid/fusion-footpass-v2.json",
     "pass1_min_score": 4.0,
     "pass2_min_score": 2.0,
     "merge_min_margin": 0.5,

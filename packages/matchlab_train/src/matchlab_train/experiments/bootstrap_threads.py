@@ -44,10 +44,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from matchlab_core.reid.evidence import LLRCalibrator, fit_fusion_weights, saturate
+from matchlab_core.reid.evidence import (
+    LLRCalibrator,
+    clip_transition,
+    fit_fusion_weights,
+)
+from matchlab_core.reid.jersey import number_prior, pair_llr, uniform_prior
 from matchlab_core.reid.occupancy import js_distance
 from matchlab_core.reid.threads import ThreadState
 from matchlab_core.reid.transition import TransitionPrior, displacement
+from matchlab_core.reid.twopass import _pool_jersey
 
 from matchlab_train.datasets.footpass import COL, load_half
 from matchlab_train.experiments.multi_input import VAL_H5, load_appearance
@@ -228,6 +234,12 @@ GAP_BINS: tuple[float, ...] = ()
 #: conditional logit over block-expanded features (llr x bin indicator), so
 #: bins share episodes and normalisation. () = one global weight vector.
 WEIGHT_GAP_BINS: tuple[float, ...] = ()
+#: Negative-side bound (nats) on the transition channel's LLR; the positive
+#: side keeps the global saturate. 6.0 = the historical symmetric bound.
+#: Part of the FIT cache key (weights are fitted on the clipped column); the
+#: measured case for sweeping it down is the channel's own flip counts
+#: (veto half 1 correct / 31 harmful blocks, transition.py 2026-07-28).
+TRANS_NEG_CLAMP = 6.0
 # The fragmentation the appearance extractor was run at. `fragment_embeddings.pkl`
 # is keyed by position in THAT list, so any other setting must be remapped.
 APPEARANCE_GAP_FRAMES = 2
@@ -435,7 +447,7 @@ def thread_pair_row(a: ThreadState, a_fp, b: ThreadState, b_fp):
 
 def agglomerate(
     threads, t_fp, t_team, t_members, pid, start, end, cals, prior, w, *,
-    min_score, rounds=8, gate="members"
+    min_score, rounds=8, gate="members", jersey=None
 ):
     """Repeatedly merge the best-scoring compatible pair of THREADS.
 
@@ -451,6 +463,10 @@ def agglomerate(
     threads = list(threads)
     t_fp = list(t_fp)
     t_members = [list(m) for m in t_members]
+    t_jersey, j_prior, j_weight = (
+        (list(jersey[0]), jersey[1], jersey[2]) if jersey is not None
+        else (None, None, 0.0)
+    )
     correct = wrong = 0
     maj_correct = maj_wrong = 0
     for _ in range(rounds):
@@ -473,6 +489,10 @@ def agglomerate(
             [thread_pair_row(threads[x], t_fp[x], threads[y], t_fp[y]) for x, y in cands]
         )
         scores = apply_weights(channel_llrs(rows, cals, prior), rows[:, 2], w)
+        if t_jersey is not None:
+            scores = scores + j_weight * np.array(
+                [pair_llr(t_jersey[x], t_jersey[y], j_prior) for x, y in cands]
+            )
         order = np.argsort(-scores)
         used: set[int] = set()
         n_merged = 0
@@ -496,6 +516,8 @@ def agglomerate(
             threads[x] = threads[x].merged_with(threads[y])
             t_fp[x] = threads[x].footprint()
             t_members[x] = t_members[x] + t_members[y]
+            if t_jersey is not None:
+                t_jersey[x] = _pool_jersey(t_jersey[x], t_jersey[y])
             threads[y] = None
             t_members[y] = []
             n_merged += 1
@@ -555,6 +577,10 @@ def fit_from(matches: list[str]):
     bins_tok = "b" + "_".join(f"{b:g}" for b in GAP_BINS) if GAP_BINS else "flat"
     if WEIGHT_GAP_BINS:
         bins_tok += "-wb" + "_".join(f"{b:g}" for b in WEIGHT_GAP_BINS)
+    if TRANS_NEG_CLAMP != 6.0:
+        # Weights are fitted on the clipped transition column; an unkeyed
+        # sweep would silently return clamp-6 weights for every arm.
+        bins_tok += f"-tnc{TRANS_NEG_CLAMP:g}"
     fit_cache = CACHE / (
         f"fit-{'+'.join(sorted(matches))}-g{MAX_GAP_FRAMES}-{COORDS}-{bins_tok}.pkl"
     )
@@ -677,6 +703,11 @@ def channel_llrs(r: np.ndarray, cals, prior) -> np.ndarray:
     cols = []
     for j, name in enumerate(CHANNELS):
         col = r[:, j]
+        if name == "gap":
+            # Pass-2 interleaved thread pairs carry a negative envelope gap,
+            # outside the calibrator's fitted support; the engine serves the
+            # clamped 0 (score_channels), so the harness must too.
+            col = np.maximum(col, 0.0)
         if name == "body" and by_gap:
             cols.append(np.array([
                 body_cal(float(g)).llr(float(v)) if not np.isnan(v) else 0.0
@@ -691,8 +722,15 @@ def channel_llrs(r: np.ndarray, cals, prior) -> np.ndarray:
     # but `fit_fusion_weights` gives each channel ONE linear coefficient, and a
     # column reaching -3754 nats against everything else's +/-6 cannot share one.
     # Reporting the ratio honestly is the prior's job; putting channels on a
-    # common footing is this layer's.
-    cols.append(np.asarray(saturate(prior.llr(r[:, 2], r[:, 3], r[:, 4]))))
+    # common footing is this layer's. The negative side's bound is swept
+    # separately (TRANS_NEG_CLAMP); dt <= 0 abstains outright -- the sigma
+    # floor makes the prior's output there an artifact, and the engine's
+    # score_channels gate does the same.
+    t = np.asarray(clip_transition(
+        prior.llr(r[:, 2], r[:, 3], r[:, 4]), TRANS_NEG_CLAMP
+    ))
+    t = np.where(r[:, 2] > 0.0, t, 0.0)
+    cols.append(t)
     return np.stack(cols, axis=1)
 
 
@@ -709,6 +747,7 @@ def thread_half(
     pass2: bool = False,
     pass2_score: float = 4.0,
     gate: str = "members",
+    jersey: tuple[list, np.ndarray, float] | None = None,
 ) -> dict:
     """Greedy sequential threading.
 
@@ -717,8 +756,17 @@ def thread_half(
     its most recent fragment alone rather than by everything seen of it. Without
     this arm the headline number is unattributable -- it could be the threading
     rule rather than the accumulated evidence.
+
+    `jersey` = (per-fragment number likelihoods, number prior, weight): the
+    engine's jersey-OCR merge channel served exactly as reid_engine does --
+    fixed weight, `pair_llr` against the pooled thread belief, `_pool_jersey`
+    accumulation -- so with/without is a pure channel ablation. Incompatible
+    with `corruption` (contaminated fragments would need their jersey evidence
+    remapped, which nothing here does).
     """
     frags, first_xy, last_xy, app = half_frames(key)
+    if jersey is not None and corruption is not None:
+        raise ValueError("jersey evidence is not corruption-remapped; run one or the other")
     if corruption is not None:
         frags, app = corrupt_fragments(frags, app, corruption)
         # Remap endpoints: a contaminated fragment now ENDS on its donor, so
@@ -738,11 +786,13 @@ def thread_half(
 
     q_fp = [s.footprint() for s in states]
     q_proto = [s.prototype for s in states]
+    q_jersey, j_prior, j_weight = jersey if jersey is not None else (None, None, 0.0)
 
     threads: list[ThreadState] = []
     t_fp: list[object] = []
     t_team: list[int] = []
     t_members: list[list[int]] = []
+    t_jersey: list[np.ndarray] = []
     correct = wrong = 0
     maj_correct = maj_wrong = 0
 
@@ -761,6 +811,10 @@ def thread_half(
                 ]
             )
             scores = apply_weights(channel_llrs(r, cals, prior), r[:, 2], w)
+            if q_jersey is not None:
+                scores = scores + j_weight * np.array(
+                    [pair_llr(t_jersey[k], q_jersey[i], j_prior) for k in live]
+                )
             o = np.argsort(-scores)
             best_k, best_s = live[o[0]], float(scores[o[0]])
             runner = float(scores[o[1]]) if len(o) > 1 else -np.inf
@@ -775,17 +829,23 @@ def thread_half(
             if accumulate:
                 threads[best_k] = threads[best_k].merged_with(states[i])
                 t_fp[best_k] = threads[best_k].footprint()
+                if q_jersey is not None:
+                    t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey[i])
             else:
                 # Control: the thread advances to the joining fragment and
                 # forgets everything before it.
                 threads[best_k] = states[i]
                 t_fp[best_k] = q_fp[int(i)]
+                if q_jersey is not None:
+                    t_jersey[best_k] = q_jersey[i]
             t_members[best_k].append(int(i))
         else:
             threads.append(states[i])
             t_fp.append(q_fp[int(i)])
             t_team.append(int(team[i]))
             t_members.append([int(i)])
+            if q_jersey is not None:
+                t_jersey.append(q_jersey[i])
 
     p2_correct = p2_wrong = 0
     p2_maj_correct = p2_maj_wrong = 0
@@ -794,6 +854,7 @@ def thread_half(
          p2_maj_correct, p2_maj_wrong) = agglomerate(
             threads, t_fp, t_team, t_members, pid, start, end,
             cals, prior, w, min_score=pass2_score, gate=gate,
+            jersey=(t_jersey, j_prior, j_weight) if q_jersey is not None else None,
         )
 
     sizes = [len(m) for m in t_members]
@@ -846,16 +907,42 @@ def main() -> None:
              "happens when a real tracker feeds a system calibrated on clean data.",
     )
     ap.add_argument(
+        "--trans-neg-clamp", type=float, default=6.0,
+        help="negative-side bound (nats) on the transition channel; 6.0 is the "
+             "historical symmetric saturate, 0.0 flattens all vetoes to 0. "
+             "Weights are refit per value (fit cache keyed).",
+    )
+    ap.add_argument(
+        "--jersey-weight", type=float, default=0.0,
+        help="fixed fused weight for the jersey-OCR channel (engine convention "
+             "jersey_weight_twopass=1.0); 0 = channel absent. Needs the cached "
+             "posteriors from matchlab_train.experiments.footpass_jersey.",
+    )
+    ap.add_argument(
+        "--trans-off", action="store_true",
+        help="serve with the transition weight zeroed (fit unchanged): the "
+             "channel-off control that shows what the positive half is worth",
+    )
+    ap.add_argument(
         "--out", type=Path, default=Path("docs/reports/2026-07-28-bootstrap-threads.json")
     )
     args = ap.parse_args()
     MAX_GAP_FRAMES = args.max_gap_frames
+    global TRANS_NEG_CLAMP
+    TRANS_NEG_CLAMP = args.trans_neg_clamp
 
     results = []
     for held_out in args.matches:
         others = [m for m in MATCHES if m != held_out]
         print(f"fit on {others} -> evaluate {held_out}", flush=True)
         cals, prior, w = fit_from(others)
+        if args.trans_off:
+            if isinstance(w, dict):
+                w = {"edges": w["edges"], "w": np.asarray(w["w"], dtype=float).copy()}
+                w["w"][:, -1] = 0.0
+            else:
+                w = np.asarray(w, dtype=float).copy()
+                w[-1] = 0.0
         if isinstance(w, dict):
             print(f"  gap-binned weights (edges {w['edges']}):\n{np.round(w['w'], 3)}",
                   flush=True)
@@ -866,6 +953,28 @@ def main() -> None:
             for cont in args.contaminate:
                 corr = None if cont <= 0 else Corruption(contaminate=cont, seed=0)
                 for key in (f"{held_out}_H1", f"{held_out}_H2"):
+                    jersey = None
+                    if args.jersey_weight > 0.0:
+                        # Lazy import: footpass_jersey imports this module.
+                        from matchlab_train.experiments.footpass_jersey import (
+                            fragment_posteriors,
+                        )
+
+                        post = fragment_posteriors(
+                            key, max_gap_frames=args.max_gap_frames
+                        )
+                        flat = uniform_prior()
+                        q_jersey = [
+                            post["likelihood"].get(fi, flat)
+                            for fi in range(post["n_fragments"])
+                        ]
+                        # Engine convention: the prior comes from this run's
+                        # own confident reads, never from GT.
+                        j_prior = (
+                            number_prior(post["confident_numbers"])
+                            if post["confident_numbers"] else uniform_prior()
+                        )
+                        jersey = (q_jersey, j_prior, args.jersey_weight)
                     arms = [(True, None), (False, None)]
                     arms += [(True, p) for p in args.pass2_score]
                     for acc, p2s in arms:
@@ -874,7 +983,7 @@ def main() -> None:
                                         min_margin=args.min_margin, accumulate=acc,
                                         corruption=corr, pass2=p2,
                                         pass2_score=p2s if p2 else 0.0,
-                                        gate=args.gate)
+                                        gate=args.gate, jersey=jersey)
                         r["min_score"] = ms
                         r["accumulate"] = acc
                         r["pass2"] = p2
