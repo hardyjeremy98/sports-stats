@@ -853,6 +853,37 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 
 Measured local findings recorded by the repository guidance:
 
+- **The "evidence-limited" re-ID negative is no longer representation-scoped
+  (2026-08-03; report
+  [`2026-08-03-input-representations.md`](reports/2026-08-03-input-representations.md)).**
+  Five arms removing one hand-reduction each — set-to-set appearance over
+  per-frame embeddings, a learned MLP edge scorer, a GRU trajectory model for
+  re-entry, cohort-normalised appearance, and thread-prototype pooling — are all
+  flat or resolvably worse at the FOOTPASS merge frontier (LOSO, 12,479
+  episodes, 154 player-halves), at per-arm 95% resolutions of ±0.001 to ±0.02
+  precision. The informative part is that several arms **demonstrably improved
+  the underlying model and still moved nothing**: the trajectory model gains
+  +0.6 to +0.8 nats/pair of held-out re-entry log-likelihood at 2–7 s gaps
+  (3/3 folds, monotone in gap) for a frontier effect of +0.0016; cohort
+  normalisation lifts appearance-channel AUC 0.950 → 0.997 for a frontier effect
+  of +0.0016 to −0.0101. Removing the appearance *pooling* — the most suspicious
+  reduction, and one baked into a cache file — makes things **worse**,
+  monotonically in how far the statistic departs from the mean. Still untested
+  and now the indicated direction: **domain-adaptive / fine-tuned appearance**
+  (the extractor, not summaries of it) and **learned graph-level association**.
+  Caveats in the report: the exp-1 machinery control failed (~0.009 masked gain
+  not excluded), a pre-registered isotonic calibration was never implemented,
+  and the pooling null holds on oracle-clean threads only.
+- **A single matched-coverage point can say almost anything at this substrate's
+  resolution (2026-08-03).** The 2026-08-02 audit's Phase C v3 result reproduces
+  exactly on its own metric (pooled LOSO pass-1 threading frontier, clamp 6:
+  flat 0.9825 → v3 0.9848 at coverage 0.65, vs the published 0.9825/0.9849), but
+  across the full coverage band the delta runs −0.0013 … +0.0023 … −0.0023 and
+  **every point is smaller than v3's own paired 95% CI width (0.0035–0.0046)**.
+  The v3 effect is not resolvable in either direction; describing it as "above
+  the flat frontier through the operating band" overstated it. Frontier claims
+  on this substrate must be reported band-wide with a paired cluster CI
+  (resampling unit: player-within-half).
 - Kit-colour association is ineffective for player-level identity.
 - Remaining ID switches are substantially a tracker-level problem that simple post-association
   cannot repair.

@@ -248,6 +248,63 @@ def test_cohort_zscore_survives_a_degenerate_field():
     assert np.isfinite(got).all()
 
 
+def test_pooling_is_independent_of_merge_order():
+    """A thread must mean the same thing however its members were merged.
+
+    `ThreadState.merged_with` guarantees this for the incumbent, and any
+    replacement pooling rule has to keep it: greedy agglomeration visits pairs
+    in score order, so an order-dependent prototype would make a thread's
+    identity depend on the sequence of decisions that built it rather than on
+    what was observed.
+    """
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_STATS,
+        pool_prototypes,
+    )
+
+    rng = np.random.default_rng(4)
+    members = [rng.normal(size=(n, 8)) for n in (3, 11, 40, 7)]
+    members = [m / np.linalg.norm(m, axis=1, keepdims=True) for m in members]
+    frames = [60, 210, 900, 130]
+
+    ref = pool_prototypes(members, frames)
+    for perm in ([3, 1, 0, 2], [2, 3, 1, 0], [1, 0, 3, 2]):
+        got = pool_prototypes([members[i] for i in perm], [frames[i] for i in perm])
+        for k in POOL_STATS:
+            assert np.allclose(got[k], ref[k], atol=1e-12), k
+
+
+def test_pooling_weights_ignore_members_with_no_embedding():
+    """`n_embedded` counts embedded members while `n_frames` counts every
+    frame. Summing frames over UNEMBEDDED members too would deflate the pool
+    toward zero -- the same index-alignment class as the 2026-07-27 cache bug.
+    """
+    from matchlab_train.experiments.frame_embeddings import pool_prototypes
+
+    rng = np.random.default_rng(5)
+    a = rng.normal(size=(5, 8))
+    a /= np.linalg.norm(a, axis=1, keepdims=True)
+    b = rng.normal(size=(5, 8))
+    b /= np.linalg.norm(b, axis=1, keepdims=True)
+
+    without = pool_prototypes([a, b], [100, 300])
+    # A third member with a huge frame count but NO embedding must not move it.
+    with_ghost = pool_prototypes([a, b, None], [100, 300, 5000])
+
+    for k, v in without.items():
+        assert np.allclose(with_ghost[k], v, atol=1e-12), k
+
+
+def test_pooling_falls_back_to_none_when_nothing_is_embedded():
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_STATS,
+        pool_prototypes,
+    )
+
+    got = pool_prototypes([None, None], [100, 200])
+    assert all(got[k] is None for k in POOL_STATS)
+
+
 def test_alignment_assertion_tolerates_legitimately_missing_embeddings():
     """After remap some fragments have no embedding at all. Missing evidence is
     neutral (ADR 003), not a fault -- the check must not confuse the two."""

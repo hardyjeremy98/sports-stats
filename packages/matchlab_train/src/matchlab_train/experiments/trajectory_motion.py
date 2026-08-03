@@ -150,7 +150,18 @@ class TrajectoryPrior:
         return mx, my, sx, sy, rho
 
     def state_dict(self):
-        return {"gru": self.gru.state_dict(), "head": self.head.state_dict()}
+        """A DETACHED CLONE, not live references.
+
+        `nn.Module.state_dict()` hands back the live tensors, so stashing it as
+        an early-stopping checkpoint and training on stashes nothing -- the
+        "best" weights are mutated in place and the restore is a no-op that
+        silently returns the LAST epoch. Found in cold review after the first
+        set of experiment-2 numbers were produced with exactly that bug.
+        """
+        return {
+            "gru": {k: v.detach().clone() for k, v in self.gru.state_dict().items()},
+            "head": {k: v.detach().clone() for k, v in self.head.state_dict().items()},
+        }
 
     def load_state_dict(self, d):
         self.gru.load_state_dict(d["gru"])

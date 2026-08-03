@@ -111,6 +111,30 @@ def test_gap_bins_are_the_audits_bins():
     assert gap_bin(np.array([0.5, 3.0, 10.0, 100.0])).tolist() == [0, 1, 2, 3]
 
 
+def test_state_dict_snapshot_survives_further_training():
+    """Early stopping is only real if the checkpoint is a COPY.
+
+    `nn.Module.state_dict()` returns live tensors, so a checkpoint taken that
+    way is mutated by every subsequent step and restoring it returns the final
+    model instead of the best one. That bug produced the first run of this
+    experiment's numbers and was invisible in every output.
+    """
+    import torch
+    from matchlab_train.experiments.trajectory_motion import TrajectoryPrior
+
+    m = TrajectoryPrior(seed=0)
+    snap = m.state_dict()
+    before = snap["head"]["0.weight"].clone()
+
+    with torch.no_grad():
+        for p in m.params:
+            p.add_(1.0)
+
+    assert torch.equal(snap["head"]["0.weight"], before), (
+        "the checkpoint moved when the model did -- it is a reference, not a copy"
+    )
+
+
 def test_banded_impostor_falls_back_rather_than_fitting_scraps():
     """A thin bin gets the pooled scale, not a noisy per-bin one -- the same
     rule the harness applies to per-bin calibrators."""

@@ -941,7 +941,10 @@ def experiment_1(*, n_boot: int = 300, seed: int = 0, shuffle_null: bool = True)
 
         base = LinearLLRScorer(cals, prior, w).score(test.rows, test.ctx)
         scores = {"linear": base}
-        aucs = {"linear": _auc(test.rows[:, 0], test.labels)}
+        # The incumbent's FUSED score, because every learned arm below is scored
+        # fused. Comparing a learned fused score against the incumbent's raw
+        # appearance CHANNEL would flatter the arm by ~0.03 AUC and say nothing.
+        aucs = {"linear": _auc(base, test.labels)}
 
         # Inner split for early stopping: one of the four fit halves. Never the
         # held-out match -- that would be tuning on the test fold.
@@ -1059,7 +1062,8 @@ def _traj_inputs(f: FoldData, *, mirror_h2: bool):
     return tail_features(tails, mask), np.log1p(np.maximum(gap, 0.0)), dx, dy, usable
 
 
-def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) -> dict:
+def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True,
+                 clamps=(0.0, 6.0)) -> dict:
     """Does a sequence model over the exit tail beat the static diffusion prior?
 
     Reported per gap bin, because the channel's measured value lives at short
@@ -1073,7 +1077,8 @@ def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) ->
     from matchlab_train.experiments import trajectory_motion as tm
     from matchlab_train.experiments.edge_scorer import LinearLLRScorer
 
-    out = {"mirror_h2": mirror_h2, "gap_edges": list(tm.GAP_EDGES), "folds": {}}
+    out = {"mirror_h2": mirror_h2, "gap_edges": list(tm.GAP_EDGES),
+           "clamps": list(clamps), "folds": {}}
     for held_out in bt.MATCHES:
         test = fold(held_out)
         fits = [fold(m) for m in bt.MATCHES if m != held_out]
@@ -1103,6 +1108,11 @@ def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) ->
         fold_out = {**test.summary(), "arms": {}, "per_bin": {}}
         scores, aucs = {}, {}
         scores["linear"] = LinearLLRScorer(cals, prior, w).score(test.rows, test.ctx)
+        # The incumbent's TRANSITION CHANNEL, because every arm here is also
+        # scored on its transition channel -- this A/B is channel-vs-channel by
+        # construction. (Experiment 1 compares FUSED scores and uses the fused
+        # AUC there. Mixing the two is what made the first draft's AUC column
+        # unreadable, and it flattered the learned arms by ~0.015.)
         aucs["linear"] = _auc(
             np.where(tok, prior.llr(test.rows[:, 2], tdx, tdy), np.nan), test.labels
         )
@@ -1133,13 +1143,33 @@ def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) ->
                     iy = np.array([imp_bands[b][1] for b in bins_test])
                 den_ll = tm.impostor_logpdf(tdx, tdy, ix, iy)
                 raw = np.where(tok, learned_ll - den_ll, 0.0)
-                col = np.where(tok, np.asarray(clip_transition(raw, 0.0)), 0.0)
-                name = f"{objective}_{den_name}"
-                scores[name] = _refit_with_transition(fits, test, cals, prior,
-                                                      col, mirror_h2, objective,
-                                                      den, imp_static, imp_bands,
-                                                      models)
-                aucs[name] = _auc(np.where(tok, raw, np.nan), test.labels)
+                base_raw = np.where(
+                    tok, prior.llr(test.rows[:, 2], tdx, tdy), 0.0
+                )
+                for clamp in clamps:
+                    col = np.where(
+                        tok, np.asarray(clip_transition(raw, clamp)), 0.0
+                    )
+                    name = f"{objective}_{den_name}_c{clamp:g}"
+                    scores[name] = _refit_with_transition(
+                        fits, test, cals, prior, col, mirror_h2, objective,
+                        den, imp_static, imp_bands, models, clamp,
+                    )
+                    aucs[name] = _auc(np.where(tok, raw, np.nan), test.labels)
+                    # How much of the arm's improvement the clamp discards. A
+                    # sharper numerator improves mostly the NEGATIVE side, and
+                    # the shipped clamp of 0 flattens all of that to zero -- so
+                    # without this fraction a null is unattributable between
+                    # "no improvement" and "improvement not expressible".
+                    fold_out.setdefault("clamp_saturation", {})[name] = {
+                        "arm_frac_negative": float(np.mean(raw[tok] < 0.0)),
+                        "arm_frac_at_clamp": float(
+                            np.mean(np.abs(col[tok]) >= 0.999 * max(clamp, 1e-9))
+                        ) if clamp > 0 else float(np.mean(raw[tok] < 0.0)),
+                        "incumbent_frac_negative": float(
+                            np.mean(base_raw[tok] < 0.0)
+                        ),
+                    }
 
             # The direct question, per bin: does the sequence model predict
             # re-entry better at all? Same pairs only -- this is the numerator.
@@ -1161,12 +1191,14 @@ def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) ->
         merged = _compare_arms(test, scores, aucs, arms, base="linear",
                                n_boot=n_boot, seed=seed, label=held_out)
         merged["per_bin"] = fold_out["per_bin"]
+        merged["clamp_saturation"] = fold_out.get("clamp_saturation", {})
         out["folds"][held_out] = merged
     return out
 
 
 def _refit_with_transition(fits, test, cals, prior, test_col, mirror_h2,
-                           objective, den, imp_static, imp_bands, models):
+                           objective, den, imp_static, imp_bands, models,
+                           clamp=0.0):
     """Fused score with the transition column replaced and WEIGHTS REFITTED.
 
     Refitting matters: a learned channel is not on the incumbent channel's
@@ -1192,7 +1224,7 @@ def _refit_with_transition(fits, test, cals, prior, test_col, mirror_h2,
             ix = np.array([imp_bands[k][0] for k in b])
             iy = np.array([imp_bands[k][1] for k in b])
         raw = np.where(fok, ll - tm.impostor_logpdf(fdx, fdy, ix, iy), 0.0)
-        col = np.where(fok, np.asarray(clip_transition(raw, 0.0)), 0.0)
+        col = np.where(fok, np.asarray(clip_transition(raw, clamp)), 0.0)
         llr = bt.channel_llrs(f.rows, cals, prior)
         llr[:, 3] = col
         fit_llr.append(llr)
@@ -1270,6 +1302,147 @@ def threading_frontier(
     return out
 
 
+@dataclass
+class CohortScorer:
+    """Experiment 3's arm as a plug-in, so it can run the THREADING frontier.
+
+    The static pair frontier scores against oracle-grown threads (purity 1.0);
+    the threading frontier scores against threads the system built for itself
+    and can therefore see poisoning. The two are known to disagree -- v3 was
+    flat on the static frontier and +0.0023 at coverage 0.65 on the threading
+    one -- so an arm's static null is only trustworthy if the screening metric
+    is shown to track the confirming one on THIS kind of intervention.
+    """
+
+    cals: dict
+    prior: object
+    weights: object
+    kind: str
+
+    def score(self, rows: np.ndarray, ctx) -> np.ndarray:
+        from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+
+        rows = np.asarray(rows, dtype=float).copy()
+        rows[:, 0] = cohort_transform(rows[:, 0], ctx.episode, self.kind)
+        return LinearLLRScorer(self.cals, self.prior, self.weights).score(rows, ctx)
+
+
+def cross_check_metrics(*, kind: str = "margin") -> dict:
+    """Does the static screening frontier agree with the threading frontier?
+
+    Run on experiment 3's arm because it is a pure scorer -- it plugs into
+    `thread_half` unchanged -- and because its static effect is large and
+    varies in sign across folds, which is what makes agreement informative.
+    """
+    thresholds = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
+    out = {"kind": kind, "folds": {}}
+    for held_out in bt.MATCHES:
+        fits = [fold(m) for m in bt.MATCHES if m != held_out]
+        cals, prior, w = refit_with_body(fits, "body")
+        # Fitted on the cohort-transformed fit rows, exactly as experiment 3.
+        fit_mod = [
+            _with_body(f, cohort_transform(f.rows[:, 0], f.episodes, kind))
+            for f in fits
+        ]
+        c2, p2, w2 = refit_with_body(fit_mod, "body")
+
+        fa = threading_frontier(held_out, cals, prior, w, thresholds=thresholds)
+        fb = threading_frontier(
+            held_out, c2, p2, w2, thresholds=thresholds,
+            scorer=CohortScorer(c2, p2, w2, kind),
+        )
+        ha, hb = hull(fa), hull(fb)
+        band = _coverage_band(ha)
+        deltas = [
+            precision_at_coverage(hb, c) - precision_at_coverage(ha, c) for c in band
+        ]
+        out["folds"][held_out] = {
+            "band": band.tolist(),
+            "threading_band_deltas": [
+                None if not np.isfinite(d) else float(d) for d in deltas
+            ],
+            "threading_mean_band_delta": float(np.nanmean(deltas)),
+        }
+        print(
+            f"  {held_out}: threading band mean {np.nanmean(deltas):+.4f} "
+            f"worst {np.nanmin(deltas):+.4f}",
+            flush=True,
+        )
+    return out
+
+
+def reproduce_v3(*, clamp: float = 6.0, thresholds=None) -> dict:
+    """Re-derive the audit's Phase C number on ITS OWN metric, and ship it.
+
+    The audit reported the pooled LOSO pass-1 THREADING frontier (margin 0.5),
+    v3 gap-binned weights against flat, at `TRANS_NEG_CLAMP=6` -- the clamp in
+    force before clamp-0 was adopted the following day. Its published figure is
+    "at coverage 0.649 flat interpolates to ~0.9825 precision vs binned 0.9849".
+
+    Run at clamp 6 deliberately: baselining against clamp 0 would compare v3 to
+    a model that did not exist when the figure was published.
+
+    The whole coverage band is returned, not just the audit's point, because
+    the point alone is what made the original claim look like a frontier win.
+    """
+    prev_clamp = bt.TRANS_NEG_CLAMP
+    bt.TRANS_NEG_CLAMP = clamp
+    thr = list(thresholds or [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0])
+    try:
+        acc = {}
+        for binned in (False, True):
+            tot = np.zeros(len(thr), dtype=_FRONTIER_DTYPE)
+            tot["threshold"] = thr
+            for held in bt.MATCHES:
+                others = [m for m in bt.MATCHES if m != held]
+                prev = bt.WEIGHT_GAP_BINS
+                bt.WEIGHT_GAP_BINS = (5.0, 20.0) if binned else ()
+                try:
+                    model = bt.fit_from(others)
+                finally:
+                    bt.WEIGHT_GAP_BINS = prev
+                f = threading_frontier(held, *model, thresholds=thr)
+                for col in ("correct", "wrong", "need"):
+                    tot[col] += f[col]
+            tot["coverage"] = tot["correct"] / np.maximum(tot["need"], 1)
+            tot["precision"] = tot["correct"] / np.maximum(
+                tot["correct"] + tot["wrong"], 1
+            )
+            acc["v3" if binned else "flat"] = tot
+    finally:
+        bt.TRANS_NEG_CLAMP = prev_clamp
+
+    ha, hb = hull(acc["flat"]), hull(acc["v3"])
+    band = np.round(np.arange(0.45, 0.85, 0.05), 2)
+    deltas = {}
+    for c in band:
+        pa, pb = precision_at_coverage(ha, c), precision_at_coverage(hb, c)
+        if np.isfinite(pa) and np.isfinite(pb):
+            deltas[f"{c:.2f}"] = {
+                "flat": float(pa), "v3": float(pb), "delta": float(pb - pa)
+            }
+    out = {
+        "clamp": clamp,
+        "metric": "pooled LOSO pass-1 threading frontier, margin 0.5",
+        "audit_published": {"coverage": 0.649, "flat": 0.9825, "v3": 0.9849},
+        "band": deltas,
+        "points": {
+            k: [
+                {"threshold": float(r["threshold"]),
+                 "coverage": float(r["coverage"]),
+                 "precision": float(r["precision"]),
+                 "correct": int(r["correct"]), "wrong": int(r["wrong"])}
+                for r in v
+            ]
+            for k, v in acc.items()
+        },
+    }
+    for c, d in deltas.items():
+        print(f"  coverage {c}: flat {d['flat']:.4f} -> v3 {d['v3']:.4f} "
+              f"  {d['delta']:+.4f}", flush=True)
+    return out
+
+
 def score_thresholds(scores, n: int = 14) -> np.ndarray:
     """Sweep grid drawn from an arm's OWN score distribution.
 
@@ -1291,7 +1464,7 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--stage", default="mde",
-                    choices=("mde", "calibrate", "appearance", "exp3", "exp1", "exp2"))
+                    choices=("mde", "calibrate", "appearance", "exp3", "exp1", "exp2", "crosscheck", "reproduce"))
     ap.add_argument("--max-gap-frames", type=int, default=30)
     ap.add_argument("--trans-neg-clamp", type=float, default=0.0)
     ap.add_argument("--n-boot", type=int, default=400)
@@ -1304,8 +1477,16 @@ def main() -> None:
 
     print(f"substrate: MAX_GAP_FRAMES={bt.MAX_GAP_FRAMES} COORDS={bt.COORDS} "
           f"TRANS_NEG_CLAMP={bt.TRANS_NEG_CLAMP}", flush=True)
-    if args.stage in ("appearance", "exp3", "exp1", "exp2"):
-        if args.stage == "exp2":
+    if args.stage in ("appearance", "exp3", "exp1", "exp2", "crosscheck",
+                      "reproduce"):
+        if args.stage == "reproduce":
+            print("\n== reproduce the audit Phase C v3 figure ==", flush=True)
+            res = reproduce_v3()
+        elif args.stage == "crosscheck":
+            print("\n== cross-check: static screening vs threading frontier ==",
+                  flush=True)
+            res = cross_check_metrics()
+        elif args.stage == "exp2":
             print("\n== experiment 2: trajectory-sequence motion ==", flush=True)
             res = experiment_2(n_boot=args.n_boot)
         elif args.stage == "exp1":
@@ -1319,6 +1500,10 @@ def main() -> None:
             print("\n== experiment 3: cohort-normalised appearance ==", flush=True)
             res = experiment_3(n_boot=args.n_boot)
         args.out.parent.mkdir(parents=True, exist_ok=True)
+        res["substrate"] = {"max_gap_frames": bt.MAX_GAP_FRAMES,
+                            "coords": bt.COORDS,
+                            "trans_neg_clamp": args.trans_neg_clamp,
+                            "stage": args.stage}
         args.out.write_text(json.dumps(res, indent=2))
         print(f"\nwritten: {args.out}")
         return
@@ -1331,6 +1516,10 @@ def main() -> None:
         print(f"max paired 95% CI width:     {res['paired_ci_width_max']:.4f}")
         print(f"resolves a v3-sized effect:  {res['resolves_v3_sized_effect']}")
         args.out.parent.mkdir(parents=True, exist_ok=True)
+        res["substrate"] = {"max_gap_frames": bt.MAX_GAP_FRAMES,
+                            "coords": bt.COORDS,
+                            "trans_neg_clamp": args.trans_neg_clamp,
+                            "stage": args.stage}
         args.out.write_text(json.dumps(res, indent=2))
         print(f"\nwritten: {args.out}")
         return
