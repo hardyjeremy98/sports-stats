@@ -96,6 +96,84 @@ class Params(BaseModel):
     device: str = "cuda"
     seed: int = 345
     max_hours: float | None = None
+    # Auto-resume from `denoiser_<encoder>_resume.pt` when present and the recipe
+    # matches. Added after the 2026-08-03 OOM kill cost B1 ten epochs; the bundle
+    # restores optimizer moments and both RNG streams, so a resumed run is the SAME
+    # run (verified bitwise in tests), never a warm-restart variant of it.
+    resume: bool = True
+
+
+# Params that may legitimately differ between a crashed process and the one that
+# resumes it. Everything else is recipe, and a recipe mismatch refuses to resume.
+_RESUME_EXEMPT = {"max_hours", "num_workers", "device", "checkpoint_dir", "resume"}
+
+
+def check_resume_compatible(saved: dict, current: dict) -> list[str]:
+    """Recipe keys on which a resume bundle and the current Params disagree."""
+    keys = (set(saved) | set(current)) - _RESUME_EXEMPT
+    return sorted(k for k in keys if saved.get(k) != current.get(k))
+
+
+def save_resume_state(path, *, model, opt, epoch, step, best_val, history, params,
+                      dataset_rng) -> None:
+    """Everything a faithful epoch-boundary resume needs, written atomically.
+
+    Model weights alone are NOT enough: AdamW's per-parameter moments, the global
+    torch/CUDA RNG streams (loader shuffling, worker seeding, dropout) and the
+    dataset's numpy generator (window offsets, augmentation choices) all shape the
+    remaining epochs. Restoring all of them makes the resumed run the SAME run --
+    verified bitwise in the tests -- so a crash costs at most one epoch and never
+    taints an ablation arm the way the 2026-08-03 OOM kill of B1 did.
+    """
+    import os
+
+    import torch
+
+    bundle = {
+        "model": model.state_dict(),
+        "opt": opt.state_dict(),
+        "epoch": epoch,
+        "step": step,
+        "best_val": best_val,
+        "history": history,
+        "params": params,
+        "torch_rng": torch.random.get_rng_state(),
+        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+        "dataset_rng": dataset_rng.bit_generator.state,
+    }
+    tmp = Path(str(path) + ".tmp")
+    torch.save(bundle, tmp)
+    os.replace(tmp, path)
+
+
+def load_resume_state(path, *, model, opt, dataset_rng, expect_params=None) -> dict:
+    """Restore a `save_resume_state` bundle into live objects; returns the scalars.
+
+    Refuses a bundle whose RECIPE differs from `expect_params` -- resuming arm X
+    from arm Y's bundle must be an error, not a quiet blend of two experiments.
+    """
+    import torch
+
+    bundle = torch.load(path, map_location="cpu", weights_only=False)
+    if expect_params is not None:
+        mismatched = check_resume_compatible(bundle.get("params", {}), expect_params)
+        if mismatched:
+            raise RuntimeError(
+                f"resume bundle {path} disagrees with the current recipe on "
+                f"{mismatched}; refusing to blend two experiments"
+            )
+    model.load_state_dict(bundle["model"])
+    opt.load_state_dict(bundle["opt"])
+    torch.random.set_rng_state(bundle["torch_rng"])
+    if torch.cuda.is_available() and bundle["cuda_rng"]:
+        torch.cuda.set_rng_state_all(bundle["cuda_rng"])
+    dataset_rng.bit_generator.state = bundle["dataset_rng"]
+    return {
+        "epoch": bundle["epoch"],
+        "step": bundle["step"],
+        "best_val": bundle["best_val"],
+        "history": bundle["history"],
+    }
 
 
 def collate(batch, framespan: int):
@@ -197,6 +275,22 @@ class PCBASDenoiserExperiment(Experiment):
         started = time.time()
         step = 0
         best_val = float("inf")
+        start_epoch = 1
+        resumed_from: int | None = None
+
+        resume_path = ckpt_dir / f"denoiser_{p.encoder}_resume.pt"
+        if p.resume and resume_path.is_file():
+            restored = load_resume_state(
+                resume_path, model=model, opt=opt, dataset_rng=train_ds.rng,
+                expect_params=p.model_dump(),
+            )
+            step = restored["step"]
+            best_val = restored["best_val"]
+            history = restored["history"]
+            resumed_from = restored["epoch"]
+            start_epoch = resumed_from + 1
+            print(f"RESUMED from epoch {resumed_from} (step {step}, "
+                  f"best_val {best_val:.4f})", flush=True)
 
         def loader(ds, shuffle):
             return DataLoader(
@@ -207,9 +301,13 @@ class PCBASDenoiserExperiment(Experiment):
                 collate_fn=lambda b: collate(b, p.framespan),
             )
 
-        for epoch in range(1, p.epochs + 1):
+        for epoch in range(start_epoch, p.epochs + 1):
             if epoch > 1:
-                train_ds.resample()  # fresh random window offsets each epoch
+                # Fresh random window offsets each epoch. On a resumed run this is
+                # what discards the constructor-time index and rebuilds it from the
+                # RESTORED generator stream, so the epoch sees the same windows the
+                # uninterrupted run would have.
+                train_ds.resample()
             model.train()
             totals = {"action": 0.0, "role": 0.0, "timestamp": 0.0, "total": 0.0}
             n = 0
@@ -261,6 +359,11 @@ class PCBASDenoiserExperiment(Experiment):
                     ckpt_dir / f"denoiser_{p.encoder}_best.pt",
                 )
                 print(f"  new best val_total {best_val:.4f}", flush=True)
+            save_resume_state(
+                resume_path, model=model, opt=opt, epoch=epoch, step=step,
+                best_val=best_val, history=history, params=p.model_dump(),
+                dataset_rng=train_ds.rng,
+            )
             print(f"epoch {epoch}: {record}", flush=True)
 
             if p.max_hours is not None and (time.time() - started) / 3600 >= p.max_hours:
@@ -271,6 +374,7 @@ class PCBASDenoiserExperiment(Experiment):
             "history": history,
             "epochs_run": len(history),
             "epochs_planned": p.epochs,
+            "resumed_from_epoch": resumed_from,
             "encoder": p.encoder,
             "checkpoint": str(ckpt_dir / f"denoiser_{p.encoder}_last.pt"),
             "hours": (time.time() - started) / 3600,

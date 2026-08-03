@@ -292,3 +292,113 @@ def test_denoise_infer_rebuild_defaults_to_flat_for_legacy_checkpoints():
                         "n_layers": 1}}
     rebuilt = denoiser_from_state(state, torch.device("cpu"))
     assert rebuilt.attention_branch is None
+
+
+# --- resume support ----------------------------------------------------------------
+
+
+def _toy_setup(seed=0):
+    import numpy as np
+
+    torch.manual_seed(seed)
+    model = torch.nn.Sequential(torch.nn.Linear(6, 16), torch.nn.GELU(),
+                                torch.nn.Linear(16, 3))
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    rng = np.random.default_rng(seed)
+    return model, opt, rng
+
+
+def _train_steps(model, opt, rng, n_steps):
+    """Synthetic steps that consume BOTH RNG streams, like the real loop does
+    (numpy for window sampling/augmentation, torch for shuffling/dropout)."""
+    for _ in range(n_steps):
+        x = torch.from_numpy(rng.normal(size=(4, 6)).astype("float32"))
+        noise = torch.randn(4, 3)  # torch-RNG consumer
+        loss = ((model(x) - noise) ** 2).mean()
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+
+
+def test_resume_reproduces_the_uninterrupted_run_exactly(tmp_path):
+    """The whole point: a resumed run must be THE SAME RUN, not a similar one.
+
+    Interrupt at step 3 of 7, restore into fresh objects, continue -- every weight
+    and every optimizer moment must match the uninterrupted run bitwise. If this
+    holds, a crash costs at most one epoch and never taints an ablation arm.
+    """
+    from matchlab_train.experiments.pcbas_denoiser import (
+        load_resume_state,
+        save_resume_state,
+    )
+
+    # Uninterrupted reference.
+    model_a, opt_a, rng_a = _toy_setup()
+    _train_steps(model_a, opt_a, rng_a, 7)
+
+    # Interrupted at 3, resumed for the remaining 4.
+    model_b, opt_b, rng_b = _toy_setup()
+    _train_steps(model_b, opt_b, rng_b, 3)
+    save_resume_state(tmp_path / "resume.pt", model=model_b, opt=opt_b, epoch=3,
+                      step=30, best_val=1.5, history=[{"epoch": 3}],
+                      params={"seed": 0}, dataset_rng=rng_b)
+
+    model_c, opt_c, rng_c = _toy_setup(seed=99)  # deliberately different init
+    state = load_resume_state(tmp_path / "resume.pt", model=model_c, opt=opt_c,
+                              dataset_rng=rng_c)
+    assert (state["epoch"], state["step"], state["best_val"]) == (3, 30, 1.5)
+    assert state["history"] == [{"epoch": 3}]
+    _train_steps(model_c, opt_c, rng_c, 4)
+
+    for (ka, va), (kc, vc) in zip(model_a.state_dict().items(),
+                                  model_c.state_dict().items(), strict=True):
+        assert ka == kc
+        assert torch.equal(va, vc), f"{ka} diverged after resume"
+    # Optimizer moments too -- weights matching by luck while moments diverge would
+    # still change every subsequent step.
+    sa, sc = opt_a.state_dict()["state"], opt_c.state_dict()["state"]
+    for k in sa:
+        assert torch.equal(sa[k]["exp_avg"], sc[k]["exp_avg"])
+        assert torch.equal(sa[k]["exp_avg_sq"], sc[k]["exp_avg_sq"])
+
+
+def test_resume_refuses_a_different_recipe(tmp_path):
+    """Resuming arm X from arm Y's bundle must be an ERROR, not a quiet blend --
+    the bundle carries the recipe and the loader compares it."""
+    from matchlab_train.experiments.pcbas_denoiser import (
+        check_resume_compatible,
+        load_resume_state,
+        save_resume_state,
+    )
+
+    model, opt, rng = _toy_setup()
+    save_resume_state(tmp_path / "resume.pt", model=model, opt=opt, epoch=1, step=10,
+                      best_val=2.0, history=[],
+                      params=Params(encoder="attn").model_dump(), dataset_rng=rng)
+    with pytest.raises(RuntimeError, match="encoder"):
+        load_resume_state(tmp_path / "resume.pt", model=model, opt=opt,
+                          dataset_rng=rng,
+                          expect_params=Params(encoder="flat").model_dump())
+    # Wall-clock and IO params may legitimately differ between the crashed process
+    # and its relauncher; only recipe params gate.
+    ok = check_resume_compatible(
+        Params(encoder="attn", max_hours=3.0, num_workers=2).model_dump(),
+        Params(encoder="attn", max_hours=None, num_workers=6).model_dump(),
+    )
+    assert ok == []
+
+
+def test_resume_bundle_write_is_atomic(tmp_path):
+    """A crash mid-save must leave the PREVIOUS bundle intact, not a torn file."""
+    from matchlab_train.experiments.pcbas_denoiser import save_resume_state
+
+    model, opt, rng = _toy_setup()
+    path = tmp_path / "resume.pt"
+    save_resume_state(path, model=model, opt=opt, epoch=1, step=1, best_val=1.0,
+                      history=[], params={}, dataset_rng=rng)
+    first = path.read_bytes()
+    assert not (tmp_path / "resume.pt.tmp").exists()
+    save_resume_state(path, model=model, opt=opt, epoch=2, step=2, best_val=0.5,
+                      history=[], params={}, dataset_rng=rng)
+    assert path.read_bytes() != first
+    assert not (tmp_path / "resume.pt.tmp").exists()
