@@ -47,6 +47,10 @@ CACHE = Path("data/experiments/frame-embeddings")
 #: has to survive that rounding.
 BOX_TOL = 0.01
 
+#: Observations retained at a fragment's exit, for the trajectory arm. Matches
+#: `bootstrap_threads.TAIL_K`, which is what the cache was written with.
+TAIL_LEN = 30
+
 
 @dataclass
 class FrameEmbeddings:
@@ -200,6 +204,56 @@ THREAD_SET_CAP = 64
 #: the control are computed by the SAME code over the SAME sets, which is what
 #: makes the comparison about the statistic rather than about the plumbing.
 SET_STATS = ("proto", "top1", "top3", "top5", "median", "q90", "mutual_nn")
+
+#: Experiment 4: alternative THREAD-PROTOTYPE pooling, scored as an ordinary
+#: cosine so everything downstream is unchanged. `pool_mean` reproduces the
+#: incumbent (plain mean of member unit prototypes) and is the control the other
+#: two are read against.
+POOL_STATS = ("pool_mean", "pool_countw", "pool_shrunk")
+
+#: Shrinkage constant for `pool_shrunk`, in frames: a member contributes with
+#: weight n/(n+n0), so a thin fragment is pulled toward the thread mean rather
+#: than given equal say. Fixed at the substrate's measured median fragment
+#: length (~200 frames) rather than fitted, so it cannot be tuned per fold.
+POOL_SHRINK_N0 = 200.0
+
+
+def pool_prototypes(member_embs, member_frames) -> dict[str, np.ndarray]:
+    """Thread prototypes under each pooling rule.
+
+    The incumbent pools MEMBER PROTOTYPES with equal weight, so a 70-frame
+    fragment and a 980-frame one get identical say -- a ~13x dynamic range on
+    this substrate. Whether that costs anything is the question.
+
+    Weights sum over EMBEDDED members only. `n_embedded` counts embedded
+    members while `n_frames` counts every frame including members that
+    legitimately have no embedding, and mixing the two silently deflates the
+    pool -- the same index-alignment class as the 2026-07-27 cache bug.
+    """
+    protos, ns = [], []
+    for e, n in zip(member_embs, member_frames, strict=True):
+        if e is None or not len(e):
+            continue  # not embedded: contributes to neither numerator nor sum
+        v = np.asarray(e, dtype=np.float64).mean(axis=0)
+        nv = float(np.linalg.norm(v))
+        if nv <= 1e-9:
+            continue
+        protos.append(v / nv)
+        ns.append(float(n))
+    if not protos:
+        return dict.fromkeys(POOL_STATS, None)
+    p = np.stack(protos)
+    n = np.array(ns)
+
+    def unit(w):
+        v = (w[:, None] * p).sum(axis=0) / max(w.sum(), 1e-9)
+        return v / max(float(np.linalg.norm(v)), 1e-9)
+
+    return {
+        "pool_mean": unit(np.ones_like(n)),
+        "pool_countw": unit(n),
+        "pool_shrunk": unit(n / (n + POOL_SHRINK_N0)),
+    }
 
 
 def set_statistics(a: np.ndarray, b: np.ndarray) -> dict[str, float]:

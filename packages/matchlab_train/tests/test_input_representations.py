@@ -171,6 +171,83 @@ def test_plugin_scorer_reproduces_the_incumbent_through_the_full_threading_path(
     assert base["pass2_correct"] + base["pass2_wrong"] > 0
 
 
+def test_cohort_transform_uses_only_the_decisions_own_candidates():
+    """No leakage: a field's values must depend on that field alone.
+
+    Scoring a decision against statistics of OTHER decisions -- or of candidates
+    that do not exist yet -- would make the arm look informative for a reason
+    the serving path could never reproduce.
+    """
+    from matchlab_train.experiments.input_representations import (
+        COHORT_KINDS,
+        cohort_transform,
+    )
+
+    v = np.array([0.1, 0.9, 0.5, 0.2, 0.8, 0.4])
+    ep = np.array([0, 0, 0, 1, 1, 1])
+
+    for kind in COHORT_KINDS:
+        full = cohort_transform(v, ep, kind)
+        # Re-run with the second field's values changed: field 0 must not move.
+        v2 = v.copy()
+        v2[3:] = [-5.0, 7.0, 0.0]
+        moved = cohort_transform(v2, ep, kind)
+        assert np.allclose(full[:3], moved[:3]), kind
+
+
+def test_cohort_transform_is_unchanged_by_relabelling_the_episodes():
+    from matchlab_train.experiments.input_representations import (
+        COHORT_KINDS,
+        cohort_transform,
+    )
+
+    v = np.array([0.1, 0.9, 0.5, 0.2, 0.8, 0.4])
+    for kind in COHORT_KINDS:
+        a = cohort_transform(v, np.array([0, 0, 0, 1, 1, 1]), kind)
+        b = cohort_transform(v, np.array([7, 7, 7, 3, 3, 3]), kind)
+        assert np.allclose(a, b), kind
+
+
+def test_cohort_margin_never_compares_a_candidate_with_itself():
+    """`impostor_field_llr` takes the field max including the scored candidate,
+    so its margin is <= 0 by construction. The margin arm must not inherit that:
+    the best candidate's margin has to be POSITIVE when it leads."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    v = np.array([0.9, 0.4, 0.3])
+    got = cohort_transform(v, np.zeros(3, dtype=int), "margin")
+
+    assert got[0] == pytest.approx(0.5)   # 0.9 - 0.4, the best OTHER
+    assert got[1] == pytest.approx(-0.5)  # 0.4 - 0.9
+    assert got[2] == pytest.approx(-0.6)
+
+
+def test_cohort_transform_abstains_rather_than_inventing_evidence():
+    """A one-candidate field has no impostor population to discriminate
+    against, and missing appearance stays missing (ADR 003)."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    lone = cohort_transform(np.array([0.7]), np.array([0]), "margin")
+    assert lone[0] == 0.0
+    assert cohort_transform(np.array([0.7]), np.array([0]), "rank")[0] == 0.5
+
+    with_nan = cohort_transform(
+        np.array([0.9, np.nan, 0.1]), np.zeros(3, dtype=int), "zscore"
+    )
+    assert np.isnan(with_nan[1])
+    # The abstaining candidate must not have shifted the field it is not in.
+    clean = cohort_transform(np.array([0.9, 0.1]), np.zeros(2, dtype=int), "zscore")
+    assert np.allclose(with_nan[[0, 2]], clean)
+
+
+def test_cohort_zscore_survives_a_degenerate_field():
+    """Two identical candidates give std 0; without a floor that is inf."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    got = cohort_transform(np.array([0.5, 0.5]), np.zeros(2, dtype=int), "zscore")
+    assert np.isfinite(got).all()
+
+
 def test_alignment_assertion_tolerates_legitimately_missing_embeddings():
     """After remap some fragments have no embedding at all. Missing evidence is
     neutral (ADR 003), not a fault -- the check must not confuse the two."""

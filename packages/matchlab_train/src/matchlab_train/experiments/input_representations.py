@@ -56,6 +56,16 @@ class FoldData:
     cand_key: np.ndarray      # (n,) global id of the candidate thread's player
     half: np.ndarray          # (n,) which half the row came from
     keys: tuple[str, ...]
+    #: Experiment 0: per-row summaries of the cross-frame cosine matrix, of
+    #: which "proto" is the incumbent's own statistic recomputed here. Empty
+    #: when the per-frame embeddings were not requested.
+    set_stats: dict[str, np.ndarray] = None  # type: ignore[assignment]
+    #: Experiment 2: per-fragment exit trajectories, and the per-row index of
+    #: whichever fragment supplies the thread's exit point.
+    tails: np.ndarray = None  # type: ignore[assignment]
+    tail_mask: np.ndarray = None  # type: ignore[assignment]
+    tail_of: np.ndarray = None  # type: ignore[assignment]
+    entry_xy: np.ndarray = None  # type: ignore[assignment]
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -70,7 +80,26 @@ class FoldData:
         }
 
 
-def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int):
+def fragment_frame_rows(key: str, frags) -> tuple[object, list[np.ndarray]]:
+    """Per-fragment row indices into the half's per-frame embedding table.
+
+    Keyed by (player_id, span) rather than by fragment position, so this is
+    correct at ANY fragmentation -- which is the whole reason
+    `frame_embeddings` exists.
+    """
+    from matchlab_train.experiments import frame_embeddings as fe
+
+    table = fe.load(key)
+    idx = table.index()
+    rows = [
+        table.for_span(idx, f.player_id, f.start, f.end) for f in frags
+    ]
+    return table, rows
+
+
+def oracle_pairs_rich(
+    frags, states, first_xy, *, half_id: int, frag_offset: int, frame_sets=None
+):
     """`bootstrap_threads.oracle_pairs`, plus the context the richer arms need.
 
     Deliberately a copy of that function's loop rather than a wrapper: the
@@ -83,6 +112,7 @@ def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int
     pid = np.array([f.player_id for f in frags])
     team = np.array([f.team for f in frags])
     start = np.array([f.start for f in frags])
+    end_of = np.array([f.end for f in frags])
     q_fp = [s.footprint() for s in states]
     q_proto = [s.prototype for s in states]
     p_team = {int(p): int(team[np.flatnonzero(pid == p)[0]]) for p in np.unique(pid)}
@@ -95,6 +125,29 @@ def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int
     #: (first row index, block size) per decision, so field size can be stamped
     #: on every row of a block once the block is complete.
     blocks: list[tuple[int, int]] = []
+
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_STATS,
+        SET_STATS,
+        THREAD_SET_CAP,
+        pool_prototypes,
+        set_statistics,
+    )
+
+    table, frag_rows = frame_sets if frame_sets is not None else (None, None)
+    grown_rows: dict[int, list[int]] = {}
+    #: Member structure, kept alongside the flat row list: the pooling arms need
+    #: to know which frames belonged to which member fragment, which is exactly
+    #: what the flat concatenation destroys.
+    grown_members: dict[int, list[int]] = {}
+    n_frames_of = [len(f.xs) for f in frags]
+    #: Experiment 2: which fragment's trajectory ENDS at the thread's exit
+    #: point. The static prior conditions on that point alone; the sequence arm
+    #: gets the run-up to it.
+    grown_last: dict[int, int] = {}
+    tail_of, entry_of = [], []
+    stats: dict[str, list[float]] = {k: [] for k in (*SET_STATS, *POOL_STATS)}
+
     for i in np.argsort(start):
         block = 0
         for p, st in grown.items():
@@ -111,7 +164,37 @@ def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int
             nf_b.append(1)
             qfrag.append(frag_offset + int(i))
             ckey.append(int(p))
+            tail_of.append(grown_last[p])
+            entry_of.append(first_xy[int(i)])
             block += 1
+            if table is not None:
+                # The thread's appearance SET, not its mean. Capped at the most
+                # recent samples so the statistic describes appearance rather
+                # than how long the thread has been accumulating -- a thread
+                # grows to hundreds of samples over a half while the query side
+                # has a median of 7.
+                a = table.emb[np.asarray(grown_rows[p][-THREAD_SET_CAP:], dtype=int)]
+                b = table.emb[frag_rows[int(i)]]
+                s = set_statistics(a, b)
+                for k in SET_STATS:
+                    stats[k].append(s[k])
+                # Experiment 4: the same decision under three thread-prototype
+                # pooling rules, scored as an ordinary cosine against the
+                # query's own prototype so nothing downstream changes.
+                pools = pool_prototypes(
+                    [table.emb[frag_rows[m]] for m in grown_members[p]],
+                    [n_frames_of[m] for m in grown_members[p]],
+                )
+                qb = b.astype(np.float64).mean(axis=0) if len(b) else None
+                if qb is not None:
+                    qn = float(np.linalg.norm(qb))
+                    qb = qb / qn if qn > 1e-9 else None
+                for k in POOL_STATS:
+                    pv = pools[k]
+                    stats[k].append(
+                        float(pv @ qb) if (pv is not None and qb is not None)
+                        else float("nan")
+                    )
         # Field size is a property of the DECISION, so it is stamped on every
         # row of the block once the block is known -- not incremented per row,
         # which would leak the candidate's position in the iteration order into
@@ -119,13 +202,39 @@ def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int
         if block:
             blocks.append((len(rows) - block, block))
         key = int(pid[i])
+        # The thread's exit point comes from whichever member ends latest, so
+        # the trajectory feeding that exit point is that member's tail -- not
+        # simply the most recently ADDED member.
+        if key not in grown or int(end_of[i]) >= int(end_of[grown_last[key]]):
+            grown_last[key] = int(i)
         grown[key] = grown[key].merged_with(states[i]) if key in grown else states[i]
         grown_fp[key] = grown[key].footprint()
         grown_frags[key] = grown_frags.get(key, 0) + 1
+        if table is not None:
+            grown_rows.setdefault(key, []).extend(
+                int(v) for v in frag_rows[int(i)]
+            )
+            grown_members.setdefault(key, []).append(int(i))
 
     field = np.ones(len(rows), dtype=np.float64)
     for lo, size in blocks:
         field[lo:lo + size] = size
+
+    # Per-FRAGMENT tails, indexed per row: 12.5k fragments beats 88k rows by an
+    # order of magnitude in memory, and the tail is a property of the fragment.
+    # Left-padded with a validity mask so a short tail is never confused with a
+    # stationary player -- fabricating "did not move" is precisely how the old
+    # (0,0)-endpoint substitution scored the prior's maximum positive evidence.
+    from matchlab_train.experiments.frame_embeddings import TAIL_LEN
+
+    tails = np.zeros((len(frags), TAIL_LEN, 3), dtype=np.float32)
+    tail_mask = np.zeros((len(frags), TAIL_LEN), dtype=bool)
+    for j, f in enumerate(frags):
+        t = np.asarray(getattr(f, "tail_xy", np.zeros((0, 3))), dtype=np.float32)
+        if len(t):
+            t = t[-TAIL_LEN:]
+            tails[j, TAIL_LEN - len(t):] = t
+            tail_mask[j, TAIL_LEN - len(t):] = True
 
     return {
         "rows": np.array(rows, dtype=float).reshape(-1, 5),
@@ -140,6 +249,11 @@ def oracle_pairs_rich(frags, states, first_xy, *, half_id: int, frag_offset: int
         "cand_key": np.array(ckey, dtype=np.int64),
         "query_player": np.array([pid[e] for e in episode], dtype=np.int64),
         "half": np.full(len(rows), half_id, dtype=np.int64),
+        "set_stats": {k: np.array(v, dtype=np.float64) for k, v in stats.items()},
+        "tails": tails,
+        "tail_mask": tail_mask,
+        "tail_of": np.array(tail_of, dtype=np.int64),
+        "entry_xy": np.array(entry_of, dtype=np.float64).reshape(-1, 2),
     }
 
 
@@ -183,7 +297,7 @@ def assert_appearance_aligned(frags, app, base_frags, key: str) -> None:
         )
 
 
-def load_fold(held_out: str, *, verbose: bool = True) -> FoldData:
+def load_fold(held_out: str, *, verbose: bool = True, with_sets: bool = False) -> FoldData:
     """Assemble the held-out match's static pair population.
 
     Both halves, concatenated, with episode ids offset so two halves' query 7 do
@@ -197,7 +311,11 @@ def load_fold(held_out: str, *, verbose: bool = True) -> FoldData:
         frags, first_xy, last_xy, app = bt.half_frames(key)
         assert_appearance_aligned(frags, app, bt._base_fragments(key), key)
         states = bt.initial_states(frags, first_xy, last_xy, app)
-        d = oracle_pairs_rich(frags, states, first_xy, half_id=hi, frag_offset=frag_off)
+        sets = fragment_frame_rows(key, frags) if with_sets else None
+        d = oracle_pairs_rich(
+            frags, states, first_xy, half_id=hi, frag_offset=frag_off,
+            frame_sets=sets,
+        )
         d["episodes"] = d["episodes"] + ep_off
         # Player ids repeat across halves and are NOT the same person's thread
         # state, so the cluster is (player, half) -- offsetting keeps that true
@@ -236,6 +354,19 @@ def load_fold(held_out: str, *, verbose: bool = True) -> FoldData:
         cand_key=cat("cand_key"),
         half=cat("half"),
         keys=keys,
+        set_stats={
+            k: np.concatenate([p["set_stats"][k] for p in parts])
+            for k in parts[0]["set_stats"]
+        } if with_sets else {},
+        tails=np.concatenate([p["tails"] for p in parts]),
+        tail_mask=np.concatenate([p["tail_mask"] for p in parts]),
+        # `tail_of` is a per-half fragment index; offset it the same way the
+        # fragment ids are, or half 2's rows would read half 1's trajectories.
+        tail_of=np.concatenate([
+            p["tail_of"] + sum(len(q["tails"]) for q in parts[:k])
+            for k, p in enumerate(parts)
+        ]),
+        entry_xy=np.concatenate([p["entry_xy"] for p in parts]),
     )
 
 
@@ -346,12 +477,14 @@ def _precision_spread(scores, fold: FoldData, *, coverage, n_boot, seed) -> dict
 _FOLD_CACHE: dict[str, FoldData] = {}
 
 
-def fold(held_out: str) -> FoldData:
+def fold(held_out: str, *, with_sets: bool = False) -> FoldData:
     """Held-out fold, memoised: assembling one costs a full FOOTPASS half load."""
-    if held_out not in _FOLD_CACHE:
-        print(f"assembling fold {held_out}", flush=True)
-        _FOLD_CACHE[held_out] = load_fold(held_out)
-    return _FOLD_CACHE[held_out]
+    ck = f"{held_out}{'+sets' if with_sets else ''}"
+    if ck not in _FOLD_CACHE:
+        print(f"assembling fold {held_out}"
+              f"{' (with per-frame sets)' if with_sets else ''}", flush=True)
+        _FOLD_CACHE[ck] = load_fold(held_out, with_sets=with_sets)
+    return _FOLD_CACHE[ck]
 
 
 def fit_incumbent(held_out: str):
@@ -430,6 +563,648 @@ def calibrate_instrument(*, n_boot: int = 400, seed: int = 0) -> dict:
     out["mean_delta"] = float(np.nanmean(deltas))
     out["resolves_v3_sized_effect"] = bool(out["paired_ci_width_max"] <= 2 * 0.0024)
     return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 0: set-to-set appearance
+# --------------------------------------------------------------------------
+
+
+def refit_with_body(fit_folds: list[FoldData], stat: str):
+    """Refit calibrators, transition prior and weights with `body` replaced.
+
+    Everything except column 0 is untouched, and the fit uses the SAME episodes
+    and the same estimator as the incumbent -- so the comparison is about the
+    appearance statistic and nothing else.
+    """
+    from matchlab_core.reid.evidence import LLRCalibrator, fit_fusion_weights
+    from matchlab_core.reid.transition import TransitionPrior
+
+    rows = np.concatenate([f.rows for f in fit_folds]).copy()
+    y = np.concatenate([f.labels for f in fit_folds])
+    if stat != "body":
+        rows[:, 0] = np.concatenate([f.set_stats[stat] for f in fit_folds])
+    # Episodes are per-fold ids; offset so two folds' query 7 are two decisions.
+    eps, off = [], 0
+    for f in fit_folds:
+        e = f.episodes
+        eps.append(e + off)
+        off += int(e.max()) + 1 if len(e) else 0
+    ep_index = np.concatenate(eps)
+
+    cals = {}
+    for j, name in enumerate(bt.CHANNELS):
+        col = rows[:, j]
+        ok = ~np.isnan(col)
+        cals[name] = LLRCalibrator.fit(col[ok & y], col[ok & ~y], max_bins=200)
+    prior = TransitionPrior.fit(rows[:, 2], rows[:, 3], rows[:, 4], y)
+    w = fit_fusion_weights(bt.channel_llrs(rows, cals, prior), ep_index, y)
+    return cals, prior, w
+
+
+def experiments_0_and_4(*, n_boot: int = 300, seed: int = 0) -> dict:
+    """Set-to-set appearance (exp 0) and thread-prototype pooling (exp 4).
+
+    Run together because both are summaries of the same per-frame appearance
+    sets and the fold assembly that produces those sets is the expensive part.
+
+    Two controls carry the interpretation:
+    - `proto` recomputes the incumbent's statistic over these sets, so it
+      measures the PLUMBING (per-frame re-pooling, the thread-set cap). Every
+      exp-0 arm is read against `proto`, not against `body`.
+    - `pool_mean` reproduces the incumbent's pooling rule, so the exp-4 arms are
+      read against it. If `pool_mean` itself differs from `body`, the difference
+      is the re-pooling, not the rule.
+    """
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_SHRINK_N0,
+        POOL_STATS,
+        SET_STATS,
+        THREAD_SET_CAP,
+    )
+
+    arms = ("body", *SET_STATS, *POOL_STATS)
+    out = {
+        "thread_set_cap": THREAD_SET_CAP,
+        "pool_shrink_n0": POOL_SHRINK_N0,
+        "arms": list(arms),
+        "exp0_arms": list(SET_STATS),
+        "exp4_arms": list(POOL_STATS),
+        "folds": {},
+    }
+    for held_out in bt.MATCHES:
+        test = fold(held_out, with_sets=True)
+        fits = [fold(m, with_sets=True) for m in bt.MATCHES if m != held_out]
+
+        scores, aucs = {}, {}
+        for stat in arms:
+            fit_mod = [
+                f if stat == "body" else _with_body(f, f.set_stats[stat])
+                for f in fits
+            ]
+            cals, prior, w = refit_with_body(fit_mod, "body")
+            rows = test.rows if stat == "body" else _with_body(
+                test, test.set_stats[stat]
+            ).rows
+            scores[stat] = LinearLLRScorer(cals, prior, w).score(rows, test.ctx)
+            aucs[stat] = _auc(rows[:, 0], test.labels)
+
+        out["folds"][held_out] = _compare_arms(
+            test, scores, aucs, arms, base="body", n_boot=n_boot, seed=seed,
+            label=held_out,
+        )
+    return out
+
+
+def experiment_0(*, n_boot: int = 300, seed: int = 0) -> dict:
+    """Does removing the appearance POOLING move the frontier?
+
+    Model-free by construction: each arm is a different summary of the same
+    cross-frame cosine matrix, calibrated by the same calibrator and fused by
+    the same estimator. No capacity question, no objective question, no
+    data-scale question -- which is what makes a null here mean something.
+
+    `proto` is run as an arm too. It recomputes the incumbent's own statistic
+    over these sets, so `proto` vs `body` measures the plumbing (per-frame
+    re-pooling and the thread-set cap) and every other arm is read against
+    `proto`, not against `body`. Without that control a "win" could be the cap.
+    """
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+    from matchlab_train.experiments.frame_embeddings import SET_STATS, THREAD_SET_CAP
+
+    arms = ("body", *SET_STATS)
+    out = {"thread_set_cap": THREAD_SET_CAP, "folds": {}, "arms": list(arms)}
+
+    for held_out in bt.MATCHES:
+        test = fold(held_out, with_sets=True)
+        fits = [fold(m, with_sets=True) for m in bt.MATCHES if m != held_out]
+
+        scores, aucs = {}, {}
+        for stat in arms:
+            cals, prior, w = refit_with_body(fits, stat)
+            rows = test.rows.copy()
+            if stat != "body":
+                rows[:, 0] = test.set_stats[stat]
+            scores[stat] = LinearLLRScorer(cals, prior, w).score(rows, test.ctx)
+            aucs[stat] = _auc(rows[:, 0], test.labels)
+
+        base = scores["body"]
+        hb = hull(frontier(base, test.labels, test.episodes))
+        band = _coverage_band(hb)
+        fold_out = {**test.summary(), "band": band.tolist(),
+                    "channel_auc": aucs, "arms": {}}
+        for stat in arms:
+            hs = hull(frontier(scores[stat], test.labels, test.episodes))
+            deltas = [
+                precision_at_coverage(hs, c) - precision_at_coverage(hb, c)
+                for c in band
+            ]
+            mid = float(np.median(band))
+            ci = cluster_bootstrap_delta(
+                base, scores[stat], test.labels, test.episodes, test.cluster,
+                coverage=mid, n_boot=n_boot, seed=seed,
+            )
+            fold_out["arms"][stat] = {
+                "band_deltas": [None if not np.isfinite(d) else float(d)
+                                for d in deltas],
+                "mean_band_delta": float(np.nanmean(deltas)),
+                "worst_band_delta": float(np.nanmin(deltas)),
+                "at_median_coverage": ci,
+                "channel_auc": aucs[stat],
+            }
+            print(
+                f"  {held_out:8s} {stat:>9s}: AUC {aucs[stat]:.4f}  "
+                f"band mean {np.nanmean(deltas):+.4f} "
+                f"worst {np.nanmin(deltas):+.4f}  "
+                f"@{mid:.2f} {ci['delta']:+.4f} "
+                f"[{ci['lo']:+.4f}, {ci['hi']:+.4f}]",
+                flush=True,
+            )
+        out["folds"][held_out] = fold_out
+    return out
+
+
+def _coverage_band(h: np.ndarray, *, n: int = 8) -> np.ndarray:
+    """Coverages at which every arm is compared.
+
+    A band, not a point. The audit's v3 "win" was +0.0023 at coverage 0.65 and
+    NEGATIVE at 0.45, 0.50, 0.55, 0.75 and 0.80 -- a single matched-coverage
+    point can be chosen, after the fact, to say almost anything.
+    """
+    if not len(h):
+        return np.zeros(0)
+    lo = max(float(h["coverage"][0]), 0.40)
+    hi = min(float(h["coverage"][-1]), 0.90)
+    if hi <= lo:
+        return np.array([float(np.median(h["coverage"]))])
+    return np.linspace(lo, hi, n)
+
+
+def _auc(scores, labels) -> float:
+    """Rank AUC of a raw channel: same vs different, ties at 0.5."""
+    s = np.asarray(scores, dtype=np.float64)
+    y = np.asarray(labels, dtype=bool)
+    ok = ~np.isnan(s)
+    s, y = s[ok], y[ok]
+    if not y.any() or y.all():
+        return float("nan")
+    order = np.argsort(s, kind="mergesort")
+    ranks = np.empty(len(s), dtype=np.float64)
+    ranks[order] = np.arange(1, len(s) + 1)
+    # Average ranks within ties, so a quantised channel is not flattered.
+    _, inv, counts = np.unique(s, return_inverse=True, return_counts=True)
+    sums = np.zeros(len(counts))
+    np.add.at(sums, inv, ranks)
+    ranks = (sums / counts)[inv]
+    n_pos = int(y.sum())
+    n_neg = len(y) - n_pos
+    return float((ranks[y].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+
+
+# --------------------------------------------------------------------------
+# Experiment 3: cohort-normalised appearance
+# --------------------------------------------------------------------------
+
+COHORT_KINDS = ("zscore", "rank", "margin")
+
+#: Field standard deviations below this are not information, they are two
+#: candidates that happened to land close. Flooring stops a degenerate
+#: 2-candidate field producing an enormous z.
+_STD_FLOOR = 1e-3
+
+
+def cohort_transform(values, episodes, kind: str) -> np.ndarray:
+    """Re-express each candidate's appearance score relative to its own field.
+
+    A global calibrator maps a cosine of 0.62 to the same evidence whether the
+    query's other candidates sat at 0.61 or at 0.20. The informativeness of a
+    similarity is a property of the impostor population -- the same argument
+    `evidence.impostor_field_llr` makes -- so the field-relative form may carry
+    evidence the absolute one averages away.
+
+    Every kind is computed from the candidates of the DECISION ITSELF, which are
+    all available when that decision is made, so nothing here is leakage. The
+    field-prefix test asserts it.
+
+    NaNs (missing appearance) stay NaN and are excluded from the field: an
+    abstaining candidate must not shift the cohort it is not part of.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    ep = np.asarray(episodes)
+    out = np.full(len(v), np.nan)
+    order = np.argsort(ep, kind="mergesort")
+    bounds = np.flatnonzero(np.diff(ep[order])) + 1
+    for grp in np.split(order, bounds):
+        vals = v[grp]
+        ok = ~np.isnan(vals)
+        if ok.sum() == 0:
+            continue
+        good = vals[ok]
+        if kind == "zscore":
+            sd = float(good.std())
+            out[grp[ok]] = (good - good.mean()) / max(sd, _STD_FLOOR)
+        elif kind == "rank":
+            # Mid-rank, mapped to [0, 1]. A single-candidate field maps to 0.5:
+            # with no alternative there is nothing to discriminate against, and
+            # inventing evidence there is how a lone fragment gets confidently
+            # mismerged (the same reason impostor_field_llr returns 0).
+            if len(good) == 1:
+                out[grp[ok]] = 0.5
+            else:
+                idx = np.argsort(np.argsort(good))
+                out[grp[ok]] = idx / (len(good) - 1)
+        elif kind == "margin":
+            # Each candidate against the BEST OTHER candidate, so a row never
+            # competes with itself -- the off-by-one that makes a raw
+            # margin-over-runner-up always non-positive.
+            if len(good) == 1:
+                out[grp[ok]] = 0.0
+            else:
+                top2 = np.partition(good, -2)[-2:]
+                best, second = float(top2[1]), float(top2[0])
+                other_best = np.where(good >= best, second, best)
+                out[grp[ok]] = good - other_best
+        else:
+            raise ValueError(f"unknown cohort kind {kind!r}")
+    return out
+
+
+def experiment_3(*, n_boot: int = 300, seed: int = 0) -> dict:
+    """Is the body cosine's informativeness query-dependent?
+
+    Read with the audit in mind: on the real substrate candidate recall was 1.00
+    and ranking 7/8 top-1, so ranking is not the bottleneck there -- and every
+    kind here is a within-field monotone transform, which barely changes ranking
+    at all. This arm's only real lever is the THRESHOLD, and that is what the
+    frontier measures.
+    """
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+
+    arms = ("body", *COHORT_KINDS)
+    out = {"arms": list(arms), "folds": {}}
+    for held_out in bt.MATCHES:
+        test = fold(held_out)
+        fits = [fold(m) for m in bt.MATCHES if m != held_out]
+
+        scores, aucs = {}, {}
+        for kind in arms:
+            fit_mod = []
+            for f in fits:
+                g = _with_body(f, f.rows[:, 0] if kind == "body"
+                               else cohort_transform(f.rows[:, 0], f.episodes, kind))
+                fit_mod.append(g)
+            cals, prior, w = refit_with_body(fit_mod, "body")
+            rows = test.rows.copy()
+            if kind != "body":
+                rows[:, 0] = cohort_transform(test.rows[:, 0], test.episodes, kind)
+            scores[kind] = LinearLLRScorer(cals, prior, w).score(rows, test.ctx)
+            aucs[kind] = _auc(rows[:, 0], test.labels)
+
+        out["folds"][held_out] = _compare_arms(
+            test, scores, aucs, arms, base="body", n_boot=n_boot, seed=seed,
+            label=held_out,
+        )
+    return out
+
+
+def _with_body(f: FoldData, col) -> FoldData:
+    """A copy of a fold with column 0 replaced. Cheap: only column 0 changes."""
+    from dataclasses import replace as dc_replace
+
+    rows = f.rows.copy()
+    rows[:, 0] = col
+    return dc_replace(f, rows=rows)
+
+
+def _compare_arms(test, scores, aucs, arms, *, base, n_boot, seed, label) -> dict:
+    """Band-wide frontier comparison of every arm against `base`."""
+    hb = hull(frontier(scores[base], test.labels, test.episodes))
+    band = _coverage_band(hb)
+    fold_out = {**test.summary(), "band": band.tolist(), "arms": {}}
+    mid = float(np.median(band))
+    for name in arms:
+        hs = hull(frontier(scores[name], test.labels, test.episodes))
+        deltas = [
+            precision_at_coverage(hs, c) - precision_at_coverage(hb, c) for c in band
+        ]
+        ci = cluster_bootstrap_delta(
+            scores[base], scores[name], test.labels, test.episodes, test.cluster,
+            coverage=mid, n_boot=n_boot, seed=seed,
+        )
+        fold_out["arms"][name] = {
+            "band_deltas": [None if not np.isfinite(d) else float(d) for d in deltas],
+            "mean_band_delta": float(np.nanmean(deltas)),
+            "worst_band_delta": float(np.nanmin(deltas)),
+            "at_median_coverage": ci,
+            "channel_auc": aucs[name],
+        }
+        print(
+            f"  {label:8s} {name:>9s}: AUC {aucs[name]:.4f}  "
+            f"band mean {np.nanmean(deltas):+.4f} worst {np.nanmin(deltas):+.4f}  "
+            f"@{mid:.2f} {ci['delta']:+.4f} [{ci['lo']:+.4f}, {ci['hi']:+.4f}]",
+            flush=True,
+        )
+    return fold_out
+
+
+# --------------------------------------------------------------------------
+# Experiment 1: learned edge scorer
+# --------------------------------------------------------------------------
+
+
+def experiment_1(*, n_boot: int = 300, seed: int = 0, shuffle_null: bool = True) -> dict:
+    """Does a learned combiner beat the weighted sum of calibrated LLRs?
+
+    Arms, all through the identical decision rule:
+      `linear`      the incumbent (control)
+      `zero_hidden` an MLP with no hidden layer -- the MACHINERY check. If this
+                    does not land on the linear frontier, nothing else here is
+                    interpretable, because the two differ only in estimator.
+      `raw_bce` / `on_llr_bce`         the primary arms
+      `raw_softmax` / `on_llr_softmax` the same under the scale-free objective
+      `on_llr_shuffled`                permutation null: the context features
+                    label-shuffled. If THIS wins, the machinery is the finding.
+
+    Each arm is the mean logit over 5 seeds, pre-registered, so seed variance
+    is inside the reported interval rather than beside it.
+    """
+    from matchlab_train.experiments import learned_scorer as ls
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+
+    out = {"folds": {}, "hidden": list(ls.HIDDEN), "seeds": list(ls.SEEDS)}
+    for held_out in bt.MATCHES:
+        test = fold(held_out)
+        fits = [fold(m) for m in bt.MATCHES if m != held_out]
+        cals, prior, w = refit_with_body(fits, "body")
+        neutral = ls.neutral_cosine(cals["body"])
+
+        base = LinearLLRScorer(cals, prior, w).score(test.rows, test.ctx)
+        scores = {"linear": base}
+        aucs = {"linear": _auc(test.rows[:, 0], test.labels)}
+
+        # Inner split for early stopping: one of the four fit halves. Never the
+        # held-out match -- that would be tuning on the test fold.
+        fit_x, fit_y, fit_ep, fit_half = {}, None, None, None
+        for kind in ("raw", "on_llr"):
+            fit_x[kind] = np.concatenate(
+                [ls.build_features(f, cals, prior, kind, neutral=neutral)
+                 for f in fits]
+            )
+        fit_y = np.concatenate([f.labels for f in fits])
+        eps, off = [], 0
+        for f in fits:
+            eps.append(f.episodes + off)
+            off += int(f.episodes.max()) + 1
+        fit_ep = np.concatenate(eps)
+        fit_half = np.concatenate(
+            [f.half + 2 * k for k, f in enumerate(fits)]
+        )
+        inner_val = fit_half == fit_half.max()
+
+        for kind in ("raw", "on_llr"):
+            test_x = ls.build_features(test, cals, prior, kind, neutral=neutral)
+            mu = fit_x[kind][~inner_val].mean(axis=0)
+            sd = np.maximum(fit_x[kind][~inner_val].std(axis=0), 1e-9)
+            xf = (fit_x[kind][~inner_val] - mu) / sd
+            xv = (fit_x[kind][inner_val] - mu) / sd
+            xt = (test_x - mu) / sd
+
+            for objective in ("bce", "softmax"):
+                per_seed = [
+                    ls.score_with(
+                        ls.train(xf, fit_y[~inner_val], fit_ep[~inner_val],
+                                 xv, fit_y[inner_val],
+                                 hidden=ls.HIDDEN, seed=s, objective=objective),
+                        xt,
+                    )
+                    for s in ls.SEEDS
+                ]
+                scores[f"{kind}_{objective}"] = np.mean(per_seed, axis=0)
+                aucs[f"{kind}_{objective}"] = _auc(
+                    scores[f"{kind}_{objective}"], test.labels
+                )
+
+            if kind == "on_llr":
+                # Machinery check: no hidden layer = a linear model on the same
+                # features, fitted by the same optimiser.
+                per_seed = [
+                    ls.score_with(
+                        ls.train(xf, fit_y[~inner_val], fit_ep[~inner_val],
+                                 xv, fit_y[inner_val],
+                                 hidden=(), seed=s, objective="bce"),
+                        xt,
+                    )
+                    for s in ls.SEEDS
+                ]
+                scores["zero_hidden"] = np.mean(per_seed, axis=0)
+                aucs["zero_hidden"] = _auc(scores["zero_hidden"], test.labels)
+
+                if shuffle_null:
+                    rng = np.random.default_rng(1234)
+                    n_ctx = 5  # the context block, last five columns
+                    xf_s, xv_s, xt_s = xf.copy(), xv.copy(), xt.copy()
+                    for arr in (xf_s, xv_s, xt_s):
+                        arr[:, -n_ctx:] = arr[rng.permutation(len(arr))][:, -n_ctx:]
+                    per_seed = [
+                        ls.score_with(
+                            ls.train(xf_s, fit_y[~inner_val], fit_ep[~inner_val],
+                                     xv_s, fit_y[inner_val],
+                                     hidden=ls.HIDDEN, seed=s, objective="bce"),
+                            xt_s,
+                        )
+                        for s in ls.SEEDS
+                    ]
+                    scores["on_llr_shuffled"] = np.mean(per_seed, axis=0)
+                    aucs["on_llr_shuffled"] = _auc(
+                        scores["on_llr_shuffled"], test.labels
+                    )
+
+        arms = tuple(scores)
+        out["folds"][held_out] = _compare_arms(
+            test, scores, aucs, arms, base="linear", n_boot=n_boot, seed=seed,
+            label=held_out,
+        )
+    return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 2: trajectory-sequence motion arm
+# --------------------------------------------------------------------------
+
+
+def _traj_inputs(f: FoldData, *, mirror_h2: bool):
+    """(features, log dt, dx, dy, usable) for one fold.
+
+    `mirror_h2` canonicalises attack direction. FOOTPASS flips sides at
+    half-time and these coordinates are absolute, so a model fitted across
+    halves otherwise learns a side-specific drift and is then penalised for it
+    -- the same flip that put occupancy's cross-half AUC at 0.357 unmirrored.
+    """
+    from matchlab_train.experiments.trajectory_motion import tail_features
+
+    tails = f.tails[f.tail_of].copy()
+    mask = f.tail_mask[f.tail_of]
+    dx, dy = f.rows[:, 3].copy(), f.rows[:, 4].copy()
+    if mirror_h2:
+        h2 = f.half == 1
+        tails[h2, :, 1] = 1.0 - tails[h2, :, 1]
+        tails[h2, :, 2] = 1.0 - tails[h2, :, 2]
+        dx[h2] = -dx[h2]
+        dy[h2] = -dy[h2]
+    gap = f.rows[:, 2]
+    # dt <= 0 abstains outright: the incumbent's sigma floor makes its output
+    # there an artifact, and the engine's score_channels gate does the same.
+    usable = (gap > 0.0) & mask.any(axis=1) & np.isfinite(dx) & np.isfinite(dy)
+    return tail_features(tails, mask), np.log1p(np.maximum(gap, 0.0)), dx, dy, usable
+
+
+def experiment_2(*, n_boot: int = 300, seed: int = 0, mirror_h2: bool = True) -> dict:
+    """Does a sequence model over the exit tail beat the static diffusion prior?
+
+    Reported per gap bin, because the channel's measured value lives at short
+    gaps and a whole-population average would hide a win or a loss there.
+    Three things are reported for every arm, and a log-likelihood win alone is
+    NOT a win: the round-2 lesson is that a better-fitting cue can still move no
+    decisions.
+    """
+    from matchlab_core.reid.evidence import clip_transition
+
+    from matchlab_train.experiments import trajectory_motion as tm
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+
+    out = {"mirror_h2": mirror_h2, "gap_edges": list(tm.GAP_EDGES), "folds": {}}
+    for held_out in bt.MATCHES:
+        test = fold(held_out)
+        fits = [fold(m) for m in bt.MATCHES if m != held_out]
+        cals, prior, w = refit_with_body(fits, "body")
+
+        fx, fld, fdx, fdy, fok = zip(
+            *[_traj_inputs(f, mirror_h2=mirror_h2) for f in fits], strict=True
+        )
+        X = np.concatenate([a[b] for a, b in zip(fx, fok, strict=True)])
+        LD = np.concatenate([a[b] for a, b in zip(fld, fok, strict=True)])
+        DX = np.concatenate([a[b] for a, b in zip(fdx, fok, strict=True)])
+        DY = np.concatenate([a[b] for a, b in zip(fdy, fok, strict=True)])
+        Y = np.concatenate([f.labels[b] for f, b in zip(fits, fok, strict=True)])
+        HALF = np.concatenate(
+            [f.half[b] + 2 * k for k, (f, b) in enumerate(zip(fits, fok, strict=True))]
+        )
+        inner = HALF == HALF.max()
+
+        tx, tld, tdx, tdy, tok = _traj_inputs(test, mirror_h2=mirror_h2)
+        val = (X[inner & Y], LD[inner & Y], DX[inner & Y], DY[inner & Y])
+
+        # Denominator arms: the shipped static one, and the dt-banded control
+        # transition.py's OUTSTANDING ISSUE 1 says is needed to attribute a null.
+        imp_static = (prior.impostor_x, prior.impostor_y)
+        imp_bands = tm.banded_impostor(np.expm1(LD), DX, DY, Y)
+
+        fold_out = {**test.summary(), "arms": {}, "per_bin": {}}
+        scores, aucs = {}, {}
+        scores["linear"] = LinearLLRScorer(cals, prior, w).score(test.rows, test.ctx)
+        aucs["linear"] = _auc(
+            np.where(tok, prior.llr(test.rows[:, 2], tdx, tdy), np.nan), test.labels
+        )
+
+        bins_test = tm.gap_bin(test.rows[:, 2])
+        base_ll = tm.gaussian_logpdf(
+            tdx, tdy, 0.0, 0.0,
+            prior.x.at(test.rows[:, 2]), prior.y.at(test.rows[:, 2]), 0.0,
+        )
+
+        for objective in ("nce", "mle"):
+            models = [
+                tm.fit(X[~inner], LD[~inner], DX[~inner], DY[~inner], Y[~inner],
+                       objective=objective, seed=s, impostor=imp_static, val=val)
+                for s in tm.SEEDS
+            ]
+            params = [tm.predict_params(m, tx, tld) for m in models]
+            mx, my, sx, sy, rho = (np.mean([p[k] for p in params], axis=0)
+                                   for k in range(5))
+            learned_ll = tm.gaussian_logpdf(tdx, tdy, mx, my, sx, sy, rho)
+
+            for den_name, den in (("static", "static"), ("banded", "banded")):
+                if den == "static":
+                    ix = np.full(len(tdx), imp_static[0])
+                    iy = np.full(len(tdx), imp_static[1])
+                else:
+                    ix = np.array([imp_bands[b][0] for b in bins_test])
+                    iy = np.array([imp_bands[b][1] for b in bins_test])
+                den_ll = tm.impostor_logpdf(tdx, tdy, ix, iy)
+                raw = np.where(tok, learned_ll - den_ll, 0.0)
+                col = np.where(tok, np.asarray(clip_transition(raw, 0.0)), 0.0)
+                name = f"{objective}_{den_name}"
+                scores[name] = _refit_with_transition(fits, test, cals, prior,
+                                                      col, mirror_h2, objective,
+                                                      den, imp_static, imp_bands,
+                                                      models)
+                aucs[name] = _auc(np.where(tok, raw, np.nan), test.labels)
+
+            # The direct question, per bin: does the sequence model predict
+            # re-entry better at all? Same pairs only -- this is the numerator.
+            for b in range(len(tm.GAP_EDGES) + 1):
+                sel = tok & test.labels & (bins_test == b)
+                if sel.sum() < 30:
+                    continue
+                fold_out["per_bin"].setdefault(str(b), {})[objective] = {
+                    "n_same": int(sel.sum()),
+                    "incumbent_loglik": float(base_ll[sel].mean()),
+                    "learned_loglik": float(learned_ll[sel].mean()),
+                    "delta_loglik": float((learned_ll[sel] - base_ll[sel]).mean()),
+                    "median_abs_mu_m": float(np.median(np.hypot(mx[sel], my[sel]))),
+                    "median_sigma_x_m": float(np.median(sx[sel])),
+                    "median_sigma_y_m": float(np.median(sy[sel])),
+                }
+
+        arms = tuple(scores)
+        merged = _compare_arms(test, scores, aucs, arms, base="linear",
+                               n_boot=n_boot, seed=seed, label=held_out)
+        merged["per_bin"] = fold_out["per_bin"]
+        out["folds"][held_out] = merged
+    return out
+
+
+def _refit_with_transition(fits, test, cals, prior, test_col, mirror_h2,
+                           objective, den, imp_static, imp_bands, models):
+    """Fused score with the transition column replaced and WEIGHTS REFITTED.
+
+    Refitting matters: a learned channel is not on the incumbent channel's
+    scale, and serving it under the incumbent's weight would measure the scale
+    rather than the representation.
+    """
+    from matchlab_core.reid.evidence import clip_transition, fit_fusion_weights
+
+    from matchlab_train.experiments import trajectory_motion as tm
+
+    fit_llr, fit_y, eps, off = [], [], [], 0
+    for f in fits:
+        fx, fld, fdx, fdy, fok = _traj_inputs(f, mirror_h2=mirror_h2)
+        params = [tm.predict_params(m, fx, fld) for m in models]
+        mx, my, sx, sy, rho = (np.mean([p[k] for p in params], axis=0)
+                               for k in range(5))
+        ll = tm.gaussian_logpdf(fdx, fdy, mx, my, sx, sy, rho)
+        b = tm.gap_bin(f.rows[:, 2])
+        if den == "static":
+            ix = np.full(len(fdx), imp_static[0])
+            iy = np.full(len(fdx), imp_static[1])
+        else:
+            ix = np.array([imp_bands[k][0] for k in b])
+            iy = np.array([imp_bands[k][1] for k in b])
+        raw = np.where(fok, ll - tm.impostor_logpdf(fdx, fdy, ix, iy), 0.0)
+        col = np.where(fok, np.asarray(clip_transition(raw, 0.0)), 0.0)
+        llr = bt.channel_llrs(f.rows, cals, prior)
+        llr[:, 3] = col
+        fit_llr.append(llr)
+        fit_y.append(f.labels)
+        eps.append(f.episodes + off)
+        off += int(f.episodes.max()) + 1
+    w = fit_fusion_weights(
+        np.concatenate(fit_llr), np.concatenate(eps), np.concatenate(fit_y)
+    )
+    tl = bt.channel_llrs(test.rows, cals, prior)
+    tl[:, 3] = test_col
+    return tl @ w
 
 
 # --------------------------------------------------------------------------
@@ -515,7 +1290,8 @@ def main() -> None:
     from pathlib import Path
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--stage", default="mde", choices=("mde", "calibrate"))
+    ap.add_argument("--stage", default="mde",
+                    choices=("mde", "calibrate", "appearance", "exp3", "exp1", "exp2"))
     ap.add_argument("--max-gap-frames", type=int, default=30)
     ap.add_argument("--trans-neg-clamp", type=float, default=0.0)
     ap.add_argument("--n-boot", type=int, default=400)
@@ -528,6 +1304,25 @@ def main() -> None:
 
     print(f"substrate: MAX_GAP_FRAMES={bt.MAX_GAP_FRAMES} COORDS={bt.COORDS} "
           f"TRANS_NEG_CLAMP={bt.TRANS_NEG_CLAMP}", flush=True)
+    if args.stage in ("appearance", "exp3", "exp1", "exp2"):
+        if args.stage == "exp2":
+            print("\n== experiment 2: trajectory-sequence motion ==", flush=True)
+            res = experiment_2(n_boot=args.n_boot)
+        elif args.stage == "exp1":
+            print("\n== experiment 1: learned edge scorer ==", flush=True)
+            res = experiment_1(n_boot=args.n_boot)
+        elif args.stage == "appearance":
+            print("\n== experiments 0 & 4: set-to-set appearance and pooling ==",
+                  flush=True)
+            res = experiments_0_and_4(n_boot=args.n_boot)
+        else:
+            print("\n== experiment 3: cohort-normalised appearance ==", flush=True)
+            res = experiment_3(n_boot=args.n_boot)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(res, indent=2))
+        print(f"\nwritten: {args.out}")
+        return
+
     if args.stage == "calibrate":
         print("\n== instrument calibration: v3 gap-binned weights vs flat ==",
               flush=True)
