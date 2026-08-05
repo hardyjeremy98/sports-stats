@@ -467,21 +467,34 @@ class ReidEngineAssociator(Associator):
     def __init__(self, **params):
         self.params = Params(**params)
         self._jersey_reader = None  # lazy: only built when jersey_enabled
+        #: Why the jersey channel did not serve, or None if nothing went wrong.
+        #: An optional evidence modality whose stack is absent must abstain, not
+        #: kill the run (ADR 003) -- and it must SAY it abstained, because a
+        #: silently-dead channel reads identically to an uninformative one.
+        self._jersey_degraded: str | None = None
 
     def provenance(self) -> list[ModelProvenance]:
         if not self.params.jersey_enabled:
             return []
         reader = self._get_jersey_reader()
+        if reader is None:
+            return []
         return [reader.provenance(), reader._legibility.provenance()]
 
     def _get_jersey_reader(self):
         # Imported lazily and only when jersey_enabled: keeps the default
         # (OFF) path free of any OCR import, per ADR 001.
         if self._jersey_reader is None:
-            from matchlab_core.ocr.parseq import JerseyReader
+            try:
+                from matchlab_core.ocr.parseq import JerseyReader
 
-            self._jersey_reader = JerseyReader(checkpoint=self.params.jersey_checkpoint)
-            self._jersey_reader._legibility.weights = self.params.jersey_legibility_checkpoint
+                self._jersey_reader = JerseyReader(checkpoint=self.params.jersey_checkpoint)
+                self._jersey_reader._legibility.weights = (
+                    self.params.jersey_legibility_checkpoint
+                )
+            except Exception as exc:  # noqa: BLE001 -- any import/weights failure abstains
+                self._jersey_degraded = f"{type(exc).__name__}: {exc}"
+                return None
         return self._jersey_reader
 
     def _jersey_likelihoods(
@@ -490,14 +503,23 @@ class ReidEngineAssociator(Associator):
         """Per-tracklet jersey-number likelihood, plus a number prior fit from
         this run's own confident (non-abstaining) reads."""
         p = self.params
+        flat = np.full(N_NUMBERS, 1.0 / N_NUMBERS)
         reader = self._get_jersey_reader()
-        reader.prepare(device=ctx.device)
+        if reader is not None:
+            try:
+                reader.prepare(device=ctx.device)
+            except Exception as exc:  # noqa: BLE001 -- missing deps/weights abstain
+                self._jersey_degraded = f"{type(exc).__name__}: {exc}"
+                reader = None
+        if reader is None:
+            # Every tracklet abstains: `pair_llr` on two flat beliefs is exactly
+            # 0, so the fused affinity is bit-identical to the channel-off run.
+            return {t.tracklet_id: flat for t in tracklets}, uniform_prior()
         crops_by_tid = sample_quality_crops(
             ctx, tracklets, per_tracklet=p.jersey_per_tracklet_crops
         )
         likelihood_by_tid: dict[int, np.ndarray] = {}
         confident_numbers: list[int] = []
-        flat = np.full(N_NUMBERS, 1.0 / N_NUMBERS)
         for tid, crops in crops_by_tid.items():
             reads = reader.read(crops) if crops else []
             if not reads:
