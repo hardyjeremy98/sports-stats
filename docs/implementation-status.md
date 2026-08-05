@@ -1106,6 +1106,63 @@ Measured local findings recorded by the repository guidance:
   harnesses hit it: **the tactical `TEAM` column encodes pitch side and flips at half-time**;
   club identity must be reconstructed by voting over shared player ids
   (`footpass_match_harness.club_of_side`).
+- **The half-boundary estimate the flip was waiting on now exists (3a) — attacking direction
+  and epoch partition from sparse probes (2026-08-05; core
+  `matchlab_core/formation/direction.py`, 19 tests; harness
+  `matchlab_train/experiments/direction_eval.py`; report
+  `docs/reports/2026-08-05-attack-direction-3a.md`).** Cue: sign of
+  `mean_x(club A) − mean_x(club B)` on **absolute** pitch-normalised x, observable players
+  only — the same cue the sn-gamestate SoccerNet-GSR baseline uses, though it publishes no
+  isolated accuracy and its 30 s sequences never contain a flip; every sports-analytics
+  library (kloppy, floodlight, SoccerCPD, EFPI) takes direction and periods from **provider
+  metadata** instead, so there is no published bar. Boundary by CUSUM change point on
+  `sign(d)`, coarse 30 s probe plus bisection. Measured on FOOTPASS val with H1 truncated to
+  φ ∈ {0.25…0.85} and **no half-time gap** (so the boundary is neither the midpoint nor an
+  empty region — `score(t)` peaks at n/2 under the null, so equal butted halves would let a
+  midpoint guess score perfectly): **3/3 matches resolved with the true boundary inside the
+  reported band (errors 0.9 / 1.3 / 8.0 s against 15–46 s bands); across the φ-sweep, median
+  3.0 s, max 22.0 s, 67% within 5 s, 100% within 30 s, and the band covers the error 15/15**;
+  **~370 frames probed of ~150,000 (~0.25%)**; per-probe sign accuracy 0.887–0.968,
+  **worst play-third 0.855**. Read n as **3, not 15** — the five φ per game share H2 and nested
+  H1 prefixes. Two numbers from the first write-up were **withdrawn on cold review**: the
+  "758.6 s constant-midpoint baseline" is engineered by the φ-sweep (on real FOOTPASS geometry
+  the midpoint errs by only 32/112/101 s), and "0 wrong mirror bits in 26.4M fragment pairs" is
+  **3 bits, not 26.4M** — `epoch_of_fragment` makes zero errors *mathematically certain* once
+  the error is inside the self-set band, so the enumeration multiplies one per-game fact by 10⁷.
+  Against a constant-midpoint estimator run through the identical enumeration, the honest margin
+  is **~3 percentage points of wrong mirror bits on 2 of 3 games** (midpoint: 0.00 / 3.77 /
+  3.12% wrong), with 2.0–3.5% abstaining. Fine-scale localisation uses a **dense local scan,
+  not bisection**: bisection needs a reliable oracle per step, but the per-probe sign is ~90%
+  accurate with errors correlated over 5–10 s, so the vote degenerates to one coin toss just as
+  precision matters, and greedy halving cannot backtrack from a wrong call. The scan window is
+  sized by the coarse score profile rather than a fixed ±1 step — the coarse argmax was once
+  142 s off, and a fixed window then searches the wrong place *confidently*.
+  Absolute direction 12/12, which is **3 independent
+  bits** (club 1 is the negation of club 0; epoch 1 the flip of epoch 0).
+  **Undecidable pairs must have occupancy ZEROED, not served raw** — abstentions cluster at the
+  boundary, so they are disproportionately cross-half, where raw occupancy is anti-informative
+  (AUC 0.34–0.38), not neutral.
+  Abstains (permutation z, opposite-sign, per-segment agreement, and a sub-boundary guard
+  calibrated at 1.53 clean vs 4.1–4.7 three-flip) rather than guessing; **scope limit is two
+  epochs**, so extra time, warm-up footage and reverse-angle replays abstain. A 20-minute
+  one-club label collapse straddling half-time makes every probe there abstain and leaves a
+  blackout whose 361 s error no confidence statistic could distinguish from clean — handled by
+  widening the reported band to the probe gap, so the consumer gets "undecidable" rather than a
+  confident wrong epoch. **`occupancy_mirror` default is unchanged** pending the fused refit and
+  the best2 replay gate, and the estimator has still only seen GT observability spans plus
+  synthetic corruption, never real tracker output.
+- **FOOTPASS gotcha: H2 frame indices continue the match timeline, they do not restart at zero**
+  (game_18_H1 ends 75307, H2 starts 75525). `footpass_match_harness.load_match` offsets H2 by
+  `h1_span + HALF_BREAK_FRAMES` on top of already-global indices, double-counting H1's span and
+  opening a **65.4-minute** void between the halves instead of the intended 15-minute break.
+  **This contaminates the +3.4 above**: that fused LOMO was body + gap + transition, so the gap
+  channel is inside it. The corruption is a constant additive shift shared by all three arms, so
+  per-channel cross-half AUCs are rank-invariant and the *delta* almost certainly survives in
+  sign — but the **magnitude** does not, because the fitted gap weight is responding to a feature
+  that pushes every cross-half pair into an implausible-gap regime, and that headroom is what
+  occupancy fills. **Do not cite "+3.4" as a clean number until refitted.** (Pair ordering is
+  safe — a uniform positive shift preserves H1 < H2 — and `max_gap_s` was `None`; had it been
+  set, cross-half pairs would have been silently annihilated.) Found 2026-08-05; not fixed.
 - **Negative gaps were fabricating merge evidence for interleaved threads; serving now clamps
   gap at 0 and the transition prior abstains at dt ≤ 0 (2026-08-03; core
   `twopass.py::score_channels`, tests `test_reid_gap_fixes.py`).** Interleaved-but-disjoint
