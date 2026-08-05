@@ -31,7 +31,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from matchlab_core.stats.chains import DEFAULT_MAX_GAP_S, build_chains
-from matchlab_core.stats.keeper import compute_keeper_metrics
+from matchlab_core.stats.keeper import KEEPER_ABSTENTIONS, compute_keeper_metrics
 from matchlab_core.stats.momentum import build_momentum
 from matchlab_core.stats.schema import MatchEvent, StatEventType
 from matchlab_core.stats.sensitivity import sweep
@@ -354,24 +354,36 @@ def half_report(key: str, model) -> dict:
         },
         "ppda": ppda_by_club,
         "set_pieces": {
-            "throw_ins": sp.restarts[StatEventType.THROW_IN].taken
+            "throw_ins_live": sp.restarts[StatEventType.THROW_IN].taken
             if StatEventType.THROW_IN in sp.restarts
             else 0,
-            "abstentions": sorted(sp.abstentions),
-            "corner_candidates": len(sp.corner_candidates),
+            # Every restart class the source does not label, with its reason.
+            # None, never 0 -- four zeros here would be four fabrications.
+            "abstained": {
+                k.value: v.reason
+                for k, v in sp.restarts.items()
+                if v.taken is None
+            },
+            "shots_from_set_piece": sp.shots_from_set_piece,
+            "shots_unattributable": sp.shots_unattributable,
+            "shots_open_play": sp.shots_open_play,
+            "open_play_reason": sp.open_play_reason,
+            "corner_candidates": len(sp.corner_detection or []),
         },
         "keeper": {
             "keepers": [
                 {
                     "player_id": ln.player_id,
-                    "passes": ln.passes,
+                    "passes_attempted": ln.passes_attempted,
+                    "passes_completed": ln.passes_completed,
                     "shots_faced": ln.shots_faced,
                     "xg_faced": None if ln.xg_faced is None else round(ln.xg_faced, 4),
                     "saves": ln.saves,
                 }
-                for ln in keeper.lines
+                for ln in keeper.keepers
             ],
-            "abstentions": sorted(keeper.abstentions),
+            "unattributed_shots": keeper.unattributed_shots,
+            "abstentions": dict(sorted(KEEPER_ABSTENTIONS.items())),
         },
     }
 
@@ -494,7 +506,23 @@ def run(out_dir: str | Path = "data/reports/tier2-stats", *, trials: int = 10) -
         (out / f"{h['key']}.json").write_text(json.dumps(h, indent=2))
 
     # Sweep on one half -- chains are relational, so the sweep must rebuild them.
-    chained, _ = _val_half("game_18_H1")
+    #
+    # Loaded WITH off-ball context, unlike everywhere else on this branch. The
+    # crowd-biased loss model weights each event by how many players are within
+    # 10 m of it, so on a stream carrying no `teammates`/`opponents` it
+    # degenerates silently to uniform -- and the first run of this experiment
+    # did exactly that, producing a crowd-biased column identical to the uniform
+    # one. Tier 1's sharpest sensitivity finding was that chain-relational stats
+    # degrade ~3x faster under crowd-biased loss, so a sweep that cannot
+    # exercise it is not reporting the harder case.
+    #
+    # This does not weaken the Tier 3 guard: the xT model is already FITTED at
+    # this point, off-ball positions are read only by the loss model, and
+    # `credit_actions` never touches them.
+    sweep_events, _ = load_half_events(
+        TACTICAL["val"], "game_18_H1", PLAYBYPLAY["val"], with_offball=True
+    )
+    chained = build_chains(sweep_events)
     sweep_result = sweep(
         chained.events,
         sweep_metrics_factory(model),
