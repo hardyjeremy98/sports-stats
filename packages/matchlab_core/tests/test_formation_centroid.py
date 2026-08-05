@@ -151,3 +151,98 @@ def test_zoom_scales_the_offset_about_the_grid_centre():
     r1 = formation_relative(np.array([[0.6, 0.5]]), np.array([0]), c, zoom=1.0)
     r2 = formation_relative(np.array([[0.6, 0.5]]), np.array([0]), c, zoom=2.0)
     assert (r2[0, 0] - 0.5) == pytest.approx(2.0 * (r1[0, 0] - 0.5))
+
+
+def test_id_switch_end_does_not_cancel_the_correction():
+    """A tracker identity break must not be mistaken for a player leaving.
+
+    An ID switch emits an end at the position of a player who is STILL on
+    camera, and that end is by construction among the most recent -- so a
+    naive "h most recent ends" selector picks it first and the imputed
+    centroid collapses onto the observed one. Measured on this exact fixture
+    before the continuation filter landed: one split removed ~98% of the
+    correction.
+    """
+    visible = [_span(i, 0, list(range(41)), [[0.8, 0.5]] * 41) for i in (1, 2, 3)]
+    hidden = [_span(4, 0, [0], [[0.1, 0.5]]), _span(5, 0, [40], [[0.1, 0.5]])]
+    clean = estimate_team_centroids(visible + hidden, roster_size=4, impute=True)[0]
+    i = int(np.flatnonzero(clean.frames == 20)[0])
+    assert clean.applied[i]
+    expected = (3 * 0.8 + 1 * 0.1) / 4
+    assert clean.xy[i, 0] == pytest.approx(expected)
+
+    # Same scene, but one visible track is split in two at frame 19/20.
+    split = [
+        _span(1, 0, list(range(20)), [[0.8, 0.5]] * 20),
+        _span(6, 0, list(range(20, 41)), [[0.8, 0.5]] * 21),
+        *visible[1:],
+        *hidden,
+    ]
+    got = estimate_team_centroids(split, roster_size=4, impute=True)[0]
+    j = int(np.flatnonzero(got.frames == 20)[0])
+    observed_mean = 0.8
+    # Must stay near the clean estimate, nowhere near the uncorrected mean.
+    assert abs(got.xy[j, 0] - expected) < 0.25 * abs(observed_mean - expected)
+
+
+def test_lookup_on_empty_series_returns_nan_without_crashing():
+    s = estimate_team_centroids([_span(1, 0, [5], [[0.5, 0.5]])], min_observed=99)[0]
+    out = s.lookup(np.array([0, 5, 10]))
+    assert out.shape == (3, 2) and np.isnan(out).all()
+
+
+def test_negative_warp_coefficient_is_rejected():
+    """Convex warps measured WORSE on every axis; serving linear instead of
+    raising would silently hide a bad fitted artefact."""
+    with pytest.raises(ValueError, match="CONVEX"):
+        TimeWarp(k_x=-0.5)
+
+
+def test_trackspan_validates_units_and_ordering():
+    with pytest.raises(ValueError, match="NORMALISED"):
+        _span(1, 0, [0], [[5250.0, 3400.0]])
+    with pytest.raises(ValueError, match="ascending"):
+        _span(1, 0, [5, 3], [[0.5, 0.5], [0.5, 0.5]])
+
+
+def test_imputation_recovers_most_of_the_centroid_error_on_a_synthetic_match():
+    """Regression guard on the EFFECT, not just the plumbing.
+
+    A silent regression to the observed mean (which the ID-switch defect
+    effectively was) passes every structural test above; only a fixture that
+    measures error-variance-removed catches it. Eleven players drift across
+    the pitch; a panning viewport hides whoever is outside it.
+    """
+    rng = np.random.default_rng(0)
+    n_frames, n_players = 400, 11
+    base = rng.uniform(0.1, 0.9, size=(n_players, 2))
+    drift = np.linspace(0.0, 0.35, n_frames)
+    pos = np.stack([base[None, :, :] + np.stack([drift, drift * 0.1], 1)[:, None, :]
+                    for _ in range(1)])[0]
+    pos = np.clip(pos, 0.0, 1.0)
+    centre = 0.5 + 0.35 * np.sin(np.linspace(0, 4 * np.pi, n_frames))
+    visible = np.abs(pos[:, :, 0] - centre[:, None]) < 0.22
+
+    spans, tid = [], 0
+    for p in range(n_players):
+        v = visible[:, p]
+        edges = np.flatnonzero(np.diff(v.astype(int)))
+        starts = ([0] if v[0] else []) + list(edges[np.diff(v.astype(int))[edges] == 1] + 1)
+        ends = list(edges[np.diff(v.astype(int))[edges] == -1]) + ([n_frames - 1] if v[-1] else [])
+        for a, b in zip(starts, ends):
+            if b < a:
+                continue
+            tid += 1
+            fr = np.arange(a, b + 1)
+            spans.append(_span(tid, 0, fr, pos[fr, p, :]))
+    truth = pos.mean(axis=1)
+
+    def err(impute):
+        s = estimate_team_centroids(spans, roster_size=n_players, impute=impute)[0]
+        idx = s.frames
+        d = s.xy - truth[idx]
+        return float(np.nanmean(d[:, 0] ** 2))
+
+    base_err, imp_err = err(False), err(True)
+    removed = 1.0 - imp_err / base_err
+    assert removed > 0.30, f"imputation removed only {removed:.1%} of x error variance"

@@ -70,8 +70,11 @@ import numpy as np
 #: Pitch-normalised coordinates are the contract everywhere in this repo's
 #: geometry code (`reid.transition.displacement`, `TrackletEvidence`), and
 #: feeding centimetres into a [0,1] consumer is a bug that has shipped twice.
-#: Inputs are asserted against this with a tolerance for touchline overshoot.
-COORD_TOLERANCE = 0.5
+#: The guard discriminates UNIT errors -- metres are ~100x, centimetres ~1e4x
+#: out -- not data outliers, so the tolerance is deliberately generous: real
+#: FOOTPASS tracking carries excursions to y = -0.65 for players behind the
+#: goal line, and rejecting those would be the guard policing the wrong thing.
+COORD_TOLERANCE = 1.0
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,16 @@ class TimeWarp:
 
     k_x: float = 0.0
     k_y: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name, k in (("k_x", self.k_x), ("k_y", self.k_y)):
+            if not np.isfinite(k) or k < 0.0:
+                raise ValueError(
+                    f"{name}={k!r}: the warp coefficient must be finite and "
+                    ">= 0. A negative value is CONVEX (slow early), which is "
+                    "the shape measured to LOSE on every axis; silently "
+                    "serving linear instead would hide a bad fitted artefact."
+                )
 
     def __call__(self, tau: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         t = np.clip(np.asarray(tau, dtype=np.float64), 0.0, 1.0)
@@ -131,6 +144,18 @@ class TrackSpan:
     frames: np.ndarray  # (n,) int, ascending
     xy: np.ndarray      # (n, 2) float, pitch-normalised [0, 1]
 
+    def __post_init__(self) -> None:
+        # Validated HERE, not only in the adapters: the fit side holds FOOTPASS
+        # coordinates in metres and constructs spans directly, so the one
+        # caller most likely to feed the wrong units was the one not checked.
+        _assert_normalised(self.xy, f"track {self.track_id} positions")
+        if len(self.frames) and np.any(np.diff(self.frames) <= 0):
+            raise ValueError(
+                f"track {self.track_id} frames must be strictly ascending; "
+                "`start`/`end` read the endpoints and are silently wrong "
+                "otherwise."
+            )
+
     @property
     def start(self) -> int:
         return int(self.frames[0])
@@ -162,7 +187,9 @@ class CentroidSeries:
         Vectorised because every consumer applies it to every frame of every
         track -- a per-frame dict lookup is the shape of the existing hot loop.
         """
-        q = np.asarray(frames)
+        q = np.atleast_1d(np.asarray(frames))
+        if not len(self.frames):
+            return np.full((len(q), 2), np.nan, dtype=np.float64)
         idx = np.searchsorted(self.frames, q)
         ok = (idx < len(self.frames)) & (
             self.frames[np.clip(idx, 0, len(self.frames) - 1)] == q
@@ -270,6 +297,80 @@ def estimate_team_centroids(
     return out
 
 
+#: A track end followed by another track starting close by in time AND space is
+#: a tracker identity break, not a player leaving the camera. Defaults: half a
+#: second at 25 fps, and 5% of the pitch diagonal.
+CONTINUATION_FRAMES = 13
+CONTINUATION_RADIUS = 0.05
+
+
+def _departures_and_returns(
+    spans,
+    *,
+    continuation_frames: int = CONTINUATION_FRAMES,
+    continuation_radius: float = CONTINUATION_RADIUS,
+):
+    """Split span endpoints into genuine departures/returns, dropping the ends
+    and starts that are merely a tracker identity break.
+
+    Without this the selector is actively counter-productive: an ID switch
+    emits an end at the position of a player who is still on camera, that end
+    is by construction among the MOST RECENT, so it is picked first and the
+    imputed centroid collapses onto the observed one. Measured on synthetic
+    spans, a single mid-sequence split removed ~98% of the correction.
+
+    The test is spatiotemporal, never a pairing, so it stays identity-free:
+    "did some track resume near here, shortly after" is answerable without
+    knowing whose track it was.
+    """
+    ends = np.array(
+        sorted((s.end, s.xy[-1, 0], s.xy[-1, 1], s.track_id) for s in spans),
+        dtype=np.float64,
+    ).reshape(-1, 4)
+    starts = np.array(
+        sorted((s.start, s.xy[0, 0], s.xy[0, 1], s.track_id) for s in spans),
+        dtype=np.float64,
+    ).reshape(-1, 4)
+    if not len(ends) or not len(starts):
+        return ends[:, :3], starts[:, :3]
+
+    def _continued(a, b):
+        """For each row of `a`, is there a DIFFERENT track's row of `b` within
+        the time window (forward) and the radius?
+
+        Self-matches are excluded: a one-frame span's own start coincides
+        exactly with its own end, so without this every short track would
+        classify itself as an identity break and be dropped.
+        """
+        lo = np.searchsorted(b[:, 0], a[:, 0], "left")
+        hi = np.searchsorted(b[:, 0], a[:, 0] + continuation_frames, "right")
+        out = np.zeros(len(a), dtype=bool)
+        for i in range(len(a)):
+            if hi[i] <= lo[i]:
+                continue
+            w = b[lo[i]:hi[i]]
+            other = w[:, 3] != a[i, 3]
+            if not other.any():
+                continue
+            d = np.hypot(w[other, 1] - a[i, 1], w[other, 2] - a[i, 2])
+            out[i] = bool((d <= continuation_radius).any())
+        return out
+
+    keep_end = ~_continued(ends, starts)
+    # Mirror for returns: a start immediately preceded by a nearby end is the
+    # far side of the same identity break.
+    rev_starts = starts.copy()
+    rev_starts[:, 0] *= -1.0
+    rev_ends = ends.copy()
+    rev_ends[:, 0] *= -1.0
+    order_s = np.argsort(rev_starts[:, 0])
+    order_e = np.argsort(rev_ends[:, 0])
+    keep_start_rev = ~_continued(rev_starts[order_s], rev_ends[order_e])
+    keep_start = np.empty(len(starts), dtype=bool)
+    keep_start[order_s] = keep_start_rev
+    return ends[keep_end][:, :3], starts[keep_start][:, :3]
+
+
 def _hidden_centroid(spans, frames, h, warp, max_bracket_frames):
     """Mean position of the off-camera players, from span endpoints alone.
 
@@ -278,8 +379,7 @@ def _hidden_centroid(spans, frames, h, warp, max_bracket_frames):
     sets is formed -- see the module docstring for why the shared weight makes
     that unnecessary.
     """
-    ends = np.array(sorted((s.end, s.xy[-1, 0], s.xy[-1, 1]) for s in spans))
-    starts = np.array(sorted((s.start, s.xy[0, 0], s.xy[0, 1]) for s in spans))
+    ends, starts = _departures_and_returns(spans)
     if not len(ends) or not len(starts):
         z = np.zeros(len(frames))
         return z, z, np.zeros(len(frames), dtype=bool)
@@ -298,7 +398,14 @@ def _hidden_centroid(spans, frames, h, warp, max_bracket_frames):
     ms = (cs[hi] - cs[is_]) / ns
     span_len = ms[:, 0] - me[:, 0]
     if max_bracket_frames is not None:
-        ok &= span_len <= float(max_bracket_frames)
+        # Gate on the OLDEST endpoint actually used, not on the averaged
+        # bracket: with h > 1 a mean window hides a 20-minute-old exit behind
+        # three recent ones, which is precisely what the gate exists to refuse.
+        oldest = frames - ends[np.clip(lo, 0, len(ends) - 1), 0]
+        newest = starts[np.clip(hi - 1, 0, len(starts) - 1), 0] - frames
+        ok &= (oldest <= float(max_bracket_frames)) & (
+            newest <= float(max_bracket_frames)
+        )
     tau = np.divide(
         frames - me[:, 0], span_len, out=np.zeros(len(frames)), where=span_len > 0
     )
