@@ -35,9 +35,33 @@ conditioned on play third, **worst third 0.855–0.940**. The pan bias is
 *selection truncation*, not an additive offset, and it does bite — but modestly.
 
 **Boundary (V2).** Unequal-φ concatenation (H1 truncated to φ ∈ {0.25…0.85})
-with **no half-time gap**, so the true boundary is not the midpoint and the
-timeline has no empty region to find. **15/15 resolved, median 12.0 s, max
-54.6 s, 87% within ±30 s.**
+with **no half-time gap**. That matches the substrate: FOOTPASS's halves are
+separated by only **9–79 s** (game_18 8.7 s, game_24 78.7 s, game_47 11.4 s),
+and the videos are ~100–108 min for two ~50 min halves, so the footage is
+trimmed at half-time. There is no break to find — the swap is a cut. (Which
+makes the 15-minute-gap variant the *unrealistic* one, not the easy contrast I
+first labelled it.)
+
+**15/15 resolved, median error 3.0 s, max 22.0 s, 67% within 5 s, 100% within
+30 s, and the reported confidence covers the error 15/15.** On the real
+geometry (φ=1.0): **8.0 / 1.3 / 0.9 s**. Cost ~370 probes, 0.25% of frames.
+
+> **This replaced fine-scale bisection, which was the cause of the earlier
+> 12.0 s median and a 54.6 s worst case.** Bisection needs a reliable oracle
+> per step, but the per-probe sign is 0.86–0.97 accurate with errors correlated
+> over 5–10 s (V3b), so once the bracket shrinks below that the majority vote
+> degenerates to a single ~90% coin — and bisection is greedy with no
+> backtracking, so one wrong call is unrecoverable. The worst match for
+> per-probe accuracy (game_18, 0.887–0.908) was the worst for boundary error,
+> which is the signature.
+>
+> Now: bracket, then **scan densely and run the same change-point statistic
+> across the window**, pooling every sample instead of making ~5 irreversible
+> decisions. The window is sized by the *coarse* profile (candidates within 10%
+> of the maximum, padded 2 steps) rather than a fixed ±1 step — a fixed window
+> assumes the coarse argmax is within one step, and on game_18 φ=0.70 it landed
+> **142 s away**, so the scan searched the wrong place entirely and confidently
+> reported 99.8 s. With the adaptive window that case is 11.1 s.
 
 > **Read n as 3, not 15.** The five φ values per game share H2 entirely and use
 > nested prefixes of the same H1; the detected change point is the same
@@ -72,9 +96,12 @@ the baseline:
 
 | game | err | ci | pairs | correct | abstain | **wrong** | midpoint **wrong** |
 |---|---|---|---|---|---|---|---|
-| game_18 | 22.7 s | 45 s | 9,827,961 | 96.29% | 3.71% | **0.000%** | 0.000% |
-| game_24 | 1.4 s | 30 s | 9,506,980 | 97.49% | 2.51% | **0.000%** | 3.770% |
-| game_47 | 0.7 s | 30 s | 7,040,628 | 96.51% | 3.49% | **0.000%** | 3.122% |
+| game_18 | 8.0 s | 46 s | 9,827,961 | 96.47% | 3.53% | **0.000%** | 0.000% |
+| game_24 | 1.3 s | 15 s | 9,506,980 | 97.95% | 2.05% | **0.000%** | 3.770% |
+| game_47 | 0.9 s | 15 s | 7,040,628 | 97.56% | 2.44% | **0.000%** | 3.122% |
+
+(The dense scan tightened the band, so fewer fragments land in the undecidable
+zone: abstentions fell from 3.71/2.51/3.49% to 3.53/2.05/2.44%.)
 
 > **"26.4M pairs, zero wrong" is 3 bits of evidence, not 26.4M.** Cold review
 > established this and it is exactly right. `epoch_of_fragment` returns 0 iff

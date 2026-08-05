@@ -80,6 +80,10 @@ DEFAULT_MIN_AGREEMENT = 0.65
 #: 3.0 sits in that gap. Re-measure if the coarse spacing changes.
 DEFAULT_SUB_Z = 3.0
 DEFAULT_N_PERMUTATIONS = 400
+#: Probes spent on the dense local scan that replaces fine-scale bisection.
+#: ~200 keeps the whole estimator near 0.2% of a match's frames while pooling
+#: enough local evidence to localise a sharp flip to about a second.
+DEFAULT_FINE_PROBES = 200
 
 #: A probe function maps frame indices to, per frame, the absolute normalised
 #: x of every OBSERVABLE player of club A and of club B.
@@ -366,6 +370,7 @@ def estimate_direction(
     min_agreement: float = DEFAULT_MIN_AGREEMENT,
     sub_z: float = DEFAULT_SUB_Z,
     n_permutations: int = DEFAULT_N_PERMUTATIONS,
+    fine_probes: int = DEFAULT_FINE_PROBES,
     refine: bool = True,
     seed: int = 0,
 ) -> DirectionEstimate:
@@ -455,6 +460,7 @@ def estimate_direction(
     lo, hi = int(probes.frames[k - 1]), int(probes.frames[k])
     tol = max(1, int(round(tolerance_seconds * fps)))
     bracketed = False
+    refined: tuple[int, int] | None = None
     if refine:
         sign_lo = float(np.sign(m_left))
         sign_hi = float(np.sign(m_right))
@@ -480,22 +486,71 @@ def estimate_direction(
                 lo = max(0, lo - step)
             if s_hi != sign_hi:
                 hi = min(total_frames - 1, hi + step)
-        while hi - lo > tol:
-            mid = (lo + hi) // 2
-            # The vote window must shrink with the bracket. Held at the coarse
-            # step, every vote below one step straddles the true boundary and
-            # the last halvings are decided by whichever side of a 30 s window
-            # happens to dominate -- manufacturing precision that isn't there.
-            sm = _local_sign(
-                probe_fn, mid, span=max(tol, hi - lo), votes=5,
-                min_per_team=min_per_team, budget=budget,
+        # DENSE LOCAL SCAN, not bisection.
+        #
+        # Bisection is the wrong tool once the bracket is small. It needs a
+        # reliable oracle at each step, but the per-probe sign is only
+        # 0.86-0.97 accurate and its errors are correlated over 5-10 s (V3b),
+        # so as the bracket shrinks below that the majority vote degenerates to
+        # a single ~90% coin. Bisection is also greedy with no backtracking:
+        # one wrong call commits to the wrong half permanently. That is what
+        # produced a 23 s error on game_18, the match with the worst per-probe
+        # accuracy of the three.
+        #
+        # Instead, scan the bracket densely and run the SAME change-point
+        # statistic across it, pooling every sample on both sides rather than
+        # making a handful of irreversible decisions. Costs ~200 probes
+        # (total ~0.2% of a match) and uses evidence bisection throws away.
+        # Size the scan window by how uncertain the COARSE pass actually is.
+        # A fixed +-1 step assumes the coarse argmax is within one step of the
+        # truth, and it need not be: on game_18 phi=0.70 the coarse bracket
+        # landed 142 s (nearly 5 steps) away, so a +-1 step window could not
+        # contain the answer and the dense scan faithfully reported the best
+        # change point in the wrong place. Take the contiguous run of coarse
+        # candidates scoring within 10% of the maximum -- the same profile rule
+        # used at the fine scale -- and pad it. A wider window costs resolution
+        # (the probe budget is fixed) but 200 probes over even 5 steps is still
+        # sub-second spacing.
+        c_scores = _split_scores(s)
+        c_edges = (probes.frames[:-1] + probes.frames[1:]) // 2
+        c_thr = 0.90 * float(c_scores[k - 1])
+        ca = k - 1
+        while ca > 0 and c_scores[ca - 1] >= c_thr:
+            ca -= 1
+        cb = k - 1
+        while cb < len(c_scores) - 1 and c_scores[cb + 1] >= c_thr:
+            cb += 1
+        span_lo = max(0, min(lo, int(c_edges[ca])) - 2 * step)
+        span_hi = min(total_frames - 1, max(hi, int(c_edges[cb])) + 2 * step)
+        fine = np.unique(
+            np.linspace(span_lo, span_hi, max(8, fine_probes)).astype(np.int64)
+        )
+        fp = evaluate_probes(probe_fn, fine, min_per_team=min_per_team)
+        budget[0] += fp.n_evaluated
+        if len(fp.d) >= 8:
+            fine_scores = _split_scores(fp.sign)
+            j = int(np.argmax(fine_scores))
+            edges = (fp.frames[:-1] + fp.frames[1:]) // 2
+            fine_boundary = int(edges[j])
+            # Profile interval: the contiguous run of candidate split points
+            # whose score is within 5% of the maximum. This WIDENS when the
+            # local evidence is ambiguous and tightens when the flip is a sharp
+            # step -- unlike the bisection interval, which always ended at
+            # `tolerance` however wrong the answer was.
+            thr = 0.95 * float(fine_scores[j])
+            a = j
+            while a > 0 and fine_scores[a - 1] >= thr:
+                a -= 1
+            b = j
+            while b < len(fine_scores) - 1 and fine_scores[b + 1] >= thr:
+                b += 1
+            spacing = int(np.median(np.diff(fp.frames))) if len(fp.frames) > 1 else tol
+            fine_ci = max(
+                2 * spacing,
+                int(edges[b]) - fine_boundary,
+                fine_boundary - int(edges[a]),
             )
-            if sm == 0.0:
-                break
-            if sm == sign_lo:
-                lo = mid
-            else:
-                hi = mid
+            refined = (fine_boundary, fine_ci)
 
     boundary = (lo + hi) // 2
     # The bisection interval is NOT an error bar. It is the width of a
@@ -508,7 +563,12 @@ def estimate_direction(
     # what `epoch_of_fragment` abstains inside, so understating it hands
     # occupancy a confident mirror decision for exactly the fragments sitting
     # near half-time -- where getting it backwards is maximally damaging.
-    ci = max(tol, step, (hi - lo) // 2)
+    if refined is not None:
+        # The dense scan resolves below one coarse step, so the step floor no
+        # longer applies -- it existed because bisection could not.
+        boundary, ci = refined[0], refined[1]
+    else:
+        ci = max(tol, step, (hi - lo) // 2)
     if not bracketed:
         ci = max(ci, 3 * step)
     # The flip can only be localised as tightly as the surrounding probes.

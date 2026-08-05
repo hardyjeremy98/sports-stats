@@ -1072,8 +1072,9 @@ Measured local findings recorded by the repository guidance:
   φ ∈ {0.25…0.85} and **no half-time gap** (so the boundary is neither the midpoint nor an
   empty region — `score(t)` peaks at n/2 under the null, so equal butted halves would let a
   midpoint guess score perfectly): **3/3 matches resolved with the true boundary inside the
-  reported band (errors 0.7 / 1.4 / 22.7 s against 30–45 s bands); max error across the φ-sweep
-  54.6 s**; **143–229 frames probed of ~150,000 (~0.12%)**; per-probe sign accuracy 0.887–0.968,
+  reported band (errors 0.9 / 1.3 / 8.0 s against 15–46 s bands); across the φ-sweep, median
+  3.0 s, max 22.0 s, 67% within 5 s, 100% within 30 s, and the band covers the error 15/15**;
+  **~370 frames probed of ~150,000 (~0.25%)**; per-probe sign accuracy 0.887–0.968,
   **worst play-third 0.855**. Read n as **3, not 15** — the five φ per game share H2 and nested
   H1 prefixes. Two numbers from the first write-up were **withdrawn on cold review**: the
   "758.6 s constant-midpoint baseline" is engineered by the φ-sweep (on real FOOTPASS geometry
@@ -1082,7 +1083,13 @@ Measured local findings recorded by the repository guidance:
   the error is inside the self-set band, so the enumeration multiplies one per-game fact by 10⁷.
   Against a constant-midpoint estimator run through the identical enumeration, the honest margin
   is **~3 percentage points of wrong mirror bits on 2 of 3 games** (midpoint: 0.00 / 3.77 /
-  3.12% wrong), with 2.5–3.7% abstaining. Absolute direction 12/12, which is **3 independent
+  3.12% wrong), with 2.0–3.5% abstaining. Fine-scale localisation uses a **dense local scan,
+  not bisection**: bisection needs a reliable oracle per step, but the per-probe sign is ~90%
+  accurate with errors correlated over 5–10 s, so the vote degenerates to one coin toss just as
+  precision matters, and greedy halving cannot backtrack from a wrong call. The scan window is
+  sized by the coarse score profile rather than a fixed ±1 step — the coarse argmax was once
+  142 s off, and a fixed window then searches the wrong place *confidently*.
+  Absolute direction 12/12, which is **3 independent
   bits** (club 1 is the negation of club 0; epoch 1 the flip of epoch 0).
   **Undecidable pairs must have occupancy ZEROED, not served raw** — abstentions cluster at the
   boundary, so they are disproportionately cross-half, where raw occupancy is anti-informative

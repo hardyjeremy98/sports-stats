@@ -175,7 +175,10 @@ def test_coarse_to_fine_probes_a_tiny_fraction_of_the_timeline():
     )
     assert est.ok
     assert est.probes_used < 0.01 * n
-    assert est.probes_used < 300
+    # ~400: a coarse pass plus a ~200-probe dense local scan. The scan replaced
+    # fine-scale bisection (which cost ~30 probes but could not resolve below
+    # one coarse step against a ~90%-reliable oracle). Still 0.3% of the match.
+    assert est.probes_used < 500
 
 
 def test_swapping_club_labels_keeps_the_boundary_and_inverts_direction():
