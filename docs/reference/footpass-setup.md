@@ -136,7 +136,7 @@ Column order (upstream `tactical_data_format.txt`, matching `utils/TAAD_Dataset.
 |---:|---|---|
 | 0 | `FRAME` | 0-based frame index, 25 fps |
 | 1 | `PLAYER_ID` | track-level identity — the B2 ground truth |
-| 2 | `LEFT_TO_RIGHT` | team, 0 = left / 1 = right |
+| 2 | `LEFT_TO_RIGHT` | **pitch side**, 0 = left / 1 = right — *not* a club key, see below |
 | 3 | `SHIRT_NUMBER` | jersey number |
 | 4 | `ROLE_ID` | tactical role, 1–13 (see below) |
 | 5 | `X_POS` | pitch x, normalised (baselines mirror with `1 - x`) |
@@ -149,12 +149,39 @@ Column order (upstream `tactical_data_format.txt`, matching `utils/TAAD_Dataset.
 | 12 | `ROI_HEIGHT` | bbox height |
 | 13 | `CLS` | action class at this frame, 0 = none — **absent in TEST/CHALLENGE** |
 
+**Identity keys — `LEFT_TO_RIGHT` is not a club.** It encodes which end a player is
+defending, and it is 0-on-the-left in *every* half of the val split. What changes at
+half-time is the **club↔side binding**: verified 18/18, 21/21 and 21/21 of the players
+present in both halves take the opposite `LEFT_TO_RIGHT` value in H2 (`game_18`, `game_24`,
+`game_47`). The stable keys are `PLAYER_ID` for a player and **`PLAYER_ID // 100` ∈ {1, 2}**
+for a club. Shirt numbers also collide across the two teams within a half (7 collisions in
+`game_24_H2`), so `(LEFT_TO_RIGHT, SHIRT_NUMBER)` is safe only as a per-half join key, never
+as an aggregation key. Attacking direction follows directly: side 0 attacks +x, side 1
+attacks −x, and normalising to a common direction is a **180° rotation** (`x → 1−x` *and*
+`y → 1−y`) — the `1 − x` mirror noted in the `X_POS` row above is the baselines' own
+convention and reflects the pitch, swapping the left and right flanks.
+
 **Roles (1–13):** 1 Goalkeeper · 2 Left Back · 3 Left Central Back · 4 Mid Central Back ·
 5 Right Central Back · 6 Left Midfielder · 7 Right Midfielder · 8 Defensive Midfielder ·
 9 Attacking Midfielder · 10 Left Winger · 11 Right Winger · 12 Central Forward · 13 Right Back.
 
-**Action classes (`CLS`, 8 non-zero):** Drive, Pass, Cross, Shot, Header, Throw-in, Tackle,
-Block. Events are instantaneous (one frame each).
+**Action classes (`CLS`, 8 non-zero):** 1 Drive · 2 Pass · 3 Cross · 4 Throw-in · 5 Shot ·
+6 Header · 7 Tackle · 8 Block. Events are instantaneous (one frame each).
+
+> **Corrected 2026-08-05.** This list previously read "Drive, Pass, Cross, **Shot, Header,
+> Throw-in**, Tackle, Block", transposing classes 4–6. The data settles it: class 4 has 86.6%
+> of its events within 5% of a touchline and class 5 has 0% (throw-in vs shot), and class 5
+> concentrates 64% near a goal end. Anything built against the old order labelled every shot
+> a throw-in. Verified on all 6 val halves; the tactical `CLS` stream and
+> `playbyplay_val.json` agree exactly on the full `(frame, team, shirt, class)` tuple set
+> (6070 events, zero symmetric difference).
+
+**The `replay` flag exists only in `playbyplay_{split}.json`** (column 5), never in the
+tactical HDF5. **10.1% of val events (614/6070) are broadcast replays** that duplicate live
+play. Any event-derived statistic built from the h5 alone silently double-counts them and
+fabricates possession changes at replay boundaries — see
+`matchlab_train.datasets.footpass_events`, which joins the two files on
+`(frame, team, shirt, class)`.
 
 **Role-slot encoding.** DST builds `slot = LEFT_TO_RIGHT * 13 + (ROLE_ID - 1)`, giving 26
 slots, then a `(5, 26, T)` tensor of `[x, y, vx, vy, observed]`. That is exactly the

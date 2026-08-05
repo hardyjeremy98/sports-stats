@@ -853,6 +853,34 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 
 Measured local findings recorded by the repository guidance:
 
+- **Tier 1 peripheral statistics run over ground truth (2026-08-05; report
+  [`2026-08-05-peripheral-stats-tier-1.md`](reports/2026-08-05-peripheral-stats-tier-1.md)).**
+  `matchlab_core.stats` implements all eleven Tier 1 stats as a source-agnostic library over
+  a `MatchEvent` stream, with a FOOTPASS ground-truth adapter
+  (`matchlab_train.datasets.footpass_events`) and an end-to-end runner
+  (`matchlab_train.experiments.tier1_stats`). **Prototype**, and GT-only: no pipeline stage
+  is registered, no `ArtifactName` was added, and nothing here consumes detector, tracker or
+  spotter output. Four measured findings, each with a test that fails if it regresses:
+  (a) **10.1% of FOOTPASS val events are broadcast replays** and the flag exists only in
+  `playbyplay_*.json`, not the tactical h5 — and the natural cross-check between the two
+  streams passes perfectly because they are otherwise identical, so only a filter-toggle test
+  detects the contamination; (b) `TEAM` is **pitch side**, not club — the club↔side binding
+  rebinds every half, so `(TEAM, SHIRT)` silently merges clubs across halves, and attack
+  normalisation must be a 180° rotation, not the upstream `1−x` mirror, which swaps flanks;
+  (c) treating an **opponent's contest event as an interruption inside a possession** rather
+  than a new one took `game_18_H1` from 168 chains / 125 possession changes to 132 / 89 —
+  29% of "possession changes" were deflections, and the turnover had been credited to the
+  blocker rather than the player who lost the ball; (d) the **take-on detector was ~65% a
+  carry-length measurement** under a stratified null baseline (0.0715/carry detected vs
+  0.0465 with opponents shuffled within start-third × x-gain strata) — it has no GT class and
+  no negative class, so it stays flagged `unvalidated` and out of any headline set.
+  The recall-sensitivity sweep gives the build order: **ratios tolerate 20–40% event loss
+  while every count tolerates only 5–10%**, and chain-relational stats (key passes, SCA,
+  shots, xG) degrade roughly 3× faster under crowd-biased loss than uniform loss, because
+  crowded events cluster near the box. xG runs on published, cited coefficients but its
+  **calibration is entirely untested — this ground truth has no goal labels at all**, so GCA
+  abstains (`None`, never 0) and xG is to be reported as a within-userbase percentile.
+
 - **Global assignment / mutual exclusivity is the two-pass default (2026-08-03;
   report [`2026-08-03-global-assignment.md`](reports/2026-08-03-global-assignment.md)).**
   `merge_threads_two_pass` now resolves pass-1 decisions per mutual-overlap clique via
