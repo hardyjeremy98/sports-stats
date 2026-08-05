@@ -146,7 +146,7 @@ absorbing-failure "guarantees a contraction" (it does not — a zone whose every
 completed has zero leakage, which is why `min_leakage` is now a measured diagnostic), and that
 success-only fails to converge (it converges to the minimal non-negative fixed point).
 
-### 3. The §14 taxonomy is substantially a knob, and §19's detector fails its trivial baseline
+### 3. The §14 taxonomy is substantially a knob, and §19's corner detector is not validatable here
 
 **Threshold sweep** (val split, 752 chains). Each row moves one threshold:
 
@@ -410,7 +410,16 @@ R5, because the relative metric explodes near zero and the old zero-skip silentl
    self-referential assertion that let a mutated coefficient reach a commit on Tier 1.
 6. **`corner_null_test`'s default permutation count was never exercised**; 20 permutations would
    floor p at 0.048, under alpha, carrying no evidence. Now refused below 200.
-7. **Cross-match event interleaving.** `half` is per-match and `frame_idx` per-half, so pooling
+7. **R4's second baseline was never computed**, and R6's registered arm criterion was replaced
+   by a statistic chosen after seeing the data. Both are now run; both reach the same
+   conclusions on better evidence. A pre-registered rule is not self-executing.
+8. **The §14 permutation null was circular** — `build_up`'s definition contains the outcome the
+   null was testing, so it could not have failed.
+9. **The corner detector's "control" was a nested superset** of the detector's own region,
+   selecting the identical events, so it could never have discriminated either way.
+10. **The sensitivity gating column took the max over both loss models**, publishing a build
+    order derived from the *easier* one while the text argued the harder one is what matters.
+11. **Cross-match event interleaving.** `half` is per-match and `frame_idx` per-half, so pooling
    matches before chaining interleaves them: `game_18_H1` spans frames 64–75306 and
    `game_24_H1` spans 5397–77162. Measured on those two halves — 419 chains instead of 248,
    with 61 chains containing events from *both matches*. `build_chains` now refuses such a
