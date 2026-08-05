@@ -164,7 +164,26 @@ class Params(BaseModel):
     #     That is a domain gap, not a bug; lower it for clip-length footage.
     # See docs/reports/2026-08-01-anchorless-merge-ab.md.
     merge_strategy: str = "two-pass"
-    fusion_model: str = "configs/reid/fusion-footpass-v1.json"
+    # Decision resolution inside two-pass (2026-08-03 global-assignment
+    # adoption; docs/reports/2026-08-03-global-assignment.md). "hungarian"
+    # solves each mutual-overlap clique of tracklets as one linear assignment
+    # (mutual exclusivity: one thread, one continuation); "greedy" is the
+    # incumbent arrival-order rule. "matching" replaces pass 2's greedy sweep
+    # with an exact max-weight matching per round. Measured on the FOOTPASS
+    # LOMO rotation the defaults beat greedy/greedy on BOTH axes at every
+    # threshold in aggregate (thr 4: precision 96.96 -> 97.46, coverage
+    # 80.16 -> 81.28, wrong merges 313 -> 264), with gains concentrated in
+    # halves where interleaving conflicts are dense and small per-half
+    # regressions elsewhere -- see the report's heterogeneity section before
+    # citing per-half numbers.
+    pass1_rule: str = "hungarian"
+    pass2_rule: str = "matching"
+    # v2 (2026-08-03): same fit substrate as v1 but the transition channel's
+    # veto half is flattened (transition_neg_clamp=0.0, model-carried) and the
+    # weights refit on the clipped column -- the clamp-0 arm won the LOMO
+    # sweep at matched coverage (docs/implementation-status.md, 2026-08-03
+    # transition entry).
+    fusion_model: str = "configs/reid/fusion-footpass-v2.json"
     pass1_min_score: float = 4.0
     # Winner-margin bar for pass 2 (thread-to-thread), the same relative rule
     # as `merge_min_margin` applies in pass 1. 0.0 = legacy greedy. Measured on
@@ -259,14 +278,17 @@ class Params(BaseModel):
     tier_auto_min_posterior: float = 0.85
     tier_auto_min_margin: float = 0.5
     # Jersey-OCR merge channel (2026-07-30 jersey-ocr-merge-channel design;
-    # 06f78ec/7c3900f fusion ablation). OFF by default -- ADR 001 stands, the
-    # pipeline behaves identically with this unset. Measured: fused body+jersey
-    # reaches 50 correct merges at ZERO wrong on held-out clips (body-alone 0,
-    # jersey-alone 14), AUC 0.822 -> 0.887, do-no-harm exact on 4,280
-    # zero-jersey pairs. When enabled, the reader and legibility classifier are
-    # lazily prepared and only ever consulted for pairs the engine's own gates
-    # already admit as candidates -- the candidate set itself never changes.
-    jersey_enabled: bool = False
+    # 06f78ec/7c3900f fusion ablation). ON by default since 2026-08-03
+    # (Jeremy's call) -- ADR 001 stands: this is pairwise merge EVIDENCE, not
+    # the identity foundation, and the channel abstains at zero evidence with
+    # no roster or numbered-kit assumption. Measured: fused body+jersey reaches
+    # 50 correct merges at ZERO wrong on held-out SNMOT clips (body-alone 0,
+    # jersey-alone 14), and the FOOTPASS full re-ID ablation strictly dominates
+    # OFF at every threshold (thr 4 accum+p2: +148 correct / -35 wrong; see
+    # docs/implementation-status.md, 2026-08-03 jersey entry). Requires
+    # pytorch_lightning + nltk and the two checkpoints below at run time;
+    # set false to run without the OCR stack.
+    jersey_enabled: bool = True
     jersey_checkpoint: str = "data/weights/parseq-jersey.ckpt"
     jersey_legibility_checkpoint: str = "data/weights/legibility-resnet34-soccer.pth"
     jersey_per_tracklet_crops: int = 100
@@ -301,12 +323,12 @@ class Params(BaseModel):
     #
     # `pair_llr` (reid/jersey.py) already saturates to +-LOG_CLAMP, so this
     # channel's worst-case swing is +-(jersey_weight_twopass * LOG_CLAMP).
-    # The shipped fusion model (configs/reid/fusion-footpass-v1.json) weights
-    # body at 2.0328, so a body-alone match can reach at most
-    # 2.0328 * 6 = 12.20 nats -- and the default pass1_min_score is 4.0, so a
+    # The shipped fusion model (configs/reid/fusion-footpass-v2.json) weights
+    # body at 2.0876, so a body-alone match can reach at most
+    # 2.0876 * 6 = 12.53 nats -- and the default pass1_min_score is 4.0, so a
     # near-saturated body match clears the merge line by up to
-    # 12.20 - 4.0 = 8.20 nats of margin. Capping jersey's swing at
-    # 1.0 * 6.0 = 6.0 nats keeps it strictly below that margin (with ~2.2 nats
+    # 12.53 - 4.0 = 8.53 nats of margin. Capping jersey's swing at
+    # 1.0 * 6.0 = 6.0 nats keeps it strictly below that margin (with ~2.5 nats
     # of headroom).
     #
     # THIS GUARANTEE IS TAIL-ONLY. It protects a near-saturated (~12.2 nat)
@@ -516,8 +538,28 @@ class ReidEngineAssociator(Associator):
 
         jersey_likelihood: dict[int, np.ndarray] = {}
         jersey_prior = uniform_prior()
+        self._jersey_degraded: str | None = None
         if p.jersey_enabled:
-            jersey_likelihood, jersey_prior = self._jersey_likelihoods(ctx, tracklets)
+            try:
+                jersey_likelihood, jersey_prior = self._jersey_likelihoods(ctx, tracklets)
+            except (ImportError, FileNotFoundError, RuntimeError) as e:
+                # ON by default means environments without the OCR stack
+                # (pytorch_lightning/nltk or the two checkpoints) still run:
+                # a missing evidence modality is neutral, never fatal
+                # (ADR 003). Loud, and recorded on the instance so
+                # provenance/tests can see the channel did not serve --
+                # silent degradation on a box that was SUPPOSED to have the
+                # stack would misattribute the run's numbers.
+                self._jersey_degraded = f"{type(e).__name__}: {e}"
+                self._jersey_reader = None
+                print(
+                    "[reid-engine] jersey OCR enabled but unavailable -- "
+                    f"running without the channel ({self._jersey_degraded}). "
+                    "Install pytorch_lightning + nltk and provide "
+                    f"{p.jersey_checkpoint} / {p.jersey_legibility_checkpoint}, "
+                    "or set jersey_enabled: false to silence this.",
+                    flush=True,
+                )
 
         def similarity(a: int, b: int) -> float | None:
             if a not in reps or b not in reps:
@@ -616,6 +658,8 @@ class ReidEngineAssociator(Associator):
                 jersey_prior=jersey_prior if p.jersey_enabled else None,
                 jersey_weight=p.jersey_weight_twopass,
                 max_candidates=p.reid_detail_max_candidates,
+                pass1_rule=p.pass1_rule,
+                pass2_rule=p.pass2_rule,
             )
         else:
             result = merge_tracklets(

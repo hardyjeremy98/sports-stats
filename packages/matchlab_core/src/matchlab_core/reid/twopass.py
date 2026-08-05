@@ -31,7 +31,9 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import networkx as nx
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from matchlab_core.reid.evidence import LLRCalibrator, clip_transition
 from matchlab_core.reid.jersey import pair_llr
@@ -618,6 +620,8 @@ def merge_threads_two_pass(
     jersey_prior: np.ndarray | None = None,
     jersey_weight: float = 0.0,
     max_candidates: int = MAX_RECORDED_CANDIDATES,
+    pass1_rule: str = "hungarian",
+    pass2_rule: str = "matching",
 ) -> MergeResult:
     """Two-pass merge. Returns the incumbent `MergeResult` contract unchanged.
 
@@ -685,106 +689,203 @@ def merge_threads_two_pass(
         return True
 
     # --- pass 1: causal, tracklet joins an accumulated thread -----------------
-    for i in range(len(ev)):
-        live = [k for k in range(len(threads)) if eligible(i, k)]
-        best_k, best_s, runner = None, -np.inf, -np.inf
-        best_chans: list[dict] = []
-        # Every candidate this tracklet was scored against, not just the winner.
-        # A merge decision is only explicable next to the alternatives it beat
-        # -- and an abstention only next to the ones that were not good enough.
-        cand_rows: list[dict] = []
-        q_fp = states[i].footprint(alpha=model.occupancy_alpha)
-        q_jersey = jersey_by_tid.get(tid[i])
-        anchor_k = None
-        for k in live:
-            partner = max(t_members[k], key=lambda m: start[m])
-            # Anchor evidence outranks appearance: two tracklets anchored to the
-            # same roster candidate merge on the anchor alone.
-            if anchors.get(tid[i]) is not None and anchors.get(tid[i]) == anchors.get(
-                tid[partner]
-            ):
-                anchor_k = k
-                break
-            s, chans = model.score_channels(threads[k], t_fp[k], states[i], q_fp)
-            if s is None:
-                pairs.append(AssociationPair(
-                    a=tid[partner], b=tid[i], decision="rejected",
-                    reason=AssociationRejectReason.NO_FEATURES,
-                ))
-                continue
-            bonus = jersey_bonus(t_jersey[k], q_jersey)
-            s += bonus
-            # Jersey rides on the same nats scale as the fitted channels, so it
-            # is reported alongside them rather than folded silently into the
-            # total the other four have to clear.
-            chans = [*chans, {
-                "name": "jersey", "raw": None,
-                "llr": None if jersey_weight <= 0.0 else bonus / max(jersey_weight, 1e-9),
-                "weight": jersey_weight, "contribution": bonus,
-            }]
-            cand_rows.append({
-                "partner": int(tid[partner]), "total": float(s), "channels": chans,
-            })
-            if s > best_s:
-                best_k, best_s, runner, best_chans = k, s, best_s, chans
-            elif s > runner:
-                runner = s
-        for k in range(len(threads)):
-            if k in live:
-                continue
-            partner = max(t_members[k], key=lambda m: start[m])
-            if anchor_conflict(t_members[k], [i]):
-                reason = AssociationRejectReason.ANCHOR_CONFLICT
-            elif team[i] is not None and t_team[k] is not None and team[i] != t_team[k]:
-                reason = AssociationRejectReason.TEAM_MISMATCH
+    # Decision resolution is batched: under pass1_rule="hungarian" (default
+    # since 2026-08-03) tracklets are grouped into mutual-overlap CLIQUES
+    # (extend while next.start <= min(end of batch)) and each batch is solved
+    # as one linear assignment -- at most one clique member can join any given
+    # thread, a mutual exclusivity greedy resolves by arrival order. Cliques
+    # rather than overlap components keep every eligible (tracklet, thread)
+    # score identical to the greedy path's: no clique member is ever eligible
+    # for a thread another member joined (they overlap in time), so batching
+    # changes WHICH candidate wins, never the evidence it wins on. Measured on
+    # the FOOTPASS 3-match LOMO rotation the assignment arms beat greedy on
+    # both axes at every threshold (aggregate; gains concentrated where
+    # interleaving conflicts occur -- docs/reports/2026-08-03-global-
+    # assignment.md). pass1_rule="greedy" (singleton batches) is the incumbent
+    # arrival-order rule, kept for A/Bs.
+    if pass1_rule == "hungarian":
+        batches: list[list[int]] = []
+        cur: list[int] = []
+        min_end: int | None = None
+        for i in range(len(ev)):
+            if cur and start[i] <= min_end:
+                cur.append(i)
+                min_end = min(min_end, int(end[i]))
             else:
-                continue  # blocked by temporal overlap, which the trail omits
-            pairs.append(AssociationPair(
-                a=tid[partner], b=tid[i], decision="rejected", reason=reason,
-            ))
-        if anchor_k is not None:
-            best_k, best_s, runner = anchor_k, np.inf, -np.inf
-        if best_k is not None and best_s >= min_score and (best_s - runner) >= min_margin:
-            partner = max(t_members[best_k], key=lambda m: start[m])
-            pairs.append(AssociationPair(
-                a=tid[partner], b=tid[i], decision="merged", affinity=best_s
-            ))
-            breakdowns.append({
-                "a": tid[partner], "b": tid[i], "pass_no": 1, "decision": "merged",
-                "total": float(best_s), "threshold": float(min_score),
-                "channels": best_chans,
-            })
-            decisions.append(_decision_row(
-                tid[i], "merged", int(tid[partner]), best_s, runner,
-                min_score, cand_rows, max_candidates,
-            ))
-            edges.append((tid[partner], tid[i]))
-            threads[best_k] = threads[best_k].merged_with(states[i])
-            t_fp[best_k] = threads[best_k].footprint(alpha=model.occupancy_alpha)
-            t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey)
-            t_members[best_k].append(i)
-        else:
-            if best_k is not None:
+                if cur:
+                    batches.append(cur)
+                cur, min_end = [i], int(end[i])
+        if cur:
+            batches.append(cur)
+    elif pass1_rule == "greedy":
+        batches = [[i] for i in range(len(ev))]
+    else:
+        raise ValueError(f"unknown pass1_rule {pass1_rule!r}")
+
+    #: New-thread dummy priced just under min_score: the assignment never
+    #: forces a below-threshold join, and a singleton batch reduces exactly to
+    #: greedy's inclusive `best_s >= min_score`. Ineligible sentinel is finite
+    #: (scipy rejects inf) and unreachable past the dummies.
+    _EPS, _NEG, _ANCHOR = 1e-9, -1e12, 1e9
+
+    for batch in batches:
+        nt = len(threads)
+        mat = np.full((len(batch), nt + len(batch)), _NEG)
+        # Per batch row: scored candidates for the trail, per-thread channel
+        # breakdowns, and the anchor short-circuit column (if any).
+        row_cands: list[list[dict]] = []
+        row_by_k: list[dict[int, tuple[float, list[dict]]]] = []
+        row_anchor: list[int | None] = []
+        row_jersey: list = []
+        for r, i in enumerate(batch):
+            live = [k for k in range(nt) if eligible(i, k)]
+            # Every candidate this tracklet was scored against, not just the
+            # winner. A merge decision is only explicable next to the
+            # alternatives it beat -- and an abstention only next to the ones
+            # that were not good enough.
+            cand_rows: list[dict] = []
+            by_k: dict[int, tuple[float, list[dict]]] = {}
+            q_fp = states[i].footprint(alpha=model.occupancy_alpha)
+            q_jersey = jersey_by_tid.get(tid[i])
+            anchor_k = None
+            for k in live:
+                partner = max(t_members[k], key=lambda m: start[m])
+                # Anchor evidence outranks appearance: two tracklets anchored
+                # to the same roster candidate merge on the anchor alone.
+                if anchors.get(tid[i]) is not None and anchors.get(
+                    tid[i]
+                ) == anchors.get(tid[partner]):
+                    anchor_k = k
+                    break
+                s, chans = model.score_channels(threads[k], t_fp[k], states[i], q_fp)
+                if s is None:
+                    pairs.append(AssociationPair(
+                        a=tid[partner], b=tid[i], decision="rejected",
+                        reason=AssociationRejectReason.NO_FEATURES,
+                    ))
+                    continue
+                bonus = jersey_bonus(t_jersey[k], q_jersey)
+                s += bonus
+                # Jersey rides on the same nats scale as the fitted channels,
+                # so it is reported alongside them rather than folded silently
+                # into the total the other four have to clear.
+                chans = [*chans, {
+                    "name": "jersey", "raw": None,
+                    "llr": None if jersey_weight <= 0.0
+                    else bonus / max(jersey_weight, 1e-9),
+                    "weight": jersey_weight, "contribution": bonus,
+                }]
+                cand_rows.append({
+                    "partner": int(tid[partner]), "total": float(s),
+                    "channels": chans,
+                })
+                by_k[k] = (float(s), chans)
+                mat[r, k] = s
+            for k in range(nt):
+                if k in live:
+                    continue
+                partner = max(t_members[k], key=lambda m: start[m])
+                if anchor_conflict(t_members[k], [i]):
+                    reason = AssociationRejectReason.ANCHOR_CONFLICT
+                elif (
+                    team[i] is not None and t_team[k] is not None
+                    and team[i] != t_team[k]
+                ):
+                    reason = AssociationRejectReason.TEAM_MISMATCH
+                else:
+                    continue  # blocked by temporal overlap, which the trail omits
+                pairs.append(AssociationPair(
+                    a=tid[partner], b=tid[i], decision="rejected", reason=reason,
+                ))
+            if anchor_k is not None:
+                mat[r, :] = _NEG
+                mat[r, anchor_k] = _ANCHOR
+            mat[r, nt + r] = min_score - _EPS
+            row_cands.append(cand_rows)
+            row_by_k.append(by_k)
+            row_anchor.append(anchor_k)
+            row_jersey.append(q_jersey)
+
+        rr, cc = linear_sum_assignment(mat, maximize=True)
+        col_of = {int(r): int(c) for r, c in zip(rr, cc)}
+        for r, i in enumerate(batch):
+            cand_rows, by_k = row_cands[r], row_by_k[r]
+            anchor_k, q_jersey = row_anchor[r], row_jersey[r]
+            c = col_of[r]
+            if anchor_k is not None and c == anchor_k:
+                best_k, best_s, runner = anchor_k, np.inf, -np.inf
+                best_chans: list[dict] = []
+            elif c < nt and c in by_k and mat[r, c] >= min_score:
+                best_k, (best_s, best_chans) = int(c), by_k[int(c)]
+                runner = max(
+                    (s for k, (s, _ch) in by_k.items() if k != best_k),
+                    default=-np.inf,
+                )
+            else:
+                # Assigned its own dummy (or nothing eligible cleared the
+                # bar): the trail still records the best-scoring alternative,
+                # exactly as greedy did.
+                best_k = None
+                best_s = runner = -np.inf
+                best_chans = []
+                if by_k:
+                    # A fragment can lose its best thread to a clique rival
+                    # and land on its dummy even with best_s >= min_score;
+                    # the trail records that best alternative, the decision
+                    # stays "abstained" (it was outcompeted, not unscored).
+                    best_k_alt = max(by_k, key=lambda k: by_k[k][0])
+                    best_s, best_chans = by_k[best_k_alt]
+                    runner = max(
+                        (s for k, (s, _ch) in by_k.items() if k != best_k_alt),
+                        default=-np.inf,
+                    )
+            if (
+                best_k is not None
+                and best_s >= min_score
+                and (best_s - runner) >= min_margin
+            ):
                 partner = max(t_members[best_k], key=lambda m: start[m])
                 pairs.append(AssociationPair(
-                    a=tid[partner], b=tid[i], decision="rejected",
-                    affinity=best_s,
-                    reason=AssociationRejectReason.EMBED_TOO_FAR,
+                    a=tid[partner], b=tid[i], decision="merged", affinity=best_s
                 ))
                 breakdowns.append({
                     "a": tid[partner], "b": tid[i], "pass_no": 1,
-                    "decision": "rejected", "total": float(best_s),
+                    "decision": "merged", "total": float(best_s),
                     "threshold": float(min_score), "channels": best_chans,
                 })
-            decisions.append(_decision_row(
-                tid[i], "abstained", None, best_s if best_k is not None else None,
-                runner, min_score, cand_rows, max_candidates,
-            ))
-            threads.append(states[i])
-            t_fp.append(states[i].footprint(alpha=model.occupancy_alpha))
-            t_members.append([i])
-            t_team.append(team[i])
-            t_jersey.append(q_jersey)
+                decisions.append(_decision_row(
+                    tid[i], "merged", int(tid[partner]), best_s, runner,
+                    min_score, cand_rows, max_candidates,
+                ))
+                edges.append((tid[partner], tid[i]))
+                threads[best_k] = threads[best_k].merged_with(states[i])
+                t_fp[best_k] = threads[best_k].footprint(alpha=model.occupancy_alpha)
+                t_jersey[best_k] = _pool_jersey(t_jersey[best_k], q_jersey)
+                t_members[best_k].append(i)
+            else:
+                if by_k:
+                    reject_k = max(by_k, key=lambda k: by_k[k][0])
+                    partner = max(t_members[reject_k], key=lambda m: start[m])
+                    pairs.append(AssociationPair(
+                        a=tid[partner], b=tid[i], decision="rejected",
+                        affinity=best_s,
+                        reason=AssociationRejectReason.EMBED_TOO_FAR,
+                    ))
+                    breakdowns.append({
+                        "a": tid[partner], "b": tid[i], "pass_no": 1,
+                        "decision": "rejected", "total": float(best_s),
+                        "threshold": float(min_score), "channels": best_chans,
+                    })
+                decisions.append(_decision_row(
+                    tid[i], "abstained", None,
+                    best_s if np.isfinite(best_s) else None,
+                    runner, min_score, cand_rows, max_candidates,
+                ))
+                threads.append(states[i])
+                t_fp.append(states[i].footprint(alpha=model.occupancy_alpha))
+                t_members.append([i])
+                t_team.append(team[i])
+                t_jersey.append(q_jersey)
 
     # --- pass 2: thread against thread, both sides mature ---------------------
     if pass2_score is not None:
@@ -854,9 +955,32 @@ def merge_threads_two_pass(
                         t.append(s)
                         t.sort(reverse=True)
                         del t[2:]
+            # Pair selection. "matching" (default since 2026-08-03) picks the
+            # exact maximum-weight matching over super-threshold pairs with
+            # surplus weights (score - pass2_score) + eps -- a do-no-harm
+            # objective: one high-surplus merge beats two marginal ones, and
+            # merge count is never maximised for its own sake. "greedy" is the
+            # incumbent score-ordered sweep (a maximal matching only).
+            if pass2_rule == "matching":
+                g = nx.Graph()
+                for idx2, (s, x, y, _ch) in enumerate(scored):
+                    if s >= pass2_score:
+                        g.add_edge(x, y, weight=float(s - pass2_score) + 1e-9,
+                                   idx=idx2)
+                picked = (
+                    sorted(g.edges[e]["idx"] for e in
+                            nx.max_weight_matching(g, maxcardinality=False))
+                    if g.edges else []
+                )
+                sweep = [scored[j] for j in picked]
+                sweep.sort(key=lambda row: -row[0])
+            elif pass2_rule == "greedy":
+                sweep = scored
+            else:
+                raise ValueError(f"unknown pass2_rule {pass2_rule!r}")
             used: set[int] = set()
             merged_any = False
-            for s, x, y, chans in scored:
+            for s, x, y, chans in sweep:
                 if s < pass2_score:
                     break
                 if x in used or y in used:

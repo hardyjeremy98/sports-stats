@@ -8,6 +8,11 @@ dependencies = [
     "numpy>=1.26",
     "pyyaml>=6.0",
     "opencv-python-headless>=4.9",
+    # Global-assignment decision layer in reid/twopass.py (2026-08-03):
+    # Hungarian pass-1 batches + exact max-weight matching in pass 2. scipy
+    # was already a transitive dependency (evaluation path); made explicit.
+    "scipy>=1.10",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
