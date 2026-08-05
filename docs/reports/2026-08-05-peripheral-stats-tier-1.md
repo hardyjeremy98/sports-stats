@@ -235,9 +235,23 @@ catch. That second instruction did most of the work:
 | `compute_tier1` folded an xA abstention to `0.0`, and emitted `gca=None` even when goal labels were supplied | both fixed; `None` no longer carries two meanings on one sheet |
 | **A citation in the xG module was fabricated** — a claimed second study "triangulating" the header coefficient is the same analysis by the same authors on the same sample, and does not contain the value attributed to it | corrected; see below |
 
-The last one is the reason cold review was worth its cost. It is the single claim in the
-branch that no amount of reading the code could have falsified, and it existed precisely to
-reassure a reader that a number had been externally checked.
+The last one is the reason cold review was worth its cost. The xG module claimed its header
+coefficient (−1.16) was "triangulated against" a second study reporting −1.29, with the
+conservative value chosen. The reviewer pulled both PDFs: the second paper contains no −1.29
+anywhere, reports the identical −1.16 on the identical 10,709-shot sample by the identical
+four authors, and is the same analysis re-posted. Wrong number, and no independence to
+triangulate with. It is the single claim in the branch that no amount of reading the code
+could have falsified — and it existed precisely to reassure a reader that a number had been
+externally checked. The module now states plainly that −1.16 rests on **one unrefereed
+preprint** with no corroborating fit, and names the re-post so nobody cites it as a second
+observation.
+
+Two related honesty fixes followed from the same review: 29 of the 65 val shots (45%) carry
+an **unfitted** coefficient (`defenders_in_lane`), so the cited-only totals are now asserted
+alongside the defaults (max delta +0.309, band membership unchanged); and
+`is_set_piece_origin` now **abstains** instead of returning `False`, because FOOTPASS has no
+corner or free-kick class — a corner arrives labelled `CROSS` and a free kick `PASS`, so a
+negative there was a claim the vocabulary cannot support.
 
 Independent re-derivation agreed exactly on every headline number in every module: the xG
 val-split distribution and all six club-match totals, the duel and take-on counts and null

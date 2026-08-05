@@ -127,6 +127,12 @@ def test_coefficients_match_their_citations():
     assert (b.x, b.c, b.x2, b.c2, b.angle_x) == (0.1243, -0.0300, 0.0014, 0.0041, -0.1251)
     assert b.header == -1.16
 
+    # The unfitted terms are pinned too -- not because a citation backs them,
+    # but so that a *declared nominal* cannot drift silently. `set_piece` never
+    # fires on the val split, so without this line a mutation of it survives the
+    # entire suite (verified).
+    assert (b.set_piece, b.defender_in_lane) == (-0.30, -0.25)
+
     # The unfitted terms are declared as such, and CITED_ONLY drops exactly them.
     assert b.unfitted == frozenset({"set_piece", "defender_in_lane"})
     cited = SOCCERMATICS_2017_18_CITED_ONLY
@@ -396,19 +402,44 @@ def test_header_events_are_not_scored_as_shots():
         xg(header_event)
 
 
-def test_set_piece_origin_rule_is_throw_in_or_cross_before_a_header():
+def test_set_piece_origin_detects_positively_but_abstains_negatively():
+    """True is evidence; False is usually not available on this source.
+
+    A throw-in before a shot really is a set-piece origin. But FOOTPASS has no
+    corner class and no free-kick class, so a corner arrives labelled `CROSS`
+    and a free kick labelled `PASS` -- asserting "not a set piece" there would
+    be a claim the vocabulary cannot support. On a source that cannot enumerate
+    dead balls the non-throw-in answer must therefore be an abstention.
+    """
+
     def prev(kind: StatEventType) -> MatchEvent:
         e = _shot(dist_from_goal_m=20.0, event_id=1)
         e.type = kind
         return e
 
     shot = _shot(dist_from_goal_m=10.0, event_id=2)
-    assert shot_features(shot, previous=prev(StatEventType.THROW_IN)).is_set_piece_origin
-    assert not shot_features(shot, previous=prev(StatEventType.PASS)).is_set_piece_origin
-    # A cross only counts as a set-piece origin for a *header*.
+
+    detected = shot_features(shot, previous=prev(StatEventType.THROW_IN))
+    assert detected.is_set_piece_origin
+    assert "is_set_piece_origin" not in detected.defaulted
+
+    # A pass predecessor could be an unlabelled free kick: abstain, do not deny.
+    abstained = shot_features(shot, previous=prev(StatEventType.PASS))
+    assert abstained.is_set_piece_origin is False  # neutral fallback value...
+    assert "is_set_piece_origin" in abstained.defaulted  # ...but recorded as such
+
+    # A source that *can* enumerate dead balls gets a real negative.
+    stated = shot_features(
+        shot, previous=prev(StatEventType.PASS), source_labels_set_pieces=True
+    )
+    assert stated.is_set_piece_origin is False
+    assert "is_set_piece_origin" not in stated.defaulted
+
+    # A cross counts as a set-piece origin only for a *header*.
     assert not shot_features(shot, previous=prev(StatEventType.CROSS)).is_set_piece_origin
     headed = _shot(dist_from_goal_m=10.0, event_id=2, is_header=True)
     assert shot_features(headed, previous=prev(StatEventType.CROSS)).is_set_piece_origin
+
     assert xg(shot, previous=prev(StatEventType.THROW_IN)) < xg(
         shot, previous=prev(StatEventType.PASS)
     )
@@ -532,12 +563,21 @@ def test_val_split_xg_distribution_is_shot_shaped(val_shot_results):
 def test_val_team_match_totals_mostly_sit_in_a_plausible_range(val_shot_results):
     """Measured totals, and the one club-match that does not fit.
 
-    Plausible is ~1-3 xG per team per match. Measured, per club per match
-    (n shots, total xG, mean per shot):
+    Plausible is ~1-3 xG per team per match. Measured with the **default**
+    coefficients (nominal unfitted terms ON), per club per match -- n shots,
+    total xG, mean per shot:
 
     * game_18 club 1: 14, 1.53, 0.109   game_18 club 2: 12, 1.31, 0.109
     * game_24 club 1:  5, 0.25, 0.050   game_24 club 2:  9, 0.64, 0.071
     * game_47 club 1: 17, 1.97, 0.116   game_47 club 2:  8, 0.93, 0.116
+
+    **29 of the 65 val shots (45%) carry `unfitted_terms == ('defender_in_lane',)`,
+    so those totals are partly produced by a coefficient that is not from any
+    published fit.** Under `SOCCERMATICS_2017_18_CITED_ONLY` the same totals are
+    1.613 / 1.386, 0.262 / 0.684, 2.280 / 0.997 -- max delta +0.309, band
+    membership unchanged at 4 of 6. `is_set_piece_origin` is False on all 65
+    shots, so the other unfitted term (-0.30) never fires here at all. Both sets
+    are asserted below so neither can drift unnoticed.
 
     Four of six sit in or just under the band and the mean per shot (0.05-0.12)
     matches the ~0.10 that professional open-play shots average, so the model is
@@ -575,10 +615,43 @@ def test_val_team_match_totals_mostly_sit_in_a_plausible_range(val_shot_results)
     for k, total in totals.items():
         assert 0.04 <= total / shots[k] <= 0.15, k
 
+    # How much of this is the unfitted lane term? Nearly half the shots, and the
+    # cited-only totals must be quoted alongside rather than left implicit.
+    with_unfitted = [r for _, r in val_shot_results if r.unfitted_terms]
+    assert len(with_unfitted) == 29
+    assert all(r.unfitted_terms == ("defender_in_lane",) for r in with_unfitted)
+    assert not any(r.features.is_set_piece_origin for _, r in val_shot_results)
+
+    cited: dict[tuple[str, int], float] = {}
+    for ev, _ in val_shot_results:
+        k = (ev.match_id, ev.club_id)
+        cited[k] = cited.get(k, 0.0) + xg(ev, coefficients=SOCCERMATICS_2017_18_CITED_ONLY)
+
+    assert sorted(round(v, 3) for v in cited.values()) == [
+        0.262,
+        0.684,
+        0.997,
+        1.386,
+        1.613,
+        2.280,
+    ]
+    # Dropping the unfitted term only ever raises xG, and never by much.
+    deltas = [cited[k] - totals[k] for k in totals]
+    assert all(d >= 0.0 for d in deltas)
+    assert max(deltas) == pytest.approx(0.309, abs=0.002)
+    # The headline conclusion does not depend on the unfitted coefficient.
+    assert len([v for v in cited.values() if 0.9 <= v <= 3.0]) == len(in_band)
+
 
 @requires_footpass
 def test_every_real_shot_defaults_header_and_lane_context_as_documented(val_shot_results):
-    """FOOTPASS states neither, so every real shot must say so on its result."""
+    """FOOTPASS states neither, so every real shot must say so on its result.
+
+    Set-piece origin is defaulted on all 65 too: FOOTPASS has no corner or
+    free-kick class, so it can neither confirm nor deny one.
+    """
     assert all("is_header" in r.defaulted_features for _, r in val_shot_results)
+    assert all("is_set_piece_origin" in r.defaulted_features for _, r in val_shot_results)
+    assert not any("x_m" in r.defaulted_features for _, r in val_shot_results)
     with_context = [r for _, r in val_shot_results if "defenders_in_lane" not in r.defaulted_features]
     assert len(with_context) == len(val_shot_results), "off-ball context is present in this GT"
