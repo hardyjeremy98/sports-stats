@@ -60,7 +60,6 @@ from matchlab_core.formation import TrackSpan, estimate_team_centroids
 
 from matchlab_train.datasets.footpass import (
     COL,
-    ROLE_NAMES,
     half_keys,
     load_half,
     observable_spans,
@@ -251,7 +250,7 @@ def score(
                 if len(j):
                     units[(int(pid[i]), int(j[0]))].append(i)
 
-        for u, idx in units.items():
+        for _u, idx in units.items():
             if len(idx) < MIN_FRAMES:
                 continue
             mean = feat[idx].mean(axis=0)
@@ -277,7 +276,7 @@ def main() -> None:
     print("Trivial estimator throughout: per-unit MEAN feature -> nearest role")
     print("anchor. No assignment, no covariance. Direction is ORACLE (3a cannot")
     print("run on single-half keys). Templates fitted on TRAIN only.")
-    print(f"chance = 1/11 = 0.091 | SoccerCPD 0.865 is a FULL-INFORMATION")
+    print("chance = 1/11 = 0.091 | SoccerCPD 0.865 is a FULL-INFORMATION")
     print("ceiling (10/10 visible, known identity, minute segments), not a bar.")
     print()
     print(f"{'frame':<15}{'centroid':<10}{'visible':<12}{'unit':<13}"
