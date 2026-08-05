@@ -202,6 +202,13 @@ def _fill_end_points(
     chain layer resolves against the post-replay live event. So a live event's
     end point comes from the next live event, and a replay's from the next
     replay row (those are filtered out downstream anyway).
+
+    Known edge, accepted: an event whose start position failed the plausibility
+    margin never enters `events`, so the successor search skips it and reads a
+    position one event later than the raw stream would. Rejections are rare
+    (0-41 per val half, counted on the sheet), and the alternative --
+    reconstructing an end from a position already known to be implausible --
+    is worse than a slightly later read.
     """
     from matchlab_core.stats.chains import DEFAULT_MAX_GAP_S
 
@@ -247,12 +254,19 @@ def _fill_end_points(
 def load_half_events(
     tactical_path: str | Path,
     key: str,
-    playbyplay_path: str | Path | None = None,
+    playbyplay_path: str | Path | None,
     *,
     pitch: PitchSpec = FIFA_PITCH,
     with_offball: bool = True,
 ) -> tuple[list[MatchEvent], int]:
-    """Load one half's ground-truth event stream, replay flags attached."""
+    """Load one half's ground-truth event stream, replay flags attached.
+
+    `playbyplay_path` has NO default on purpose: it is the only source of the
+    replay flag, and a stream built without it carries 10.1% duplicated
+    broadcast replays. Passing `None` is allowed but must be written out --
+    an unfiltered stream should be an explicit choice, never the result of
+    forgetting an optional argument.
+    """
     half = load_half(tactical_path, key)
     flags = load_replay_flags(playbyplay_path)[key] if playbyplay_path else None
     return build_events(half, flags, pitch=pitch, with_offball=with_offball)

@@ -154,9 +154,13 @@ def compute_tier1(
         line_.progressive_passes = c.progressive_passes
         line_.progressive_carries = c.progressive_carries
         line_.progressive_distance_cm = c.progressive_distance_cm
+        line_.progressive_passing_distance_cm = c.progressive_passing_distance_cm
+        line_.progressive_carrying_distance_cm = c.progressive_carrying_distance_cm
         line_.final_third_entries_pass = c.final_third_entries_pass
         line_.final_third_entries_carry = c.final_third_entries_carry
         line_.box_entries_pass = c.box_entries_pass
+        line_.box_entries_open_pass = c.box_entries_open_pass
+        line_.box_entries_cross = c.box_entries_cross
         line_.box_entries_carry = c.box_entries_carry
         line_.touches_in_opp_box = c.touches_in_opp_box
 
@@ -173,6 +177,10 @@ def compute_tier1(
         line_.passes_back_completed = c.passes_back_completed
         line_.passes_under_pressure = c.passes_under_pressure
         line_.passes_under_pressure_completed = c.passes_under_pressure_completed
+        line_.passes_not_under_pressure = c.passes_not_under_pressure
+        line_.passes_not_under_pressure_completed = c.passes_not_under_pressure_completed
+        line_.passes_pressure_unknown = c.passes_pressure_unknown
+        line_.passes_pressure_unknown_completed = c.passes_pressure_unknown_completed
         line_.passes_by_third = dict(c.passes_by_third)
         line_.passes_completed_by_third = dict(c.passes_completed_by_third)
 

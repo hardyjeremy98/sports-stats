@@ -110,10 +110,11 @@ Per `docs/prds/peripheral-stats-tier-1.md` (stat 1) and the Notion source it
 curates, xG **must be reported as a within-userbase percentile**
 (`percentile_within`), never as an absolute: coefficients fitted on
 professional shots systematically overstate the conversion of an amateur chance,
-and a percentile is invariant to that shift as long as it is monotone. As of
-2026-08-05 no reporting layer exists yet, so nothing enforces this -- the
-helper is here, tested and waiting for its consumer; do not wire `xg()`'s raw
-value into a user-facing surface directly.
+and a percentile is invariant to that shift as long as it is monotone. The one
+reporting layer so far, `matchlab_train.experiments.tier1_stats.run`, emits
+`xg_percentiles` (within the split's shooter pool) as the reportable number and
+keeps the absolute only in the per-half debug sheets; any future user-facing
+surface must follow that pattern, never `xg()`'s raw value.
 """
 
 from __future__ import annotations
@@ -294,6 +295,11 @@ def _is_set_piece_origin(
     non-throw-in answer is `None`, which the caller records as defaulted. A
     source that *does* label set pieces exhaustively passes
     `source_labels_set_pieces=True` and gets a real False.
+
+    Precedence: the chain check runs BEFORE the type check, so a THROW_IN in a
+    *different* chain is not a positive -- a previous possession's restart is
+    not this shot's origin, whatever its type. Only a same-chain (or unchained)
+    throw-in detects.
     """
     if previous is None:
         return None
@@ -490,10 +496,16 @@ def percentile_within(values: Sequence[float]) -> list[float]:
 
     Ties share a midrank, so N identical shots all report the same percentile
     rather than being ordered by list position.
+
+    Rejects NaN: a NaN breaks both the sort and the equality-based tie
+    grouping, producing meaningless ranks for every OTHER value in the list --
+    a corrupt input must fail loudly, not poison the whole ranking.
     """
     n = len(values)
     if n == 0:
         return []
+    if any(v != v for v in values):
+        raise ValueError("percentile_within got NaN; a rank over NaN is meaningless")
     order = sorted(range(n), key=lambda i: values[i])
     out = [0.0] * n
     i = 0

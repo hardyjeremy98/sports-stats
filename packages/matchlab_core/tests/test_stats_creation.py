@@ -163,6 +163,19 @@ def test_opponent_contest_inside_a_chain_earns_no_sca() -> None:
 # --- disconfirming ---------------------------------------------------------
 
 
+def test_actorless_shot_earns_no_key_pass() -> None:
+    """No shooter identity means the passer could BE the shooter.
+
+    The self-pass check cannot fire without a shooter id, so crediting a key
+    pass here risks crediting a player for setting themselves up. Abstain.
+    """
+    shot = ev(1, 25, StatEventType.SHOT, 102)
+    shot = shot.model_copy(update={"actor": None})
+    events = chained([ev(0, 0, StatEventType.PASS, 101), shot])
+    res = compute_creation(events)
+    assert 101 not in res.players or res.players[101].key_passes == 0
+
+
 def test_same_club_contest_event_earns_no_sca() -> None:
     """A team-mate's header between pass and shot must not be credited.
 

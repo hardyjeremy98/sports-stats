@@ -294,6 +294,18 @@ the passing/progression modules return were dropped at the sheet fold (now on
 Every one of those behaviors was demonstrable while the whole suite was green — which is the
 recurring lesson of this branch: the suite proves what it pins, and nothing else.
 
+The remaining NIT-level review items were then also implemented rather than left as notes:
+the FBref decompositions (passing/carrying distance, PPA vs CrsPA, the pressure-unknown
+buckets) now have real slots on `Tier1StatLine` instead of living only in the module
+dataclasses; `load_half_events` requires the play-by-play argument explicitly (an unfiltered
+stream must be written out as `None`, never produced by forgetting an optional); an
+actor-less shot earns no key pass (without a shooter identity the self-pass check cannot
+fire); `percentile_within` rejects NaN and gained its first consumer — the runner emits
+`xg_percentiles` as the reportable xG number, per the source doc's mandate; duel timestamps
+and the 3 m take-on boundary are pinned; and the cross-chain throw-in precedence in the xG
+set-piece rule plus the counter-bucketing divergence between the passing and progression
+modules are stated where the code lives.
+
 Independent re-derivation agreed exactly on every headline number in every module: the xG
 val-split distribution and all six club-match totals, the duel and take-on counts and null
 baselines, the creation counts, and the progression and passing tables.

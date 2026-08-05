@@ -330,6 +330,54 @@ def test_duel_winner_is_unresolved_across_a_half_boundary_or_dead_ball():
     assert duels[0].winner_club is None
 
 
+def test_turnover_timestamp_is_the_losing_event_not_the_gaining_one():
+    """`BallEvent.t` on a turnover must be when the ball was LOST.
+
+    The recovery already carries the gaining event's time; stamping the
+    turnover with it too would erase the interval between losing and winning
+    the ball, which downstream sequence analysis reads.
+    """
+    from matchlab_core.stats.chains import build_chains
+
+    r = build_chains(
+        [
+            ev(0, 1.0, StatEventType.PASS, 1, outcome=EventOutcome.COMPLETE),
+            ev(1, 4.0, StatEventType.PASS, 2, outcome=EventOutcome.COMPLETE),
+        ]
+    )
+    res = recoveries_and_turnovers(r.chains)
+    tov = next(b for b in res.events if b.kind == "turnover")
+    rec = next(b for b in res.events if b.kind == "recovery")
+    assert tov.t == pytest.approx(1.0)
+    assert rec.t == pytest.approx(4.0)
+
+
+def test_take_on_radius_boundary_is_inclusive_at_exactly_three_metres():
+    """An opponent at exactly 300 cm is engaged; at 300.1 cm they are not."""
+    at_boundary = ev(
+        0,
+        1.0,
+        StatEventType.CARRY,
+        1,
+        start=(5000.0, 3400.0),
+        end=(6000.0, 3400.0),
+        outcome=EventOutcome.COMPLETE,
+        opponents=[(5300.0, 3400.0)],
+    )
+    beyond = ev(
+        1,
+        3.0,
+        StatEventType.CARRY,
+        1,
+        start=(5000.0, 3400.0),
+        end=(6000.0, 3400.0),
+        outcome=EventOutcome.COMPLETE,
+        opponents=[(5300.1, 3400.0)],
+    )
+    assert len(detect_take_ons([at_boundary])) == 1
+    assert len(detect_take_ons([beyond])) == 0
+
+
 def test_aerial_window_default_is_one_second():
     """NIT guard: every other aerial test passes window_s explicitly, so the
     default was never exercised and could be mutated freely."""

@@ -205,6 +205,12 @@ def find_key_pass(chain: Sequence[MatchEvent], shot_idx: int) -> MatchEvent | No
     """
     shot = chain[shot_idx]
     shooter = _shooter_id(shot)
+    if shooter is None:
+        # An unattributed shot cannot be cleared of being the passer's own:
+        # with no shooter identity, the self-pass check below cannot fire, and
+        # a credited "key pass" might be a player setting themselves up. No
+        # shooter, no credit -- the abstention is cheaper than the false credit.
+        return None
     for j in range(shot_idx - 1, -1, -1):
         ev = chain[j]
         if ev.type in CONTEST_EVENTS:
