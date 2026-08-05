@@ -146,7 +146,18 @@ class DirectionEstimate:
         return None
 
     def same_epoch(self, a: tuple[int, int], b: tuple[int, int]) -> bool | None:
-        """The one bit occupancy needs. None = undecidable -> do not mirror."""
+        """The one bit occupancy needs.
+
+        None = undecidable. **The caller must then treat occupancy as NEUTRAL
+        for this pair -- contributing nothing -- not serve it unmirrored.**
+        Undecidable pairs are concentrated around the boundary, i.e. they are
+        disproportionately CROSS-half, and raw cross-half occupancy is
+        anti-informative there (measured AUC 0.34-0.38, worse than chance),
+        not merely uninformative. Falling back to `mirror="off"` is safe as a
+        whole-match default because raw occupancy roughly cancels overall
+        (fused 0.854 vs 0.855 without it); it is NOT safe on this subset,
+        where the fallback is the actively harmful regime.
+        """
         ea = self.epoch_of_fragment(*a)
         eb = self.epoch_of_fragment(*b)
         if ea is None or eb is None:

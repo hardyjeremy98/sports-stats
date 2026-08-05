@@ -34,42 +34,77 @@ x, observable players only. Per-probe sign accuracy **0.887–0.968** per half;
 conditioned on play third, **worst third 0.855–0.940**. The pan bias is
 *selection truncation*, not an additive offset, and it does bite — but modestly.
 
-**Boundary (V2), the headline.** Unequal-φ concatenation (H1 truncated to
-φ ∈ {0.25…0.85}) with **no half-time gap**, so the true boundary is not the
-midpoint and the timeline has no empty region to find:
+**Boundary (V2).** Unequal-φ concatenation (H1 truncated to φ ∈ {0.25…0.85})
+with **no half-time gap**, so the true boundary is not the midpoint and the
+timeline has no empty region to find. **15/15 resolved, median 12.0 s, max
+54.6 s, 87% within ±30 s.**
 
-| | value |
-|---|---|
-| resolved | **15/15** |
-| median abs error | **12.0 s** |
-| max abs error | 54.6 s |
-| within ±30 s | 87% |
-| **constant-midpoint baseline, median** | **758.6 s** |
+> **Read n as 3, not 15.** The five φ values per game share H2 entirely and use
+> nested prefixes of the same H1; the detected change point is the same
+> physical sign flip. They are correlated perturbations of 3 matches, not 15
+> observations. **The defensible statements are "3/3 resolved" and "max error
+> 54.6 s"**; a median quoted to 0.1 s is overprecision.
+>
+> **The 758.6 s midpoint baseline is engineered by this protocol and must not
+> be quoted as a margin.** The φ-sweep deliberately moves the boundary away
+> from the centre, so `|n/2 − b|` is large *by construction*. On the real
+> FOOTPASS geometry (φ=1.0) the constant-midpoint baseline errs by only
+> **32 / 112 / 101 s**. The φ-sweep is a legitimate *robustness* protocol and
+> it does exclude the centre-bias trap; it is not a source of a baseline ratio.
+>
+> V2 also passes `min_half_seconds=8*60` rather than the module default of
+> 20 min, to admit φ=0.25 — so these numbers do not characterise the shipped
+> default configuration.
 
-The centre-bias trap — `score(t)` peaks at n/2 under the null and `min_half`
-narrows toward the centre, so equal butted halves would let a midpoint guess
-score perfectly — is excluded by ~75×.
-
-**Absolute direction (V1).** **12/12** correct (club × epoch, n=6 halves).
+**Absolute direction (V1).** 12/12 correct — but that is **3 independent bits,
+one per game**: `attacks_positive_x(club1, e)` is by construction the negation
+of `attacks_positive_x(club0, e)`, and epoch 1 is the sign flip of epoch 0.
 
 **Cost (V3).** 143–229 frames probed out of ~150,000, **~0.12%**. Coarse
 spacing 30 s; the per-probe error autocorrelation decays below 0.1 by 5–10 s,
 so 30 s probes are effectively independent. 120 s spacing still resolves 3/3 at
 75 probes; 60 s is the only ragged point (12.4 s median).
 
-**Downstream (V5) — the number that matters.** The mirror decision *is*
-`same_epoch`, so agreement with the known-boundary oracle decides whether the
-+3.4 transfers. Over all fragment pairs (GT observable spans ≥ 50 frames):
+**Downstream (V5).** The mirror decision *is* `same_epoch`. Over all fragment
+pairs (GT observable spans ≥ 50 frames), against the known-boundary oracle,
+with a **constant-midpoint estimator run through the identical enumeration** as
+the baseline:
 
-| game | pairs | correct | abstained | **wrong** | cross-half correct |
-|---|---|---|---|---|---|
-| game_18 | 9,827,961 | 96.29% | 3.71% | **0.000%** | 100.00% |
-| game_24 | 9,506,980 | 97.49% | 2.51% | **0.000%** | 100.00% |
-| game_47 | 7,040,628 | 96.51% | 3.49% | **0.000%** | 100.00% |
+| game | err | ci | pairs | correct | abstain | **wrong** | midpoint **wrong** |
+|---|---|---|---|---|---|---|---|
+| game_18 | 22.7 s | 45 s | 9,827,961 | 96.29% | 3.71% | **0.000%** | 0.000% |
+| game_24 | 1.4 s | 30 s | 9,506,980 | 97.49% | 2.51% | **0.000%** | 3.770% |
+| game_47 | 0.7 s | 30 s | 7,040,628 | 96.51% | 3.49% | **0.000%** | 3.122% |
 
-**Zero wrong mirror bits in 26.4M pairs**; every cross-half pair correct. The
-2.5–3.7% abstentions are fragments straddling the boundary band, which fall
-back to `mirror="off"` — today's behaviour, safe but collecting nothing.
+> **"26.4M pairs, zero wrong" is 3 bits of evidence, not 26.4M.** Cold review
+> established this and it is exactly right. `epoch_of_fragment` returns 0 iff
+> `end < b̂ − ci` and 1 iff `start > b̂ + ci`, so **once `|b̂ − b_true| ≤ ci`,
+> zero wrong bits is mathematically guaranteed** — the enumeration cannot
+> produce a single error. It multiplies one per-game fact by ~10⁷ and reports
+> the product as sample size. The same applies to "100% of cross-half pairs
+> correct" (cross-half is ~49.9% of pairs, so not a negligible subset — but
+> still the same three bits re-counted).
+>
+> It is also partly **self-consistency**: `ci` is set by the estimator itself,
+> and was *widened* in response to the blackout case below. The band was tuned
+> until it covered the error; the pair metric then reports coverage as accuracy.
+>
+> V5 also runs at φ=1.0 — equal butted halves, the configuration the V2
+> protocol exists to avoid. **The honest claim is: eliminates ~3 percentage
+> points of wrong mirror bits versus guessing the midpoint, on 2 of 3 games;
+> on game_18 the midpoint is already perfect and marginally better on yield.**
+>
+> Finally, the enumeration is all unordered pairs; `pair_table` keeps only
+> same-club, non-overlapping, ordered pairs (~4× fewer). The rate should carry
+> over, but 26.4M is not the candidate set the +3.4 was measured on.
+
+**The abstentions are NOT simply "safe".** They are concentrated around the
+boundary, so they are disproportionately cross-half — where raw occupancy is
+**anti-informative (AUC 0.34–0.38), not neutral**. Falling back to
+`mirror="off"` is safe as a whole-match default because raw occupancy roughly
+cancels overall; on this subset it is the actively harmful regime. **The
+correct consumer behaviour is to zero occupancy for undecidable pairs**, now
+documented on `same_epoch`.
 
 ## Robustness (V4) — and one uncovered failure
 
@@ -106,10 +141,26 @@ FOOTPASS contains none of these, so the substrate cannot show that failure.
 zero** (game_18_H1 ends 75307, H2 starts 75525).
 `footpass_match_harness.load_match` offsets H2 by `h1_span + HALF_BREAK_FRAMES`
 on top of already-global indices, double-counting H1's span and opening a
-~50-minute void between the halves. Only the gap channel sees the half-time
-offset, so the blast radius is contained to that channel's cross-half
-distances — but they are wrong by ~50 minutes, not by the intended 15.
-Not fixed here (it would move the published cross-half numbers); flagged.
+~50-minute void between the halves. For game_18 that places H2's first fragment
+at 173,333 — a **65.4-minute inter-half void instead of 15**.
+
+**This contaminates the +3.4 that justifies this whole work item**, and my
+first write-up understated it as "contained to the gap channel". The fused LOMO
+was *body + gap + transition*, so the gap channel is **inside** the fusion that
+produced 0.855 / 0.854 / 0.888. Mitigations: the corruption is a constant
+additive shift applied uniformly to every cross-half pair, so per-channel
+cross-half AUCs are rank-invariant and unaffected, and all three arms share it,
+so the *delta* almost certainly survives in sign. What does not survive cleanly
+is the **magnitude** — a logistic gap weight fitted against a feature that
+pushes every cross-half pair into an implausible-gap regime changes how much
+headroom occupancy has to fill, and that headroom is the +3.4. (Pair ordering
+is unaffected: a uniform positive shift preserves H1 < H2. Had `max_gap_s` been
+set rather than left `None`, cross-half pairs would have been silently
+annihilated.)
+
+Not a blocker for 3a — the estimator never touches `load_match` — but **"+3.4"
+should not be cited as a clean number until refitted.** Not fixed here; fixing
+it moves published cross-half numbers and deserves its own change.
 
 Also promoted to an assertion: `club_of_side` resolves the flip by
 `mean(votes_flip) >= 0.5`, so an exact tie declares a flip. `direction_eval`

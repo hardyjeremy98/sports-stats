@@ -1071,12 +1071,22 @@ Measured local findings recorded by the repository guidance:
   `sign(d)`, coarse 30 s probe plus bisection. Measured on FOOTPASS val with H1 truncated to
   φ ∈ {0.25…0.85} and **no half-time gap** (so the boundary is neither the midpoint nor an
   empty region — `score(t)` peaks at n/2 under the null, so equal butted halves would let a
-  midpoint guess score perfectly): **15/15 resolved, median error 12.0 s, max 54.6 s, 87%
-  within ±30 s, against a constant-midpoint baseline of 758.6 s**; absolute direction **12/12**
-  (club × epoch, n=6 halves); **143–229 frames probed of ~150,000 (~0.12%)**. Per-probe sign
-  accuracy 0.887–0.968, worst play-third 0.855–0.940. Downstream, the mirror decision *is*
-  `same_epoch`, and against the known-boundary oracle it is **wrong on 0 of 26.4M fragment
-  pairs, with 100% of cross-half pairs correct and 2.5–3.7% abstaining** to `mirror="off"`.
+  midpoint guess score perfectly): **3/3 matches resolved with the true boundary inside the
+  reported band (errors 0.7 / 1.4 / 22.7 s against 30–45 s bands); max error across the φ-sweep
+  54.6 s**; **143–229 frames probed of ~150,000 (~0.12%)**; per-probe sign accuracy 0.887–0.968,
+  **worst play-third 0.855**. Read n as **3, not 15** — the five φ per game share H2 and nested
+  H1 prefixes. Two numbers from the first write-up were **withdrawn on cold review**: the
+  "758.6 s constant-midpoint baseline" is engineered by the φ-sweep (on real FOOTPASS geometry
+  the midpoint errs by only 32/112/101 s), and "0 wrong mirror bits in 26.4M fragment pairs" is
+  **3 bits, not 26.4M** — `epoch_of_fragment` makes zero errors *mathematically certain* once
+  the error is inside the self-set band, so the enumeration multiplies one per-game fact by 10⁷.
+  Against a constant-midpoint estimator run through the identical enumeration, the honest margin
+  is **~3 percentage points of wrong mirror bits on 2 of 3 games** (midpoint: 0.00 / 3.77 /
+  3.12% wrong), with 2.5–3.7% abstaining. Absolute direction 12/12, which is **3 independent
+  bits** (club 1 is the negation of club 0; epoch 1 the flip of epoch 0).
+  **Undecidable pairs must have occupancy ZEROED, not served raw** — abstentions cluster at the
+  boundary, so they are disproportionately cross-half, where raw occupancy is anti-informative
+  (AUC 0.34–0.38), not neutral.
   Abstains (permutation z, opposite-sign, per-segment agreement, and a sub-boundary guard
   calibrated at 1.53 clean vs 4.1–4.7 three-flip) rather than guessing; **scope limit is two
   epochs**, so extra time, warm-up footage and reverse-angle replays abstain. A 20-minute
@@ -1089,9 +1099,15 @@ Measured local findings recorded by the repository guidance:
 - **FOOTPASS gotcha: H2 frame indices continue the match timeline, they do not restart at zero**
   (game_18_H1 ends 75307, H2 starts 75525). `footpass_match_harness.load_match` offsets H2 by
   `h1_span + HALF_BREAK_FRAMES` on top of already-global indices, double-counting H1's span and
-  opening a ~50-minute void between the halves instead of the intended 15-minute break. Only the
-  gap channel sees the half-time offset, so the blast radius is that channel's cross-half
-  distances. Found 2026-08-05; not fixed (fixing it moves published cross-half numbers).
+  opening a **65.4-minute** void between the halves instead of the intended 15-minute break.
+  **This contaminates the +3.4 above**: that fused LOMO was body + gap + transition, so the gap
+  channel is inside it. The corruption is a constant additive shift shared by all three arms, so
+  per-channel cross-half AUCs are rank-invariant and the *delta* almost certainly survives in
+  sign — but the **magnitude** does not, because the fitted gap weight is responding to a feature
+  that pushes every cross-half pair into an implausible-gap regime, and that headroom is what
+  occupancy fills. **Do not cite "+3.4" as a clean number until refitted.** (Pair ordering is
+  safe — a uniform positive shift preserves H1 < H2 — and `max_gap_s` was `None`; had it been
+  set, cross-half pairs would have been silently annihilated.) Found 2026-08-05; not fixed.
 - **Negative gaps were fabricating merge evidence for interleaved threads; serving now clamps
   gap at 0 and the transition prior abstains at dt ≤ 0 (2026-08-03; core
   `twopass.py::score_channels`, tests `test_reid_gap_fixes.py`).** Interleaved-but-disjoint
