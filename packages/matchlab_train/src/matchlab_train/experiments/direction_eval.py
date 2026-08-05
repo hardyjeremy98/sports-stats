@@ -43,7 +43,7 @@ from matchlab_core.formation.direction import (
     probe_fn_from_arrays,
 )
 
-from matchlab_train.datasets.footpass import COL, load_half
+from matchlab_train.datasets.footpass import COL, load_half, observable_spans
 from matchlab_train.experiments.footpass_match_harness import club_of_side
 from matchlab_train.experiments.position_evidence import VAL_H5
 
@@ -337,6 +337,63 @@ def main() -> None:
         print(f"{win_min:>9.0f} {res:>4}/{len(args.games):<4} "
               f"{np.median(errs) if errs else float('nan'):>11.1f} "
               f"{max(errs) if errs else float('nan'):>11.1f}  {worst}")
+
+    print()
+    print("== V5: the bit occupancy actually consumes, at FRAGMENT-PAIR level ==")
+    print("The mirror decision IS `same_epoch`, so agreement with the")
+    print("known-boundary oracle is what decides whether the measured +3.4")
+    print("fused-LOMO gain transfers. Abstentions fall back to mirror=off,")
+    print("i.e. today's behaviour -- safe, but they collect nothing.")
+    print(f"{'game':<9} {'frags':>7} {'pairs':>10} {'correct':>9} {'abstain':>9} "
+          f"{'WRONG':>8} {'x-half correct':>15}")
+    for g in args.games:
+        h1 = load_half(VAL_H5, f"{g}_H1")
+        h2 = load_half(VAL_H5, f"{g}_H2")
+        f1min = int(np.nanmin(h1.rows[:, COL.FRAME]))
+        f2min = int(np.nanmin(h2.rows[:, COL.FRAME]))
+        f1max = int(np.nanmax(h1.rows[:, COL.FRAME]))
+        cut0 = f1max - f1min
+        shift2 = -f2min + cut0 + 1
+
+        frags = []  # (start, end, true_epoch)
+        for half_no, half, shift in ((1, h1, -f1min), (2, h2, shift2)):
+            for pid in half.player_ids:
+                for a, b in observable_spans(half, pid, max_gap_frames=30):
+                    if b - a < 50:
+                        continue
+                    frags.append((a + shift, b + shift, half_no - 1))
+
+        fr, xs, cl, bnd, total = build_match(g, 1.0, gap=False)
+        fn = probe_fn_from_arrays(fr, xs, cl, observable=np.ones(len(fr), bool))
+        est = estimate_direction(
+            fn, total_frames=total, fps=FPS, coarse_seconds=args.coarse,
+            min_half_seconds=8 * 60.0,
+        )
+        if not est.ok:
+            print(f"{g:<9} ABSTAINED ({est.reason})")
+            continue
+        got = [est.epoch_of_fragment(s, e) for s, e, _ in frags]
+        truth = [t for _, _, t in frags]
+
+        n = len(frags)
+        ok = ab = bad = 0
+        xh_ok = xh_tot = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                same_true = truth[i] == truth[j]
+                if got[i] is None or got[j] is None:
+                    ab += 1
+                    continue
+                if (got[i] == got[j]) == same_true:
+                    ok += 1
+                else:
+                    bad += 1
+                if not same_true:
+                    xh_tot += 1
+                    xh_ok += int((got[i] == got[j]) == same_true)
+        tot = ok + ab + bad
+        print(f"{g:<9} {n:>7} {tot:>10,} {ok/tot:>8.2%} {ab/tot:>8.2%} "
+              f"{bad/tot:>7.3%} {xh_ok/max(xh_tot,1):>14.2%}")
 
     print()
     print("== V1: absolute direction accuracy per (club, epoch), n=6 halves ==")
