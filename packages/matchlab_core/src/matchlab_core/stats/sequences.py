@@ -57,7 +57,7 @@ replay-filtered, ``max_gap_s = 10 s``, default thresholds). Every number below
 was produced by running this module, and is pinned in
 `tests/test_stats_sequences_characterisation.py`:
 
-* **752 chains, of which 653 (86.8%) are `unclassified`.** That is far outside
+* **752 chains, of which 627 (83.4%) are `unclassified`.** That is far outside
   the PRD's pre-registered 25-60% band, and per R6 it is reported as a
   **finding, not tuned away**. The mechanism is visible in the same run: 289 of
   the 752 chains hold fewer than 3 own events, so most chains are too short to
@@ -69,15 +69,18 @@ was produced by running this module, and is pinned in
 * end causes: turnover 485, gap 210, shot 51, stream_end 6, half_end 0.
   `half_end` is 0 **because each half is classified as its own stream** here;
   it can only occur when one call spans a half boundary.
-* types: high_turnover 63, counter_attack 13, direct_attack 5, build_up 18,
-  unclassified 653.
+* types: high_turnover 63, counter_attack 39, direct_attack 5, build_up 18,
+  unclassified 627.
 * §18's radial-vs-x-line ablation moves the high-turnover count from 63
   (radial, default) to 92 (x-line) -- a 46% swing on an ambiguity the source
   does not settle, which is why the ablation is reported rather than a single
   number.
 * §18 shot-ending high turnovers: 9 of 63 across the whole split.
-* §15 counter-attacks: 13 across 6 halves, 2 of them shot-ending. Per R2 no
-  per-half rate is rendered.
+* §15 counter-attacks: 39 across 6 halves (8, 4, 5, 10, 3, 9), 3 of them
+  shot-ending. Per R2 no per-half rate is rendered. This count was 13 until the
+  StatsBomb origin-zone clause was found to be implemented backwards -- see
+  `TypeThresholds.counter_max_start_x_fraction`. **No R1 null has been run on
+  it**, so it is a corrected count, not a validated one.
 """
 
 from __future__ import annotations

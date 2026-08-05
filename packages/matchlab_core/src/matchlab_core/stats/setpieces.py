@@ -75,21 +75,32 @@ computes `min_attainable_p` -- the p-value the most extreme *possible* observed
 statistic would earn under the same null -- so a reader can tell "no effect"
 from "no power" without re-deriving it.
 
-**Outcome, recorded against that pre-registration.** Pooled over all six val
-halves (99 live crosses), the null is *not* underpowered and the detector *is*
-separable from it: 21 crosses within 3 m of a flag, 29 preceded by a >10 s gap,
-and **all 21 of the near ones are also long-gap ones** against ~6.2 expected if
-location and gap were independent; permutation p = 5.0e-4 at 2000 permutations,
-which is the floor `(1/(n+1))`. The prediction was wrong, and the pooling over
-six halves rather than one is most of why.
+**Outcome: the detector is reported as FAILED, and the p-value is not the
+reason.** Pooled over all six val halves (99 live crosses), the null is not
+underpowered and the detector is separable from it: 21 crosses within 3 m of a
+flag, 29 preceded by a >10 s gap, and all 21 near ones are also long-gap ones
+against ~6.7 expected under the stratified null (6.15 is the *pooled*
+expectation, which is not the one this test uses); permutation p = 5.0e-4 at
+2000 permutations, the floor `1/(n+1)`. The underpowerment prediction was wrong,
+and pooling six halves rather than one is most of why.
 
-**This does not make it a validated corner detector, and the distinction is the
-whole point.** The null answers one question only -- are byline location and a
-preceding stoppage independent? -- and they plainly are not. It cannot
-distinguish "these are corners" from "byline crosses of any kind follow
-stoppages", because there is **no corner label in this ground truth to score
-against, and no negative class either**. The detector stays behind its flag and
-out of headline tables regardless of this p-value.
+**None of that is evidence about corners.** Two reasons, and the second is the
+binding one:
+
+1. The p is insensitive to everything it would need to be sensitive to: it sits
+   at the floor for every radius from 2 m to 10 m -- and 10 m admits the box
+   crosses the radius exists to exclude. `baseline_p` computes a control region
+   for exactly this reason (R4). Note the control implemented here, a touchline
+   band, is a **nested superset** of the detector's region and after the gap
+   filter selects the identical 21 events, so it cannot discriminate either; a
+   genuinely disjoint control (a mid-touchline band excluding the arcs) is the
+   test still owed.
+2. There is **no corner label in this ground truth and no negative class**, so
+   nothing here distinguishes "these are corners" from "wide or deep crosses of
+   any kind follow stoppages". Separation from a null is necessary, not
+   sufficient.
+
+The detector stays behind its flag and out of headline tables.
 """
 
 from __future__ import annotations

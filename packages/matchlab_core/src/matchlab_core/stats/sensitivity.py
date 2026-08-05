@@ -85,19 +85,50 @@ class SweepResult:
     skipped: list[tuple[str, float, str]] = field(default_factory=list)
     absolute_movements: list[AbsoluteMovement] = field(default_factory=list)
 
-    def gating_table(self, tolerance: float = 0.10) -> dict[str, float]:
+    def gating_table(
+        self, tolerance: float = 0.10, *, model: str | None = None
+    ) -> dict[str, float]:
         """Highest drop rate each stat tolerates within `tolerance` movement.
 
         This is the build-order output: stats that hold up under heavy event
         loss can be built first, against whatever recall the detector currently
         has. A stat returning 0.0 does not survive even the smallest sweep step.
+
+        **`model` matters and defaults to the strictest available.** The first
+        version took the max over ALL movements, so a stat qualified if *either*
+        loss model passed -- which meant the published column was derived from
+        the *easier* (uniform) model while the report argued the crowd-biased
+        one is the one that matters. Measured consequence on Tier 2:
+        `count_chains` read as tolerating 40% while its own crowd-biased row
+        showed 13% movement at a 20% drop. Passing `model=None` now gates on
+        every model at once (a stat must survive the hardest); pass an explicit
+        name to reproduce a single-model column.
         """
+        models = {m.model for m in self.movements}
         out: dict[str, float] = {}
         for m in sorted(self.movements, key=lambda m: m.drop_rate):
-            if m.mean_relative_movement <= tolerance:
-                out[m.stat] = max(out.get(m.stat, 0.0), m.drop_rate)
-            else:
-                out.setdefault(m.stat, 0.0)
+            if model is not None and m.model != model:
+                continue
+            out.setdefault(m.stat, 0.0)
+        for stat in out:
+            rates = sorted(
+                {m.drop_rate for m in self.movements if m.stat == stat}
+            )
+            best = 0.0
+            for rate in rates:
+                rows = [
+                    m
+                    for m in self.movements
+                    if m.stat == stat
+                    and m.drop_rate == rate
+                    and (model is None or m.model == model)
+                ]
+                needed = len(models) if model is None else 1
+                if len(rows) == needed and all(
+                    r.mean_relative_movement <= tolerance for r in rows
+                ):
+                    best = max(best, rate)
+            out[stat] = best
         return out
 
 

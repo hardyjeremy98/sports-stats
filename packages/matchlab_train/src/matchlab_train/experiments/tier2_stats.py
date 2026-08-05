@@ -59,6 +59,7 @@ from matchlab_core.stats.xg import xg
 from matchlab_core.stats.xt import (
     FailureModel,
     Grid,
+    XTModel,
     aggregate_by_player,
     credit_actions,
     top_actions,
@@ -142,6 +143,13 @@ def xt_report() -> dict:
     out["arm_max_abs_diff"] = round(
         max(abs(x - y) for x, y in zip(a.xt, b.xt, strict=True)), 5
     )
+    # THE PRE-REGISTERED CRITERION (R6): per-player rank correlation between the
+    # arms, equivalent at rho >= 0.95. The first run resolved the fork on
+    # max-abs-diff of the surface instead -- an unregistered statistic, chosen
+    # after seeing the data, and one that compares a single order statistic
+    # across two perturbations of different kinds and scales. Both are reported,
+    # but this is the one that decides.
+    out["arm_player_rank_correlation"] = _arm_rank_correlation(a, b)
 
     # Ablation 1 -- the inferencer. If this moves the surface as much as the
     # arm choice does, the arm comparison is not a modelling result.
@@ -178,12 +186,57 @@ def xt_report() -> dict:
     return out
 
 
+def _arm_rank_correlation(model_a, model_b) -> dict:
+    """R6's registered arm criterion: per-player rank correlation, gate 0.95."""
+    per_half: dict[str, float] = {}
+    pooled_a: list[float] = []
+    pooled_b: list[float] = []
+    pooled_ra: list[float] = []
+    pooled_rb: list[float] = []
+    for key in VAL_HALVES:
+        chained, _ = _val_half(key)
+        pa = aggregate_by_player(credit_actions(model_a, chained.events))
+        pb = aggregate_by_player(credit_actions(model_b, chained.events))
+        ks = sorted(set(pa) & set(pb))
+        xs = [pa[k].xt_total for k in ks]
+        ys = [pb[k].xt_total for k in ks]
+        per_half[key] = round(_spearman(xs, ys), 4)
+        pooled_a.extend(xs)
+        pooled_b.extend(ys)
+        pooled_ra.extend(pa[k].xt_risk_adjusted for k in ks)
+        pooled_rb.extend(pb[k].xt_risk_adjusted for k in ks)
+    pooled = _spearman(pooled_a, pooled_b)
+    return {
+        "per_half_xt_total": per_half,
+        "pooled_xt_total": round(pooled, 4),
+        "pooled_risk_adjusted": round(_spearman(pooled_ra, pooled_rb), 4),
+        "n_player_halves": len(pooled_a),
+        "pre_registered_equivalence_gate": 0.95,
+        "arms_equivalent": pooled >= 0.95,
+    }
+
+
 def _spearman(xs: Sequence[float], ys: Sequence[float]) -> float:
+    """Spearman rank correlation with **mid-ranks** for ties.
+
+    Ordinal ranks were used first, which is wrong whenever the input has ties --
+    and the distance-to-goal baseline has 84 tied zone values, because the grid
+    is symmetric about the pitch's long axis. The measured impact here was 1e-4,
+    but a tie-broken-by-index rank is an arbitrary ordering, not a rank.
+    """
+
     def ranks(v: Sequence[float]) -> list[float]:
         order = sorted(range(len(v)), key=lambda i: v[i])
         r = [0.0] * len(v)
-        for pos, i in enumerate(order):
-            r[i] = float(pos)
+        i = 0
+        while i < len(order):
+            j = i
+            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
+                j += 1
+            mid = (i + j) / 2.0
+            for k in range(i, j + 1):
+                r[order[k]] = mid
+            i = j + 1
         return r
 
     rx, ry = ranks(xs), ranks(ys)
@@ -195,21 +248,93 @@ def _spearman(xs: Sequence[float], ys: Sequence[float]) -> float:
     return num / (dx * dy) if dx and dy else 0.0
 
 
-def _distance_baseline(model) -> dict:
-    """R4: report xT against a surface that is only a function of distance."""
+def _geometry_surface(model) -> XTModel:
+    """A pure -distance-to-goal surface, rescaled onto the fitted xT's range.
+
+    Rescaling matters: xT is consumed as *differences*, so a baseline on a
+    different scale would show a difference in magnitude where the question is
+    about ordering.
+    """
     from matchlab_core.stats.zones import distance_to_goal_cm
 
     g = model.grid
-    dist = [-distance_to_goal_cm(g.centroid(z), g.pitch) for z in range(g.n_zones)]
+    d = [-distance_to_goal_cm(g.centroid(z), g.pitch) for z in range(g.n_zones)]
+    lo, hi = min(d), max(d)
+    xlo, xhi = min(model.xt), max(model.xt)
+    scaled = [xlo + (v - lo) / (hi - lo) * (xhi - xlo) for v in d]
+    return XTModel(
+        grid=g,
+        xt=scaled,
+        s=model.s,
+        m=model.m,
+        g=model.g,
+        failure_model=model.failure_model,
+        g_source="pure -distance-to-goal (R4 trivial baseline)",
+        diagnostics=model.diagnostics,
+    )
+
+
+def _distance_baseline(model) -> dict:
+    """R4 -- evaluated at EVERY level the statistic is consumed at.
+
+    Reporting only the per-zone number is the trap, and this experiment fell
+    into it once. An action's value is `xT(end) - xT(start)`, a difference
+    between two nearby zones, so a deviation far too small to move a
+    rank-correlation over zone *levels* can dominate the difference. Measured:
+    per-zone rho 0.99, per-action 0.88, per-player 0.66. Leading with 0.99 would
+    have reported the fitted grid as a relabelled distance map, which the
+    player-level number contradicts.
+
+    The amended rule: evaluate a trivial baseline at the level the statistic is
+    CONSUMED at, not the level it is convenient to compute at.
+    """
+    geo = _geometry_surface(model)
+    per_zone = _spearman(model.xt, geo.xt)
+
+    deltas_real: list[float] = []
+    deltas_geo: list[float] = []
+    tot_real: list[float] = []
+    tot_geo: list[float] = []
+    risk_real: list[float] = []
+    risk_geo: list[float] = []
+    counts: list[float] = []
+    for key in VAL_HALVES:
+        chained, _ = _val_half(key)
+        cr = credit_actions(model, chained.events)
+        cg = credit_actions(geo, chained.events)
+        for a, b in zip(cr, cg, strict=True):
+            if a.delta is not None and b.delta is not None:
+                deltas_real.append(a.delta)
+                deltas_geo.append(b.delta)
+        pr = aggregate_by_player(cr)
+        pg = aggregate_by_player(cg)
+        for k in sorted(set(pr) & set(pg)):
+            tot_real.append(pr[k].xt_total)
+            tot_geo.append(pg[k].xt_total)
+            risk_real.append(pr[k].xt_risk_adjusted)
+            risk_geo.append(pg[k].xt_risk_adjusted)
+            counts.append(float(pr[k].n_rated + pr[k].n_failed))
+
     return {
-        "spearman_xt_vs_negative_distance_to_goal": round(
-            _spearman(model.xt, dist), 4
+        "spearman_per_zone": round(per_zone, 4),
+        "spearman_per_action_delta": round(_spearman(deltas_real, deltas_geo), 4),
+        "spearman_per_player_total": round(_spearman(tot_real, tot_geo), 4),
+        "spearman_per_player_risk_adjusted": round(_spearman(risk_real, risk_geo), 4),
+        # R4 baseline (ii), which the first run omitted entirely: per-player
+        # ACTION COUNT in place of the xT total. A high-volume player
+        # accumulates xT roughly in proportion to touches, so if this is high
+        # the "player rating" is a touch counter wearing a model.
+        "spearman_total_vs_action_count": round(_spearman(tot_real, counts), 4),
+        "spearman_risk_adjusted_vs_action_count": round(
+            _spearman(risk_real, counts), 4
         ),
+        "n_actions": len(deltas_real),
+        "n_player_halves": len(tot_real),
         "note": (
-            "A surface monotone in distance-to-goal is the trivial baseline. A "
-            "high correlation here means the fitted grid is mostly reproducing "
-            "geometry, which is what g(z) already encodes -- the excess over "
-            "this, not the raw number, is what the fit contributes."
+            "Trivial baseline: a pure -distance-to-goal surface rescaled onto "
+            "xT's range. The per-zone number is the LEAST informative of these "
+            "-- xT is consumed as differences, and differencing destroys most of "
+            "the zone-level agreement. Report the level the stat is used at."
         ),
     }
 
@@ -561,7 +686,11 @@ def run(out_dir: str | Path = "data/reports/tier2-stats", *, trials: int = 10) -
                 }
                 for m in sweep_result.absolute_movements
             ],
-            "gating_table": sweep_result.gating_table(),
+            "gating_table_all_models": sweep_result.gating_table(),
+            "gating_table_uniform": sweep_result.gating_table(model="uniform"),
+            "gating_table_crowd_biased": sweep_result.gating_table(
+                model="crowd-biased"
+            ),
         },
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
