@@ -172,3 +172,60 @@ def test_detected_corner_candidates_are_never_reported_as_a_corner_count():
     assert b.restarts[StatEventType.CORNER].taken is None
     assert StatEventType.CORNER not in b.counted()
     assert b.corner_detection and len(b.corner_detection) == 21
+
+
+@pytest.fixture(scope="module")
+def pooled_events():
+    return [e for key in VAL_HALVES for e in _events(key).events]
+
+
+def test_the_corner_null_does_not_beat_a_trivial_baseline(pooled_events):
+    """R4 applied to §19, and the reason the detector is reported as FAILED.
+
+    A p-value at the permutation floor looked like a strong result until a
+    corner-free control region was run through the identical null. A plain 3 m
+    band along the nearest touchline -- which contains no corner concept at all
+    -- selects the same 21 crosses at the same floor p. So the test establishes
+    only that crosses from wide or deep positions follow stoppages, which is
+    true of any wide region, and says nothing about corners, the radius or the
+    gap.
+
+    This is the repo's "coverage metrics multiply, they don't measure" lesson:
+    always run the trivial baseline through the same enumeration.
+    """
+    from matchlab_core.stats.setpieces import corner_null_test
+
+    res = corner_null_test(pooled_events, n_permutations=2000)
+    assert res.observed == 21
+    assert res.p_value == pytest.approx(1 / 2001, abs=1e-6)
+    # The control does exactly as well.
+    assert res.baseline_observed == 21
+    assert res.baseline_p == pytest.approx(res.p_value, abs=1e-9)
+    # Therefore: separable from the null, but NOT from a trivial baseline.
+    assert res.separable
+    assert not res.beats_trivial_baseline
+
+
+def test_two_of_the_detections_are_sentinel_coordinates(pooled_events):
+    """FOOTPASS writes an exact pitch corner for a subset of crosses.
+
+    Across the six val halves, 5 rows of 9 917 540 sit at an exact corner of the
+    unit square and all 5 are crosses -- against ~1e-5 rows expected if these
+    were measured positions. Coordinates here are not clamped (X runs -0.035 to
+    1.018), so this is not a boundary effect. Roughly 10% of the detection set
+    is therefore a sentinel rather than a measurement.
+    """
+    from matchlab_core.stats.setpieces import corner_null_test
+
+    res = corner_null_test(pooled_events, n_permutations=200)
+    assert res.n_sentinel_coordinates == 2
+
+
+def test_the_null_refuses_a_permutation_count_that_cannot_resolve_alpha():
+    """Mutating the default 2000 -> 20 survived the whole suite, because every
+    test passed the argument explicitly. At n=20 the p floor is 0.048, which
+    slips under alpha=0.05 while carrying no evidence."""
+    from matchlab_core.stats.setpieces import corner_null_test
+
+    with pytest.raises(ValueError, match="cannot resolve alpha"):
+        corner_null_test([], n_permutations=20)

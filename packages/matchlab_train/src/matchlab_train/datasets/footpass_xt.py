@@ -18,6 +18,9 @@ clubs very likely also appear in train.
 
 from __future__ import annotations
 
+import hashlib
+import importlib
+import inspect
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -119,17 +122,102 @@ def from_json(payload: dict) -> XTModel:
     )
 
 
+#: Modules whose contents change what a fit produces. A cache keyed only on
+#: `(split, failure_model)` is worse than no cache: a cold review measured that
+#: with a stale file on disk, mutating `s(z)` to identically zero -- which
+#: collapses the whole surface -- left the entire characterisation suite GREEN,
+#: because not one test called `fit()`. The mutation run is meant to be §12's
+#: only real validation, and an unkeyed cache silently neutralises it.
+_FINGERPRINT_MODULES = (
+    "matchlab_core.stats.xt",
+    "matchlab_core.stats.xt_shotvalue",
+    "matchlab_core.stats.chains",
+    "matchlab_core.stats.xg",
+    "matchlab_core.stats.zones",
+    "matchlab_train.datasets.footpass_events",
+)
+
+
+def fit_fingerprint(
+    *,
+    split: str,
+    failure_model: FailureModel,
+    grid: Grid,
+    tolerance: float,
+    min_support: int,
+    max_gap_s: float,
+) -> str:
+    """Everything that changes the fitted surface, hashed.
+
+    Includes the *source* of every module the fit depends on, so an edit to
+    `xt.py` invalidates the cache even though no parameter changed. Without that
+    the cache answers a question about an older version of the code.
+    """
+    h = hashlib.sha256()
+    h.update(
+        json.dumps(
+            {
+                "split": split,
+                "failure_model": failure_model.value,
+                "nx": grid.nx,
+                "ny": grid.ny,
+                "pitch": [grid.pitch.length, grid.pitch.width],
+                "tolerance": tolerance,
+                "min_support": min_support,
+                "max_gap_s": max_gap_s,
+            },
+            sort_keys=True,
+        ).encode()
+    )
+    for name in _FINGERPRINT_MODULES:
+        module = importlib.import_module(name)
+        source = inspect.getsource(module)
+        h.update(name.encode())
+        h.update(hashlib.sha256(source.encode()).digest())
+    return h.hexdigest()
+
+
 def cached_fit(
     split: str = "train",
     *,
     cache_dir: Path = DEFAULT_CACHE_DIR,
     failure_model: FailureModel = FailureModel.SOCCERACTION,
+    grid: Grid | None = None,
+    tolerance: float = DEFAULT_TOLERANCE,
+    min_support: int = DEFAULT_MIN_SUPPORT,
+    max_gap_s: float = DEFAULT_MAX_GAP_S,
     refresh: bool = False,
 ) -> XTModel:
+    """Fit, or reuse a cached fit whose fingerprint still matches.
+
+    A fingerprint mismatch **refits**; it never returns the stale surface. The
+    cache is a speed optimisation and must not be able to change an answer.
+    """
+    grid = grid or Grid()
+    fingerprint = fit_fingerprint(
+        split=split,
+        failure_model=failure_model,
+        grid=grid,
+        tolerance=tolerance,
+        min_support=min_support,
+        max_gap_s=max_gap_s,
+    )
     path = Path(cache_dir) / f"xt-{split}-{failure_model.value}.json"
     if path.exists() and not refresh:
-        return from_json(json.loads(path.read_text()))
-    model = fit_split(split, failure_model=failure_model)
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            payload = {}
+        if payload.get("fingerprint") == fingerprint:
+            return from_json(payload)
+
+    model = fit(
+        load_split_events(split, max_gap_s=max_gap_s),
+        grid=grid,
+        failure_model=failure_model,
+        min_support=min_support,
+        tolerance=tolerance,
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(to_json(model)))
+    path.write_text(json.dumps({**to_json(model), "fingerprint": fingerprint}))
     return model

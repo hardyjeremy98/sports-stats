@@ -137,6 +137,12 @@ THROW_IN_BIAS_NOTE = (
 DEFAULT_CORNER_RADIUS_CM = 300.0
 DEFAULT_CORNER_MIN_GAP_S = DEFAULT_MAX_GAP_S
 
+#: Fewer permutations than this cannot resolve a 0.05 alpha: the attainable p
+#: floor is 1/(n+1), so n=20 floors at 0.048 -- under alpha while carrying no
+#: evidence. Enforced rather than defaulted, because mutating the default from
+#: 2000 to 20 survived the entire suite (every test passed the value explicitly).
+MIN_PERMUTATIONS = 200
+
 
 @dataclass(frozen=True)
 class RestartTally:
@@ -222,6 +228,21 @@ class CornerNullResult:
     that already exceeds `alpha`, no outcome of the experiment could have been
     significant, and `underpowered` says so. Reporting a rate in that state is
     the failure this field exists to prevent.
+
+    Note that when `observed == max_attainable` -- which is the case on the val
+    split -- `p_value == min_attainable_p` by construction, so `separable` and
+    `not underpowered` become the same predicate and reporting both reads as two
+    independent checks when it is one.
+
+    **`baseline_p` is the field that matters, and it is why this detector is
+    reported as FAILED.** Per the PRD's rule R4, a p-value with no trivial
+    baseline beside it can carry almost no information. Measured on the val
+    split: a plain "within 3 m of the nearest touchline" band -- which contains
+    no corner concept at all -- selects the *same 21 crosses* at the *same*
+    floor p-value, and the p stays at the floor for every radius from 2 m to
+    10 m (10 m admits the box crosses the radius exists to exclude). So the test
+    establishes only that crosses from wide or deep positions follow stoppages.
+    It says nothing about corners, the radius, or the gap.
     """
 
     observed: int
@@ -233,6 +254,13 @@ class CornerNullResult:
     min_attainable_p: float
     n_permutations: int
     alpha: float
+    #: The same statistic for a corner-free control region (a touchline band).
+    #: None only when the caller explicitly skipped it.
+    baseline_p: float | None = None
+    baseline_observed: int | None = None
+    #: Detections whose coordinates are the exact pitch corner, i.e. FOOTPASS
+    #: sentinel values rather than measured positions. See the module docstring.
+    n_sentinel_coordinates: int = 0
 
     @property
     def underpowered(self) -> bool:
@@ -242,6 +270,18 @@ class CornerNullResult:
     def separable(self) -> bool:
         """Only ever True when the test had the power to be False."""
         return not self.underpowered and self.p_value <= self.alpha
+
+    @property
+    def beats_trivial_baseline(self) -> bool:
+        """R4. `separable` without this is not a result.
+
+        A control region carrying no corner concept must do *worse* than the
+        detector. On the val split it does exactly as well, so this is False and
+        the detector is reported as failed.
+        """
+        if self.baseline_p is None:
+            return False
+        return self.p_value < self.baseline_p
 
 
 @dataclass(frozen=True)
@@ -532,36 +572,69 @@ def corner_null_test(
     Tier 1's take-on detector produced a rate a stratified null explained 57%
     of, which is why no threshold-detected quantity on this branch is reported
     without one.
+
+    **A trivial baseline is computed alongside, per R4, and it is the number
+    that decides the outcome.** The control replaces "distance to the attacked
+    corner flag" with "distance to the nearest touchline" -- a full-length band
+    containing no corner concept -- and runs the identical null. If the control
+    scores as well as the detector, the detector has demonstrated nothing about
+    corners, however small its own p-value is. On the val split it does.
     """
+    if n_permutations < MIN_PERMUTATIONS:
+        # The attainable p floor is 1/(n+1); at n=20 that is 0.048, which slips
+        # under alpha=0.05 while carrying no evidence at all. Mutating the
+        # default from 2000 to 20 survived the whole suite, because every test
+        # passed the argument explicitly.
+        raise ValueError(
+            f"n_permutations={n_permutations} cannot resolve alpha={alpha}: "
+            f"the attainable p floor is {1 / (n_permutations + 1):.3f}. "
+            f"Use at least {MIN_PERMUTATIONS}."
+        )
     ordered = _ordered(events)
-    by_half: dict[tuple[str, int], list[tuple[float, float]]] = {}
+    by_half: dict[tuple[str, int], list[tuple[float, float, float]]] = {}
+    n_sentinel = 0
     for i, ev in enumerate(ordered):
         if ev.type is not StatEventType.CROSS:
             continue
+        if _is_corner_sentinel(ev.start, pitch):
+            n_sentinel += 1
         by_half.setdefault((ev.match_id, ev.half), []).append(
-            (corner_flag_distance_cm(ev.start, pitch), _preceding_gap_s(ordered, i))
+            (
+                corner_flag_distance_cm(ev.start, pitch),
+                _touchline_distance_cm(ev.start, pitch),
+                _preceding_gap_s(ordered, i),
+            )
         )
 
-    dists = [d for rows in by_half.values() for d, _ in rows]
-    gaps = [g for rows in by_half.values() for _, g in rows]
+    dists = [d for rows in by_half.values() for d, _, _ in rows]
+    gaps = [g for rows in by_half.values() for _, _, g in rows]
     observed = sum(1 for d, g in zip(dists, gaps, strict=True) if d <= radius_cm and g > min_gap_s)
     n_within = sum(1 for d in dists if d <= radius_cm)
     n_after = sum(1 for g in gaps if g > min_gap_s)
     max_attainable = min(n_within, n_after)
 
-    rng = random.Random(seed)
-    null: list[int] = []
-    for _ in range(n_permutations):
-        total = 0
-        for rows in by_half.values():
-            shuffled = [d for d, _ in rows]
-            rng.shuffle(shuffled)
-            total += sum(
-                1
-                for d, (_, g) in zip(shuffled, rows, strict=True)
-                if d <= radius_cm and g > min_gap_s
-            )
-        null.append(total)
+    def _null(index: int) -> tuple[list[int], int]:
+        """Permutation distribution for the metric at `rows[index]`."""
+        rng = random.Random(seed)
+        obs = sum(
+            1 for rows in by_half.values() for r in rows if r[index] <= radius_cm and r[2] > min_gap_s
+        )
+        dist: list[int] = []
+        for _ in range(n_permutations):
+            total = 0
+            for rows in by_half.values():
+                shuffled = [r[index] for r in rows]
+                rng.shuffle(shuffled)
+                total += sum(
+                    1
+                    for d, r in zip(shuffled, rows, strict=True)
+                    if d <= radius_cm and r[2] > min_gap_s
+                )
+            dist.append(total)
+        return dist, obs
+
+    null, observed = _null(0)
+    baseline_null, baseline_observed = _null(1)
 
     # +1 in numerator and denominator: the observed arrangement is itself one of
     # the permutations, so a p-value of exactly 0 is not attainable and must not
@@ -579,12 +652,49 @@ def corner_null_test(
         min_attainable_p=p_at(max_attainable),
         n_permutations=n_permutations,
         alpha=alpha,
+        baseline_p=(
+            1 + sum(1 for v in baseline_null if v >= baseline_observed)
+        ) / (n_permutations + 1),
+        baseline_observed=baseline_observed,
+        n_sentinel_coordinates=n_sentinel,
     )
 
 
-def throw_in_replay_bias_note(events: Iterable[MatchEvent]) -> str:
-    """The sentence a report must carry next to any throw-in number here."""
+def _touchline_distance_cm(p: PitchPoint, pitch: PitchSpec) -> float:
+    """Distance to the nearer touchline. The trivial-baseline control region.
+
+    Deliberately corner-free: a 3 m band along both touchlines runs the whole
+    length of the pitch and encodes nothing about corners.
+    """
+    return min(abs(p.y), abs(pitch.width - p.y))
+
+
+def _is_corner_sentinel(p: PitchPoint, pitch: PitchSpec) -> bool:
+    """True at an exact pitch corner -- a FOOTPASS sentinel, not a measurement.
+
+    Coordinates in the tactical h5 are not clamped (X runs -0.035 to 1.018,
+    Y -0.646 to 1.066), so an *exactly* integral corner is not a boundary
+    effect. Across the six val halves, 5 rows of 9 917 540 sit on an exact
+    corner of the unit square and **all 5 are crosses**. That is a sentinel or
+    imputed position for a specific subset of crosses. Whether it means "corner
+    kick" or "position unknown" is not decidable from this data, so these are
+    counted and surfaced rather than either trusted or dropped.
+    """
+    return (p.x in (0.0, pitch.length)) and (p.y in (0.0, pitch.width))
+
+
+def throw_in_replay_bias_note(events: Iterable[MatchEvent], *, raw: bool = False) -> str:
+    """The sentence a report must carry next to any throw-in number here.
+
+    `raw=True` declares that `events` is the UNFILTERED stream. Callers are told
+    everywhere else to pass the live stream, on which `build_chains` has already
+    dropped every replay -- so the count rendered here was always 0, directly
+    after a sentence saying 46.7% of throw-ins are replays. The count is only
+    emitted when the caller states the stream can contain them.
+    """
+    if not raw:
+        return THROW_IN_BIAS_NOTE
     n_replay = sum(
         1 for e in events if e.type is StatEventType.THROW_IN and e.replay
     )
-    return f"{THROW_IN_BIAS_NOTE} ({n_replay} throw-in replays in this stream.)"
+    return f"{THROW_IN_BIAS_NOTE} ({n_replay} throw-in replays in this raw stream.)"

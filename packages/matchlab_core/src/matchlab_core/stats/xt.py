@@ -107,6 +107,7 @@ trusting any absolute destination claim.
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -217,7 +218,15 @@ class FitDiagnostics:
     final_delta: float = 0.0
     converged: bool = False
     #: min over zones of (1 - sum_z' T(z,z')), i.e. the smallest probability
-    #: mass leaking to the absorbing state. Zero under SINGH by construction.
+    #: mass leaking to the absorbing state.
+    #:
+    #: Zero under SINGH wherever a zone has at least one completed move -- but
+    #: NOT "by construction", as an earlier comment claimed: a zone with move
+    #: attempts and zero successful arrivals falls through to the `denom <= 0`
+    #: branch and absorbs everything, so it leaks 1.0. On the train fit exactly
+    #: one of 192 zones is in that state, which is why `n_zones_zero_leakage` is
+    #: 191 and not 192.
+    #:
     #: Under SOCCERACTION a zero here means the contraction argument does NOT
     #: hold for that zone -- which is why this is measured, not assumed.
     min_leakage: float = 0.0
@@ -348,6 +357,12 @@ def fit(
         dest_counts[z][dest] = dest_counts[z].get(dest, 0) + 1
         success_totals[z] += 1
 
+    # Counted over ALL zones, not only zones with actions. Nesting it inside
+    # the `actions > 0` branch made "139 of 192 zones have no shots" really mean
+    # "139 of the zones that had any action", which is harmless only while
+    # `zones_with_no_actions` happens to be 0.
+    diag.zones_with_no_shots = sum(1 for c in shot_counts if c == 0)
+
     total_actions = sum(move_attempts) + sum(shot_counts)
     global_s = sum(shot_counts) / total_actions if total_actions else 0.0
 
@@ -369,8 +384,6 @@ def fit(
             raw = w * raw + (1.0 - w) * global_s
             diag.zones_shrunk += 1
         s[z], m[z] = raw, 1.0 - raw
-        if shot_counts[z] == 0:
-            diag.zones_with_no_shots += 1
 
     transitions: list[dict[int, float]] = [{} for _ in range(n)]
     leakages: list[float] = []
@@ -394,6 +407,17 @@ def fit(
     g = _shot_value_at_centroid(grid, xg_fn)
     xt, iterations, delta, converged = _iterate(s, m, g, transitions, tolerance=tolerance)
     diag.iterations, diag.final_delta, diag.converged = iterations, delta, converged
+    if not converged:
+        # Returning an unconverged surface silently is how a subtly wrong grid
+        # reaches a report. The SINGH arm already needs 160 iterations at the
+        # default tolerance, so the cap is not hypothetical.
+        warnings.warn(
+            f"xT value iteration did not converge in {MAX_ITERATIONS} iterations "
+            f"(final delta {delta:.2e} > tolerance {tolerance:.0e}); the returned "
+            "surface is not a fixed point.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     return XTModel(
         grid=grid,

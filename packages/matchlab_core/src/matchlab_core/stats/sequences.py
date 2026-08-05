@@ -203,10 +203,22 @@ class TypeThresholds:
     counter_min_progression_cm: float = 18.0 * 91.44
     #: StatsBomb play_pattern 6: ">=75% direct towards goal".
     counter_min_directness: float = 0.75
-    #: StatsBomb play_pattern 6: the turnover is "outside the counter-attacking
-    #: team's own final third" -- i.e. outside its own defensive third, x >= L/3
-    #: in the acting club's frame.
-    counter_min_start_x_fraction: float = 1.0 / 3.0
+    #: StatsBomb play_pattern 6, verbatim and unaltered: the possession "started
+    #: with an open play turnover **outside the counter-attacking team's final
+    #: third**".
+    #:
+    #: A team's *final third* is the third it ATTACKS, so "outside" it is an
+    #: UPPER bound: ``x < 2L/3`` in the acting club's frame.
+    #:
+    #: This was implemented backwards, as a lower bound `x >= L/3`, against a
+    #: docstring that had silently rewritten the spec as "outside its own
+    #: *defensive* third" -- inserting the word "own", which the source does not
+    #: contain. The two readings are not close: measured on the val split, the
+    #: counter-attack candidates surviving this clause alone are 39 under the
+    #: spec and 13 under the misreading, from 41 candidates before it. The
+    #: misreading discarded 68% of candidates, and specifically the deep regains
+    #: that are the canonical counter-attack.
+    counter_max_start_x_fraction: float = 2.0 / 3.0
     #: Opta direct attack: ">=50% of movement towards the opposition's goal".
     direct_min_directness: float = 0.50
     #: **OURS.** Opta says a direct attack "starts just inside the team's own
@@ -364,7 +376,7 @@ def _classify_one(
                 ok = (
                     start_cause is ChainStartCause.REGAIN
                     and pts[0].x
-                    >= thresholds.counter_min_start_x_fraction * pitch.length
+                    < thresholds.counter_max_start_x_fraction * pitch.length
                     and progression >= thresholds.counter_min_progression_cm
                     and directness is not None
                     and directness >= thresholds.counter_min_directness

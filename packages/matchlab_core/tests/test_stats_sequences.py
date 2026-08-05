@@ -157,7 +157,11 @@ def _high_turnover_stream():
     """Club 2 regains 30 m from the goal it attacks, inside Opta's 40 m."""
     return [
         _ev(0, 0.0, 1, StatEventType.PASS, 5000, 3400),
-        _ev(1, 1.0, 2, StatEventType.PASS, L - 3000, W / 2),
+        # y is deliberately OFF-CENTRE. W/2 is the fixed point of y -> W - y,
+        # so a rule-0 test anchored there passes under a
+        # mirror-instead-of-rotation bug -- which is exactly what happened: the
+        # mutation survived the whole suite.
+        _ev(1, 1.0, 2, StatEventType.PASS, L - 3000, 1200),
     ]
 
 
@@ -208,11 +212,25 @@ def test_unknown_high_turnover_metric_raises():
 
 
 def test_build_up_needs_ten_passes_and_a_target():
-    """9 passes is not build-up, and 10 passes going nowhere is not either."""
+    """9 passes is not build-up, and 10 passes going nowhere is not either.
+
+    The passes alternate across the pitch so directness stays well under 0.75.
+    Without that the chain matches COUNTER_ATTACK first -- correctly, since it is
+    a deep regain advancing straight at goal -- and this test would be measuring
+    precedence rather than the pass-count rule it is named for. Long, winding
+    possession is also what build-up actually looks like.
+    """
     def stream(n_passes, reach_box):
         evs = [_ev(0, 0.0, 2, StatEventType.PASS, 100, 3400)]
         evs += [
-            _ev(i, i * 0.5, 1, StatEventType.PASS, 3000 + i * 10, 3400)
+            _ev(
+                i,
+                i * 0.5,
+                1,
+                StatEventType.PASS,
+                3000 + i * 10,
+                500 if i % 2 else W - 500,
+            )
             for i in range(1, n_passes + 1)
         ]
         if reach_box:
@@ -250,12 +268,32 @@ def test_counter_attack_needs_directness_and_distance():
     assert cc[1].type is not ChainType.COUNTER_ATTACK
 
 
-def test_counter_attack_start_must_be_outside_own_defensive_third():
+def test_counter_attack_start_must_be_outside_the_attacking_final_third():
+    """The spec's clause, restored after it was implemented backwards.
+
+    StatsBomb play_pattern 6, verbatim: the possession "started with an open play
+    turnover **outside the counter-attacking team's final third**". A team's
+    final third is the one it ATTACKS, so this is an UPPER bound on the regain's
+    x. It was implemented as a LOWER bound (x >= L/3) against a docstring that
+    had inserted the word "own" and rewritten "final" as "defensive".
+
+    That inversion excluded precisely the deep regains that are the canonical
+    counter-attack: on the val split it cut candidates from 39 to 13.
+    """
+    # A deep regain in one's own third IS a counter-attack under the spec.
     deep = [
         _ev(0, 0.0, 1, StatEventType.PASS, 5000, 3400),
         _ev(1, 1.0, 2, StatEventType.PASS, 1000, 3400, end=(6000, 3400)),
     ]
-    assert _classify(deep)[1].type is not ChainType.COUNTER_ATTACK
+    assert _classify(deep)[1].type is ChainType.COUNTER_ATTACK
+
+    # A regain already inside the attacking final third is NOT: there is
+    # nothing to counter from. (x > 2L/3 = 7000 cm on the FIFA pitch.)
+    high = [
+        _ev(0, 0.0, 1, StatEventType.PASS, 5000, 3400),
+        _ev(1, 1.0, 2, StatEventType.PASS, 7500, 3400, end=(9500, 3400)),
+    ]
+    assert _classify(high)[1].type is not ChainType.COUNTER_ATTACK
 
 
 def test_direct_attack_start_band_is_a_declared_parameter():
@@ -266,11 +304,14 @@ def test_direct_attack_start_band_is_a_declared_parameter():
     """
     events = [
         _ev(0, 0.0, 1, StatEventType.PASS, 9000, 3400),
-        _ev(1, 1.0, 2, StatEventType.PASS, L / 2 - 2000, W / 2, end=(L - 400, W / 2)),
+        # 30 s later: the chain starts on a GAP, not a REGAIN, so the
+        # counter-attack clause (which requires REGAIN) cannot fire and this
+        # test isolates the direct-attack band it is about.
+        _ev(1, 30.0, 2, StatEventType.PASS, L / 2 - 2000, W / 2, end=(L - 400, W / 2)),
         # The receipt. `has_box_touch` reads own-event STARTS, matching Tier 1's
         # stat 7 ("the start is where the player touched the ball"), so a pass
         # aimed at the box is not itself a box touch -- the receipt is.
-        _ev(2, 2.0, 2, StatEventType.CARRY, L - 400, W / 2),
+        _ev(2, 31.0, 2, StatEventType.CARRY, L - 400, W / 2),
     ]
     narrow = _classify(events)
     wide = _classify(
@@ -334,12 +375,17 @@ def test_goal_ending_high_turnovers_abstain():
 
 
 def test_turnover_site_is_rotated_into_the_losing_clubs_frame():
-    """Rule 0. A reflection-instead-of-rotation bug fails on y."""
+    """Rule 0. A reflection-instead-of-rotation bug fails on y.
+
+    That docstring was false until the fixture moved off the centre line: with
+    the regain at y = W/2 -- the fixed point of `y -> W - y` -- the mirror bug
+    passed. See `test_turnover_site_in_loser_frame_is_a_rotation_not_a_mirror`.
+    """
     cc = _classify(_high_turnover_stream())
     p = turnover_site_in_loser_frame(cc[1])
     assert p is not None
     assert p.x == pytest.approx(3000.0)
-    assert p.y == pytest.approx(W / 2)
+    assert p.y == pytest.approx(W - 1200)
     # A gap-started chain has no losing club to speak of.
     gapped = _classify(
         [
@@ -360,3 +406,79 @@ def test_rate_abstains_below_ten_and_at_zero_and_they_are_different():
     assert starved.value is None and starved.sample_starved
     ok = Rate(numerator=1, denominator=MIN_RATE_DENOMINATOR)
     assert ok.value == pytest.approx(0.1) and not ok.sample_starved
+
+
+# --------------------------------------------------------------------------
+# Regressions from the cold review. Each mutation named below SURVIVED the
+# whole suite -- characterisation included -- before these tests existed.
+# --------------------------------------------------------------------------
+
+
+def test_turnover_site_in_loser_frame_is_a_rotation_not_a_mirror():
+    """Rule 0, tested off the fixed point.
+
+    The existing rule-0 assertion used y = W/2, which `y -> W - y` maps to
+    itself, so mutating the rotation to an x-only mirror changed nothing it
+    could see. `_high_turnover_stream` now regains at y = 1200.
+    """
+    from matchlab_core.stats.sequences import turnover_site_in_loser_frame
+
+    cc = _classify(_high_turnover_stream())
+    site = turnover_site_in_loser_frame(cc[1])
+    assert site is not None
+    assert site.x == pytest.approx(L - (L - 3000))
+    # The half that a mirror would leave untouched.
+    assert site.y == pytest.approx(W - 1200)
+    assert site.y != pytest.approx(1200)
+
+
+def test_chain_events_for_report_uses_own_events_not_events():
+    """The module docstring's headline trap, which had no test at all.
+
+    `Chain.events` deliberately contains the opponent's contest events, so a
+    consumer handed `events` sees the opponent's block as part of this club's
+    possession. Mutating `own_events` to `events` here survived everything.
+    """
+    from matchlab_core.stats.sequences import chain_events_for_report
+
+    cc = _classify(
+        [
+            _ev(0, 0.0, 1, StatEventType.PASS, 5000, 3400, end=(6000, 3400)),
+            _ev(1, 1.0, 1, StatEventType.SHOT, 6000, 3400),
+            # The opponent's block sits INSIDE club 1's chain by design.
+            _ev(2, 1.5, 2, StatEventType.BLOCK, 6100, 3400),
+        ]
+    )
+    reported = chain_events_for_report(cc[0])
+    assert len(reported) == 2
+    assert all(e.club_id == 1 for e in reported)
+
+
+def test_directness_abstains_rather_than_reporting_zero_percent_direct():
+    """`directness is None` is this module's only abstention and nothing tested
+    it: turning it into 0.0 changed no label (both consumers guard on
+    `is not None`) but silently converted 70 val chains from "not measurable"
+    into a reported "0% direct". An abstention is not a zero."""
+    cc = _classify(
+        [
+            _ev(0, 0.0, 1, StatEventType.PASS, 5000, 3400),
+            # One own event, no end point: the path has zero length, so
+            # directness is undefined rather than zero.
+            _ev(1, 1.0, 2, StatEventType.CARRY, 4000, 3400),
+        ]
+    )
+    assert cc[1].path_length_cm == pytest.approx(0.0)
+    assert cc[1].directness is None
+
+
+def test_type_precedence_matches_the_enum_declaration_order():
+    """Two sources of truth: `ChainType`'s docstring says precedence is the
+    declaration order, but precedence lives in `TYPE_PRECEDENCE`. Reordering the
+    enum would silently make the docstring lie."""
+    from matchlab_core.stats.sequences import TYPE_PRECEDENCE, ChainType
+
+    assert TYPE_PRECEDENCE == tuple(
+        t
+        for t in ChainType
+        if t not in (ChainType.SET_PIECE, ChainType.UNCLASSIFIED)
+    )

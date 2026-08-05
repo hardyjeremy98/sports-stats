@@ -806,24 +806,51 @@ R6: at ~21 crosses per half the null test is likely to be underpowered, and "und
 therefore not reported" is an expected outcome, not a surprise** — recorded before the fact so
 it could not later be presented as a finding either way.
 
-> **Outcome: the pre-registration was wrong, and the null passed.** Pooled over the six val
-> halves there are 99 live crosses, of which 21 start within 3 m of a corner flag and 29 follow
-> a gap of more than 10 s — and **all 21 near-flag crosses are also long-gap ones**, against
-> ~6.2 expected if the two were independent. The permutation p-value hits the floor attainable
-> at 2000 permutations (1/2001). The prediction of underpowerment was made per half; pooling
-> six halves is most of the difference.
+> **Outcome, in two stages. The first reading was wrong, and the correction is the more
+> important result.**
 >
-> **What that does and does not establish.** It shows cross *location* and preceding *stoppage*
-> are strongly non-independent. It does **not** show the detections are corners — there is no
-> corner label and no negative class, so nothing here can distinguish "corners" from any other
-> restart taken from near the flag. Separation from a null is a necessary condition that this
-> detector met, not the validation it lacks. It stays behind its flag and out of headline
-> tables, exactly as if the null had failed.
+> *Stage 1 — the null "passed".* Pooled over the six val halves there are 99 live crosses, of
+> which 21 start within 3 m of a corner flag and 29 follow a gap of more than 10 s — and all 21
+> near-flag crosses are also long-gap ones, against ~6.7 expected under the stratified null.
+> The permutation p hits the floor attainable at 2000 permutations (1/2001). The
+> underpowerment prediction was made per half; pooling six halves is most of the difference.
 >
-> Radius sanity, measured: the two real box crosses the paragraph above names sit 14.41 m and
-> 11.77 m from the nearest flag, while the six arc crosses in `game_18_H1` sit 1.15–2.59 m and
-> the next-nearest is 6.48 m. A 3 m radius separates them by roughly 4×. Across all six halves
-> the tightest non-arc cross is 3.43 m.
+> *Stage 2 — a cold review applied R4 to it, and the result collapsed.* **The null has no
+> discriminating power whatsoever.** Measured, pooled over the same six halves:
+>
+> | region tested | detections | p |
+> |---|---|---|
+> | ≤3 m of the attacked **corner flag** (the detector) | 21 | 0.0005 |
+> | ≤3 m of the **nearest touchline** — a full-length band, nothing corner-specific | **21** | **0.0005** |
+> | ≤3 m of the attacked **byline** — a half-plane, nothing corner-specific | 22 | 0.0005 |
+>
+> and the p sits at the floor for **every radius from 2 m to 10 m** — 10 m admits the very box
+> crosses the radius was chosen to exclude.
+>
+> So the p-value is not evidence about corners, about the 3 m radius, or about the 10 s gap. It
+> is evidence for exactly one proposition — *crosses from wide or deep positions follow
+> stoppages* — which the touchline band alone establishes without any corner concept at all.
+> This is the repo's own "coverage metrics multiply, they don't measure" lesson recurring: R4
+> exists precisely because a p at the floor can carry almost no information, and R4 was written
+> into this plan and then not applied to §19. **The corner detector is reported as not
+> separable from a trivial baseline**, which is the same disposition take-ons got.
+>
+> *Radius sanity, corrected.* The `game_18_H1` figures quoted above are real but are a
+> single-half statistic. Pooled over all six halves the sorted distances run
+> `… 2.42, 2.45, 2.58, 2.59, **3.43**, 6.09, 6.48 …`, so the 3 m radius separates 2.59 m from
+> 3.43 m — a **16% margin, not the ~4× the single half suggested**. And "the tightest *non-arc*
+> cross is 3.43 m" is circular: there is no arc label, so "non-arc" there means only "outside
+> the radius".
+>
+> **A genuine data discovery, found while auditing the detections.** Two of the 21 near-flag
+> crosses sit at *exactly* (105.00 m, 68.00 m) — normalised (1.0, 1.0), the exact pitch corner.
+> Coordinates in this h5 are not clamped (X runs −0.035 to 1.018, Y −0.646 to 1.066), so this is
+> not a boundary effect. Across all six val halves, **5 rows out of 9 917 540 sit at an exact
+> corner of the unit square, and all 5 carry `CLS == 3` (cross)**. FOOTPASS is writing a
+> sentinel or imputed position for a specific subset of crosses. Whether the sentinel *means*
+> "corner kick" or "position unknown" is not decidable from this data — but either way ~10% of
+> the detection set is a sentinel rather than a measurement, and this is the closest thing to a
+> corner label the dataset contains. It deserves investigation rather than silent consumption.
 
 ## §20 — Goalkeeper metrics
 

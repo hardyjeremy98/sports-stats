@@ -12,9 +12,12 @@ Per the PRD's validation table, a wrong half-life or kernel family is caught by
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from matchlab_core.stats.momentum import (
     DEFAULT_BIN_S,
+    DEFAULT_HALF_LIFE_MIN,
     VALUE_CAP,
     build_momentum,
 )
@@ -104,12 +107,26 @@ def test_kernel_does_not_reach_across_the_half_boundary():
     assert h2[0].value == pytest.approx(-VALUE_CAP)
 
 
-def test_kernel_support_is_below_one_at_the_start_of_each_half_and_one_later():
-    credits, hs, ts = _constant_stream(6, halves=(1, 2))
+def test_kernel_weight_sum_starts_at_one_and_approaches_the_interior_asymptote():
+    """Named for what it actually is.
+
+    The field is the unnormalised sum of kernel weights, so at a half's first
+    bin it is exactly 1.0 (only that bin is in support) and it converges upward
+    to 1/(1 - exp(-decay)) -- 2.0 at the defaults. The previous test was called
+    "below one at the start and one later" and asserted only `first < last`,
+    which is true of the real behaviour AND of the false behaviour its name
+    described.
+    """
+    credits, hs, ts = _constant_stream(8, halves=(1, 2))
     s = build_momentum(credits, hs, ts, club_id=1, match_id="m1", half_offsets=OFFSETS)
+    decay = math.log(2.0) / (DEFAULT_HALF_LIFE_MIN * 60.0 / DEFAULT_BIN_S)
+    asymptote = 1.0 / (1.0 - math.exp(-decay))
+    assert asymptote == pytest.approx(2.0)
     for half in (1, 2):
         pts = [p for p in s.points if p.half == half]
-        assert pts[0].kernel_support < pts[-1].kernel_support
+        assert pts[0].kernel_weight_sum == pytest.approx(1.0)
+        assert pts[-1].kernel_weight_sum == pytest.approx(asymptote, abs=0.02)
+        assert all(p.kernel_weight_sum <= asymptote + 1e-9 for p in pts)
 
 
 # --------------------------------------------------------------------------
@@ -176,8 +193,12 @@ def test_sign_is_positive_toward_the_named_club():
 def test_values_are_capped_at_the_published_bound():
     credits, hs, ts = [_credit(0, 1, 5.0)], [1], [1.0]
     s = build_momentum(credits, hs, ts, club_id=1, match_id="m1", half_offsets=OFFSETS)
-    # Opta, verbatim: "capped between zero and 0.1".
-    assert s.points[0].raw_club == pytest.approx(VALUE_CAP)
+    # Opta, verbatim: "capped between zero and 0.1". Asserted as the LITERAL
+    # 0.1, not against VALUE_CAP: comparing the constant to itself is exactly
+    # the self-referential assertion that let a mutated coefficient reach a
+    # commit on the Tier 1 branch. Mutating VALUE_CAP must fail this.
+    assert VALUE_CAP == 0.1
+    assert s.points[0].raw_club == pytest.approx(0.1)
 
 
 def test_per_bin_aggregation_is_a_maximum_not_a_sum():
@@ -191,9 +212,18 @@ def test_per_bin_aggregation_is_a_maximum_not_a_sum():
 
 
 def test_negative_deltas_do_not_drag_a_bin_below_zero():
-    credits = [_credit(0, 1, -0.05)]
-    s = build_momentum(credits, [1], [1.0], club_id=1, match_id="m1", half_offsets=OFFSETS)
+    """Two credits in one bin, so the per-bin `max` cannot do the flooring.
+
+    With a single credit the dict default of 0.0 already floors the result, so
+    the previous version of this test passed with the zero floor deleted -- it
+    had no power over the line it names.
+    """
+    credits = [_credit(0, 1, -0.05), _credit(1, 1, -0.02)]
+    s = build_momentum(
+        credits, [1, 1], [1.0, 2.0], club_id=1, match_id="m1", half_offsets=OFFSETS
+    )
     assert s.points[0].raw_club == pytest.approx(0.0)
+    assert all(p.raw_club >= 0.0 for p in s.points)
 
 
 def test_unrated_actions_are_absent_not_zero():
@@ -220,3 +250,87 @@ def test_provenance_names_what_is_ours():
     assert "OURS" in s.provenance
     assert "not a measurement" in s.provenance
     assert s.value_model == "xt"
+
+
+# --------------------------------------------------------------------------
+# Regressions from the cold review. Each of these failed on the code as first
+# written, and each was invisible to the tests that existed at the time.
+# --------------------------------------------------------------------------
+
+
+def test_second_half_minutes_are_literal_not_double_offset():
+    """B2: `_bin_index` already folds the half offset into the bin number, and
+    the point's `minute` added it a second time -- so H2 minute 0 rendered at
+    minute 90 rather than 45, and every second-half x-coordinate on every chart
+    was a full half-length late.
+
+    The two axis tests that existed could not see it: one asserted only
+    `max(h1) < min(h2)`, the other used a zero offset. This asserts the literal.
+    """
+    credits, hs, ts = _constant_stream(3, halves=(1, 2))
+    s = build_momentum(credits, hs, ts, club_id=1, match_id="m1", half_offsets=OFFSETS)
+    h1 = sorted(p.minute for p in s.points if p.half == 1)
+    h2 = sorted(p.minute for p in s.points if p.half == 2)
+    assert h1 == pytest.approx([0.0, 1.0, 2.0])
+    assert h2 == pytest.approx([45.0, 46.0, 47.0])
+
+
+def test_bins_are_one_minute_wide():
+    """M26: every test builds its input from DEFAULT_BIN_S, so mutating the
+    constant moved the inputs with it and nothing failed. Asserted literally --
+    'per-minute bin' is the structure adopted from Opta, not a free parameter."""
+    assert DEFAULT_BIN_S == 60.0
+    credits = [_credit(0, 1, 0.05), _credit(1, 1, 0.05)]
+    # 30 s apart: one bin if bins are minutes, two if they are half-minutes.
+    s = build_momentum(
+        credits, [1, 1], [1.0, 31.0], club_id=1, match_id="m1", half_offsets=OFFSETS
+    )
+    assert len(s.points) == 1
+
+
+def test_quiet_minutes_decay_against_zero_rather_than_being_absent():
+    """MAJ-3: the kernel was renormalised over *observed* bins only, so a lull
+    was absent from the denominator instead of being a run of zeros. The last
+    threatening moment was then carried forward at inflated weight.
+
+    Measured on exactly this input, the observed-bins-only version reported
+    0.00252 where the correct value is 0.00130 -- 1.9x too high, and rising with
+    the length of the lull. It also left holes in the x-axis.
+    """
+    credits = [_credit(0, 1, VALUE_CAP), _credit(1, 1, 0.001)]
+    s = build_momentum(
+        credits, [1, 1], [1.0, 6 * 60.0 + 1.0], club_id=1, match_id="m1",
+        half_offsets=OFFSETS,
+    )
+    # Every minute in between is present, so the axis is uniform.
+    assert [p.minute for p in s.points] == pytest.approx([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    assert s.points[-1].value == pytest.approx(0.00130, abs=5e-5)
+
+
+def test_half_boundary_guard_holds_when_the_kernel_could_actually_reach():
+    """M14: at the default offsets the halves are ~45 bins apart, so the
+    exponential underflows the weight floor and the boundary guard is never
+    exercised -- the test that names it passed with the guard deleted.
+
+    This uses zero offsets, where H1 and H2 share bin numbers and a missing
+    guard would mix them outright.
+    """
+    credits, hs, ts = [], [], []
+    eid = 0
+    for b in range(4):
+        credits.append(_credit(eid, 1, VALUE_CAP))
+        hs.append(1)
+        ts.append(b * DEFAULT_BIN_S + 1.0)
+        eid += 1
+    for b in range(4):
+        credits.append(_credit(eid, 2, VALUE_CAP))
+        hs.append(2)
+        ts.append(b * DEFAULT_BIN_S + 1.0)
+        eid += 1
+    s = build_momentum(
+        credits, hs, ts, club_id=1, match_id="m1", half_offsets={1: 0.0, 2: 0.0}
+    )
+    h2 = [p for p in s.points if p.half == 2]
+    # Club 1 did nothing in H2. Without the guard its H1 dominance -- at the
+    # same bin numbers -- would pull these toward zero or positive.
+    assert all(p.value == pytest.approx(-VALUE_CAP) for p in h2)

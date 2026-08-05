@@ -89,9 +89,14 @@ class MomentumPoint:
     value: float
     raw_club: float
     raw_opponent: float
-    #: How much of the kernel's mass was available at this bin. 1.0 in the
-    #: interior; below 1.0 where the kernel was truncated and renormalised.
-    kernel_support: float
+    #: Sum of kernel weights available at this bin -- NOT a 0-1 coverage
+    #: fraction. In the interior it converges to 1/(1 - exp(-decay)), which is
+    #: 2.0 at the defaults, and it is smaller near a half's start where the
+    #: kernel is truncated. Named for what it is after a cold review found the
+    #: previous name and docstring ("1.0 in the interior") were false in both
+    #: directions, and the test that "checked" it only compared the first bin to
+    #: the last.
+    kernel_weight_sum: float
 
 
 @dataclass
@@ -173,13 +178,27 @@ def build_momentum(
             cap=cap,
         )
 
-    ordered = sorted(bins_seen)
+    # Enumerate every bin in each half's contiguous range, not only the bins
+    # that happen to contain a rated action. A cold review measured why this
+    # matters: with only observed bins in the denominator, a quiet spell is
+    # *absent* rather than zero, so the last threatening moment is carried
+    # forward at inflated weight instead of decaying against nothing. On a
+    # cap-value credit followed by five empty minutes and a tiny one, the
+    # observed-bins-only version reported 0.00252 where the correct value is
+    # 0.00130 -- 1.9x too high, and rising with the length of the lull. It also
+    # left holes in the x-axis. Opta's wording is "every minute of the game so
+    # far", which is this, not that.
+    ordered: list[tuple[int, int]] = []
+    for half in sorted({h for h, _ in bins_seen}):
+        bins = [b for h, b in bins_seen if h == half]
+        ordered.extend((half, b) for b in range(min(bins), max(bins) + 1))
+
     decay = math.log(2.0) / (half_life_min * 60.0 / bin_seconds)
 
     points: list[MomentumPoint] = []
     for half, b in ordered:
         num_c = num_o = 0.0
-        support = 0.0
+        weight_sum = 0.0
         # The kernel looks BACKWARD only, and never across the half boundary.
         for other_half, ob in ordered:
             if other_half != half or ob > b:
@@ -187,24 +206,29 @@ def build_momentum(
             w = math.exp(-decay * (b - ob))
             if w < _WEIGHT_FLOOR:
                 continue
-            support += w
+            weight_sum += w
             num_c += w * per_bin_club.get((other_half, ob), 0.0)
             num_o += w * per_bin_opp.get((other_half, ob), 0.0)
-        if support <= 0.0:
+        if weight_sum <= 0.0:
             continue
-        # Renormalise over available support. Without this the opening minutes
+        # Renormalise over available weight. Without this the opening minutes
         # of every half are damped toward zero and the chart shows a slow start
         # that is an artefact of truncation.
-        smoothed_c = num_c / support
-        smoothed_o = num_o / support
+        smoothed_c = num_c / weight_sum
+        smoothed_o = num_o / weight_sum
         points.append(
             MomentumPoint(
                 half=half,
-                minute=(b * bin_seconds + half_offsets.get(half, 0.0)) / 60.0,
+                # `b` ALREADY carries the half offset via `_bin_index`. Adding it
+                # again here put every second-half point a full half-length too
+                # late -- H2 minute 0 rendered at minute 90 instead of 45. The
+                # two axis tests could not see it: one asserted only that H1's
+                # max minute was below H2's min, the other used a zero offset.
+                minute=b * bin_seconds / 60.0,
                 value=smoothed_c - smoothed_o,
                 raw_club=per_bin_club.get((half, b), 0.0),
                 raw_opponent=per_bin_opp.get((half, b), 0.0),
-                kernel_support=support,
+                kernel_weight_sum=weight_sum,
             )
         )
 

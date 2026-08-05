@@ -97,19 +97,19 @@ def test_type_counts_and_the_unclassified_share_is_a_finding(classified):
     counts = Counter(c.type for c in flat)
     assert counts == Counter(
         {
-            ChainType.UNCLASSIFIED: 653,
+            ChainType.UNCLASSIFIED: 627,
             ChainType.HIGH_TURNOVER: 63,
             ChainType.BUILD_UP: 18,
-            ChainType.COUNTER_ATTACK: 13,
+            ChainType.COUNTER_ATTACK: 39,
             ChainType.DIRECT_ATTACK: 5,
         }
     )
     share = counts[ChainType.UNCLASSIFIED] / len(flat)
-    # The PRD pre-registered 25-60%. 86.8% is outside it. Per R6 that is a
+    # The PRD pre-registered 25-60%. 83.4% is outside it. Per R6 that is a
     # finding to report, not a signal to retune the thresholds -- so this test
     # asserts the band is BREACHED and will fail if someone quietly tunes it
     # back into range without saying so.
-    assert share == pytest.approx(0.868, abs=0.001)
+    assert share == pytest.approx(0.834, abs=0.001)
     assert not (0.25 <= share <= 0.60)
     assert counts[ChainType.SET_PIECE] == 0
 
@@ -145,13 +145,13 @@ def test_high_turnover_radial_vs_x_line_ablation(classified):
     assert xline == 92
 
 
-def test_counter_attacks_are_single_digit_in_every_half(classified):
+def test_counter_attack_counts_after_the_spec_clause_was_corrected(classified):
     from matchlab_core.stats.sequences import counter_attacks
 
     per_half = [counter_attacks(h, n_halves=1).count for h in classified]
-    assert per_half == [1, 0, 5, 3, 0, 4]
+    assert per_half == [8, 4, 5, 10, 3, 9]
     whole = counter_attacks(
         [c for half in classified for c in half], n_halves=len(VAL_HALVES)
     )
-    assert whole.count == 13 and whole.shot_ending == 2
+    assert whole.count == 39 and whole.shot_ending == 3
     assert whole.per_half_rate is None
