@@ -115,6 +115,19 @@ class DirectionEstimate:
     """
 
     boundary: int | None
+    #: "flip"        -- a direction change was located; `boundary` is set.
+    #: "single-epoch"-- POSITIVE evidence of no change: the timeline was well
+    #:                  covered by probes and the change-point statistic was
+    #:                  decisively flat. Safe to treat as one-epoch footage
+    #:                  (a single half, a training clip).
+    #: "undetermined"-- absence of evidence, NOT evidence of absence: starved
+    #:                  probes, a degenerate coordinate frame, >2 epochs, or a
+    #:                  flip found but failing a guard. Assume nothing.
+    #: Measured 2026-08-05: the six real FOOTPASS halves (genuinely one epoch)
+    #: score z in [-0.40, 0.93]; real two-epoch matches score z in [7.7, 16.2].
+    #: The threshold at 4.0 sits in a wide empty gap, which is what licenses
+    #: reading a low z as a positive statement rather than a shrug.
+    verdict: str
     z: float
     reason: str
     probes_used: int
@@ -395,10 +408,12 @@ def estimate_direction(
     probes = evaluate_probes(probe_fn, coarse, min_per_team=min_per_team)
     budget[0] += probes.n_evaluated
 
-    def bail(reason: str, z: float = 0.0) -> DirectionEstimate:
+    def bail(
+        reason: str, z: float = 0.0, verdict: str = "undetermined"
+    ) -> DirectionEstimate:
         return DirectionEstimate(
-            boundary=None, z=z, reason=reason, probes_used=budget[0],
-            epoch_signs=None, ci_frames=0, separation=0.0,
+            boundary=None, verdict=verdict, z=z, reason=reason,
+            probes_used=budget[0], epoch_signs=None, ci_frames=0, separation=0.0,
         )
 
     if len(probes.d) < 8:
@@ -427,7 +442,19 @@ def estimate_direction(
                 "; |d| is large per probe but unstructured -- check these are "
                 "ABSOLUTE and not FORMATION-RELATIVE pitch coordinates"
             )
-        return bail(f"weak change point (z={z:.2f} < {min_z}){hint}", z)
+        # A flat statistic is only EVIDENCE OF ABSENCE when the timeline was
+        # actually looked at. Require dense probes and good coverage, and no
+        # sign that the coordinate frame is wrong -- otherwise a starved or
+        # mis-fed run would confidently announce "single half".
+        span = float(probes.frames[-1] - probes.frames[0])
+        covered = span >= 0.8 * (total_frames - 1)
+        dense = len(probes.d) >= 30 and probes.n_evaluated > 0 and (
+            len(probes.d) >= 0.5 * probes.n_evaluated
+        )
+        verdict = (
+            "single-epoch" if (covered and dense and not hint) else "undetermined"
+        )
+        return bail(f"weak change point (z={z:.2f} < {min_z}){hint}", z, verdict)
 
     left, right = s[:k], s[k:]
     m_left, m_right = float(left.mean()), float(right.mean())
@@ -584,6 +611,7 @@ def estimate_direction(
     ci = max(ci, int(probes.frames[k] - probes.frames[k - 1]) // 2)
     return DirectionEstimate(
         boundary=boundary,
+        verdict="flip",
         z=z,
         reason="ok",
         probes_used=budget[0],

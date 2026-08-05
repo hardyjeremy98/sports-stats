@@ -133,6 +133,40 @@ cancels overall; on this subset it is the actively harmful regime. **The
 correct consumer behaviour is to zero occupancy for undecidable pairs**, now
 documented on `same_epoch`.
 
+## Single-epoch footage is labelled, not merely unresolved (V6)
+
+Asked whether the estimator can allow footage with genuinely no half-time to be
+labelled as such. It can, and this is now an explicit output rather than an
+inference from a `None`.
+
+Each FOOTPASS half in isolation is genuinely one epoch. Run individually:
+
+| | z | verdict |
+|---|---|---|
+| six single halves | **−0.40 … 0.93** | `single-epoch` 6/6 |
+| the same three matches, both halves | **12.5 … 16.9** | `flip` 3/3 |
+
+The threshold is 4.0, sitting in an empty gap with no overlap on either side.
+That separation is what licenses reading a flat statistic as *evidence of
+absence* rather than *absence of evidence* — the distinction the earlier API
+could not express, since `boundary is None` conflated "no half-time here" with
+"I could not tell".
+
+`DirectionEstimate.verdict` is now one of:
+
+- `"flip"` — a direction change was located.
+- `"single-epoch"` — **positive** evidence of no change: the timeline was well
+  covered by probes and the statistic was decisively flat.
+- `"undetermined"` — starved probes, a degenerate coordinate frame, more than
+  two epochs, or a flip that failed a guard. Assume nothing.
+
+Guarded so the positive claim cannot be made cheaply: it requires ≥80% timeline
+coverage, ≥30 usable probes with at least half of those attempted succeeding,
+and no degenerate-coordinate signal. Tests pin that a starved run and a
+formation-relative-coordinate run both return `"undetermined"`, not
+`"single-epoch"` — otherwise a mis-fed pipeline would confidently announce that
+a full match is a single half.
+
 ## Robustness (V4) — and one uncovered failure
 
 - Independent symmetric label flips: resolves to p=0.20, abstains at p=0.35.

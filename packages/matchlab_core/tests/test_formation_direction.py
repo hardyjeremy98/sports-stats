@@ -92,6 +92,71 @@ def test_no_flip_abstains_rather_than_inventing_a_boundary():
     assert est.boundary is None
 
 
+def test_genuinely_single_epoch_footage_is_LABELLED_not_merely_unresolved():
+    """Positive evidence of no half-time, distinguished from "couldn't tell".
+
+    Measured on the six real FOOTPASS halves (each genuinely one epoch):
+    z in [-0.40, 0.93], against [7.7, 16.2] for real two-epoch matches, with
+    the threshold at 4.0 in the empty gap between. That separation is what
+    licenses reading a flat statistic as a statement rather than a shrug.
+    """
+    n = 25 * 60 * 90
+    est = estimate_direction(synth(n_frames=n, boundary=None), total_frames=n, fps=FPS)
+    assert est.verdict == "single-epoch"
+    assert est.boundary is None
+
+
+def test_a_flip_is_labelled_flip():
+    n = 25 * 60 * 90
+    est = estimate_direction(
+        synth(n_frames=n, boundary=n // 2), total_frames=n, fps=FPS
+    )
+    assert est.verdict == "flip" and est.ok
+
+
+def test_starved_probes_must_not_claim_single_epoch():
+    """Absence of evidence is not evidence of absence.
+
+    A run that barely saw the timeline has a flat statistic for the boring
+    reason. It must say "undetermined", or a mis-fed pipeline would confidently
+    announce that a full match is a single half.
+    """
+    n = 25 * 60 * 90
+    inner = synth(n_frames=n, boundary=n // 2)
+
+    def only_the_first_tenth(frames):
+        return [
+            inner(np.array([f]))[0] if f < n // 10 else (np.empty(0), np.empty(0))
+            for f in frames
+        ]
+
+    est = estimate_direction(only_the_first_tenth, total_frames=n, fps=FPS)
+    assert not est.ok
+    assert est.verdict == "undetermined", est.reason
+
+
+def test_wrong_coordinate_frame_must_not_claim_single_epoch():
+    """A degenerate statistic from formation-relative input is a coordinate
+    bug, not a one-epoch match."""
+    rng = np.random.default_rng(0)
+    n = 25 * 60 * 90
+    fr, xs, cl = [], [], []
+    for f in range(0, n, 250):
+        for club in (0, 1):
+            full = rng.normal(0.5, 0.15, 11)
+            rel = full - full.mean() + 0.5
+            vis = rng.choice(11, 7, replace=False)
+            fr.append(np.full(7, f))
+            xs.append(rel[vis])
+            cl.append(np.full(7, club))
+    fn = probe_fn_from_arrays(
+        np.concatenate(fr), np.concatenate(xs), np.concatenate(cl),
+        observable=np.ones(7 * 2 * len(range(0, n, 250)), bool),
+    )
+    est = estimate_direction(fn, total_frames=n, fps=FPS, min_half_seconds=10 * 60.0)
+    assert est.verdict == "undetermined", est.reason
+
+
 def test_min_half_refuses_a_boundary_near_the_ends():
     """A flip 2 minutes in is inadmissible, so the module must ABSTAIN.
 

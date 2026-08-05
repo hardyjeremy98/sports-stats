@@ -339,6 +339,34 @@ def main() -> None:
               f"{max(errs) if errs else float('nan'):>11.1f}  {worst}")
 
     print()
+    print("== V6: single-epoch footage must be LABELLED, not merely unresolved ==")
+    print("Each FOOTPASS half in isolation genuinely has no flip. A returned")
+    print("boundary would be a fabrication; an 'undetermined' would be a shrug")
+    print("where a positive statement is available.")
+    ok6 = 0
+    for g in args.games:
+        for h in (1, 2):
+            r = load_half(VAL_H5, f"{g}_H{h}").rows
+            obs = r[~np.isnan(r[:, COL.ROI_X])]
+            f0 = int(np.nanmin(obs[:, COL.FRAME]))
+            fr = obs[:, COL.FRAME].astype(np.int64) - f0
+            fn = probe_fn_from_arrays(
+                fr, obs[:, COL.X].astype(np.float64),
+                obs[:, COL.TEAM].astype(np.int64),
+                observable=np.ones(len(fr), bool),
+            )
+            est = estimate_direction(fn, total_frames=int(fr.max()) + 1, fps=FPS)
+            good = est.verdict == "single-epoch"
+            ok6 += good
+            print(f"  {g}_H{h}: verdict={est.verdict:<13} z={est.z:6.2f}  "
+                  f"{'ok' if good else '** WRONG **'}")
+    print(f"  correctly labelled single-epoch: {ok6}/{2 * len(args.games)}")
+    print("  For contrast, the same three matches WITH both halves score")
+    print("  z = 12.5-16.9 and are labelled 'flip'. Threshold is 4.0, sitting")
+    print("  in an empty gap -- that separation is what licenses reading a flat")
+    print("  statistic as evidence of absence rather than absence of evidence.")
+
+    print()
     print("== V5: the bit occupancy actually consumes, at FRAGMENT-PAIR level ==")
     print("The mirror decision IS `same_epoch`, so agreement with the")
     print("known-boundary oracle is what decides whether the measured +3.4")
