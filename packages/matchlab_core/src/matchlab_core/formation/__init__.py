@@ -16,11 +16,27 @@ from matchlab_core.formation.direction import (
     evaluate_probes,
     probe_fn_from_arrays,
 )
+from matchlab_core.formation.roles import (
+    RoleAssignment,
+    RoleTemplates,
+    assign_role,
+    dst_slot,
+    fit_role_templates,
+    team_spread,
+    thread_feature,
+)
 
 __all__ = [
     "CentroidSeries",
     "DirectionEstimate",
     "Probes",
+    "RoleAssignment",
+    "RoleTemplates",
+    "assign_role",
+    "dst_slot",
+    "fit_role_templates",
+    "team_spread",
+    "thread_feature",
     "TimeWarp",
     "TrackSpan",
     "estimate_direction",
