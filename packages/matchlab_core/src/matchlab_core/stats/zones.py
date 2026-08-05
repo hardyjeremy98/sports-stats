@@ -50,6 +50,26 @@ def normalised_to_cm(
     return PitchPoint(x=x * pitch.length, y=y * pitch.width)
 
 
+def to_opponent_frame(p: PitchPoint, pitch: PitchSpec) -> PitchPoint:
+    """Re-express an attack-normalised point in the *other* club's frame.
+
+    Every event is attack-normalised **by its acting club**, so an opponent's
+    pass at x = 20 m and our pressing tackle at x = 20 m are at *opposite ends
+    of the pitch*. Any stat whose numerator and denominator come from different
+    clubs -- PPDA above all -- is otherwise silently comparing two mutually
+    rotated frames, and produces a number that looks entirely reasonable and
+    means nothing.
+
+    The transform is the same 180 degree rotation the normalisation itself uses
+    (see the module docstring): both axes flip. Flipping x alone would swap the
+    left and right flanks for one club only, and nothing downstream could detect
+    it.
+
+    Self-inverse: ``to_opponent_frame(to_opponent_frame(p)) == p``.
+    """
+    return PitchPoint(x=pitch.length - p.x, y=pitch.width - p.y)
+
+
 def is_plausible(p: PitchPoint, pitch: PitchSpec, margin_cm: float = PLAUSIBILITY_MARGIN_CM) -> bool:
     return (
         -margin_cm <= p.x <= pitch.length + margin_cm
