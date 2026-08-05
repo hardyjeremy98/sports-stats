@@ -56,8 +56,34 @@ class StatMovement:
 
 
 @dataclass
+class AbsoluteMovement:
+    """Movement in stat units, for stats the relative metric cannot describe.
+
+    Signed stats that cross zero (momentum, net xT delta) and stats with a zero
+    baseline both make `|value - baseline| / |baseline|` useless. They get this
+    instead, rather than being dropped from the table.
+    """
+
+    stat: str
+    drop_rate: float
+    model: str
+    baseline: float
+    mean_value: float
+    mean_absolute_movement: float
+    n_trials: int
+
+
+@dataclass
 class SweepResult:
     movements: list[StatMovement] = field(default_factory=list)
+    #: Stats skipped because their baseline was zero, and at which drop rate.
+    #: Tier 2 made this load-bearing: momentum and per-bin net xT delta are
+    #: SIGNED and cross zero by construction, so the relative metric explodes
+    #: and the zero-skip silently removes rows. A sweep table with missing rows
+    #: reads as coverage, which is why the skips are counted and reported
+    #: rather than dropped.
+    skipped: list[tuple[str, float, str]] = field(default_factory=list)
+    absolute_movements: list[AbsoluteMovement] = field(default_factory=list)
 
     def gating_table(self, tolerance: float = 0.10) -> dict[str, float]:
         """Highest drop rate each stat tolerates within `tolerance` movement.
@@ -134,12 +160,19 @@ def sweep(
     models: Sequence[str] = ("uniform", "crowd-biased"),
     trials: int = DEFAULT_TRIALS,
     seed: int = 0,
+    signed_stats: Sequence[str] = (),
 ) -> SweepResult:
     """Measure each stat's movement under event loss.
 
-    `compute_fn` maps an event stream to a flat dict of named scalars. Stats
-    whose baseline is zero are skipped rather than reported as infinite
-    movement -- a stat that was zero to begin with has nothing to move.
+    `compute_fn` maps an event stream to a flat dict of named scalars.
+
+    `signed_stats` names stats that are signed and cross zero by construction --
+    momentum, per-bin net xT delta. For those the relative metric is meaningless
+    (it explodes near zero), so they are reported as **absolute movement in stat
+    units** on `SweepResult.absolute_movements` instead. Stats with a zero
+    baseline go the same way. Either way the substitution is recorded in
+    `SweepResult.skipped` so a reader can see that a missing row is a
+    substitution and not a stat that was never swept.
     """
     baseline = compute_fn(list(events))
     result = SweepResult()
@@ -158,7 +191,24 @@ def sweep(
 
             for stat, values in per_stat.items():
                 base = float(baseline[stat])
-                if base == 0.0:
+                mean_abs = sum(abs(v - base) for v in values) / len(values)
+                if base == 0.0 or stat in signed_stats:
+                    # A signed stat crossing zero makes the relative metric
+                    # explode, and a zero baseline makes it undefined. Report
+                    # absolute movement in stat units instead, and record the
+                    # substitution so no row silently disappears.
+                    result.skipped.append((stat, rate, model))
+                    result.absolute_movements.append(
+                        AbsoluteMovement(
+                            stat=stat,
+                            drop_rate=rate,
+                            model=model,
+                            baseline=base,
+                            mean_value=sum(values) / len(values),
+                            mean_absolute_movement=mean_abs,
+                            n_trials=len(values),
+                        )
+                    )
                     continue
                 rel = [abs(v - base) / abs(base) for v in values]
                 mean_rel = sum(rel) / len(rel)

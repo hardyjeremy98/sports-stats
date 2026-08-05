@@ -47,6 +47,18 @@ class StatEventType(StrEnum):
     # reserved for a future source (won fouls feed SCA).
     TAKE_ON = "take_on"
     FOUL_WON = "foul_won"
+    # Tier 2 §19 restarts. Reserved for a source that labels them, in the same
+    # spirit as FOUL_WON: FOOTPASS labels THROW_IN and nothing else, so
+    # `setpieces.py` abstains on all four rather than reporting zero. They are
+    # deliberately NOT added to POSSESSION_DEFINING or BALL_MOVING below: those
+    # sets drive `chains.py`, whose outcome inference enumerates
+    # pass/cross/carry/throw-in explicitly, so adding a member here without the
+    # matching branch there would give a corner a chain slot and no outcome.
+    # Wiring them up belongs with the source that first emits them.
+    CORNER = "corner"
+    FREE_KICK = "free_kick"
+    GOAL_KICK = "goal_kick"
+    PENALTY = "penalty"
 
 
 #: Events that settle who has the ball. A contest event (tackle/block, and a
@@ -80,6 +92,21 @@ BALL_MOVING: frozenset[StatEventType] = frozenset(
         StatEventType.CARRY,
         StatEventType.THROW_IN,
         StatEventType.TAKE_ON,
+    }
+)
+
+#: Dead-ball restarts (Tier 2 §19). Membership here says a class *exists* in the
+#: vocabulary, never that a given source emits it -- on FOOTPASS only THROW_IN
+#: is ever produced, and `setpieces.set_piece_breakdown` takes the labelled
+#: subset as an explicit argument so a source's coverage is stated by its
+#: caller rather than assumed from this set.
+RESTART_TYPES: frozenset[StatEventType] = frozenset(
+    {
+        StatEventType.THROW_IN,
+        StatEventType.CORNER,
+        StatEventType.FREE_KICK,
+        StatEventType.GOAL_KICK,
+        StatEventType.PENALTY,
     }
 )
 

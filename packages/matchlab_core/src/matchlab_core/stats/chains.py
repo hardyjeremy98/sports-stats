@@ -77,6 +77,36 @@ class ChainingResult:
     n_replays_excluded: int
 
 
+def _reject_cross_match(events: Sequence[MatchEvent]) -> None:
+    """Refuse to chain events from more than one match.
+
+    `half` is per-match and `frame_idx` is per-half, so the sort key
+    `(half, frame_idx, event_id)` **interleaves matches** rather than
+    concatenating them: on the FOOTPASS val split `game_18_H1` spans frames
+    64-75306 and `game_24_H1` spans 5397-77162, which overlap almost entirely.
+
+    Chaining two matches together is not merely inaccurate, it is silently
+    inaccurate. Measured on those two halves: 419 chains instead of 248, with
+    **61 chains containing events from both matches** -- each of which invents a
+    possession change, a recovery and a turnover out of nothing, and pairs a
+    pass in one stadium with a shot in another.
+
+    This is the same shape as the `PLAYER_ID`-is-match-local trap one level
+    down, and like that one it produces numbers that look entirely reasonable.
+    Raising is right rather than partitioning automatically: a caller who pooled
+    matches has a bug in their aggregation, and silently doing something
+    sensible would hide it.
+    """
+    matches = {e.match_id for e in events}
+    if len(matches) > 1:
+        raise ValueError(
+            "build_chains received events from more than one match "
+            f"({sorted(matches)[:5]}{'...' if len(matches) > 5 else ''}); `half` is "
+            "per-match and `frame_idx` per-half, so they would interleave rather "
+            "than concatenate. Chain each match separately and combine the results."
+        )
+
+
 def _next_possession_defining(events: Sequence[MatchEvent], i: int) -> MatchEvent | None:
     """The next event that actually states who has the ball.
 
@@ -100,6 +130,7 @@ def build_chains(
     Mutates and returns the events (chain_id, outcome, outcome_source, receiver).
     """
     ordered = sorted(events, key=lambda e: (e.half, e.frame_idx, e.event_id))
+    _reject_cross_match(ordered)
     n_replays = sum(1 for e in ordered if e.replay)
     if exclude_replays:
         ordered = [e for e in ordered if not e.replay]

@@ -597,7 +597,22 @@ and `build_up`, and **the source is stamped on each classified chain** so no con
 them unknowingly.
 
 **Precedence, explicit:** `high_turnover` → `counter_attack` → `direct_attack` → `build_up` →
-`unclassified`. Exactly one label per chain; per R6, `unclassified` is expected at 25–60%.
+`unclassified`. Exactly one label per chain; per R6, `unclassified` was pre-registered at
+25–60%.
+
+> **The pre-registered band was breached, and per R6 it is reported, not tuned.** Measured over
+> the val split: 752 chains classify as `unclassified` 653, `high_turnover` 63, `build_up` 18,
+> `counter_attack` 13, `direct_attack` 5, `set_piece` 0 — **86.8% unclassified**, well outside
+> the 25–60% band.
+>
+> The mechanism was measured rather than guessed, and it is not simply "the chains are short":
+> 289 of 752 chains hold fewer than 3 own events, but **77 chains carry 10 or more own passes
+> and only 18 of them become `build_up`**. The providers' definitions are conjunctions — Opta's
+> build-up needs 10+ passes *and* a shot or box touch — so the terminal condition, not the pass
+> count, is what rejects most long chains. The taxonomy is stricter than this data is short.
+>
+> A characterisation test asserts the band is **breached**, so quietly retuning a threshold to
+> bring it back into range fails the suite rather than passing silently.
 
 **`set_piece` abstains** to stay consistent with Tier 1, which made `_is_set_piece_origin`
 abstain for want of a class. A §14 `set_piece` type would reintroduce the claim Tier 1 removed
@@ -674,13 +689,29 @@ Defensive actions (tackle ∪ block) inside the PPDA zone, **both clubs pooled**
 | game_47_H2 | 7 | 7 |
 
 **25 in-zone defensive actions across the entire val split** — ~4 per half for both clubs,
-**~2 per team-half**, and `game_24_H2` is a **division by zero**. The first draft quoted the
-raw class counts (285/26) and mitigated by "printing the denominator"; the in-zone count is the
-one that matters and it is an order of magnitude worse.
+**~2 per team-half**. Pooled over both clubs `game_24_H2` is a **division by zero**; split by
+club, **4 of the 12 team-halves are zero-denominator**. The first draft quoted the raw class
+counts (285/26) and mitigated by "printing the denominator"; the in-zone count is the one that
+matters and it is an order of magnitude worse. Pooled across the whole split, PPDA = 2021/25 =
+**80.8** — against a top-five-league season average of 11.01 (Wyscout), which is the scale of
+the under-count the missing interception/foul/challenge classes produce.
 
-The mechanism is structural, not bad luck: **a block occurs near the shooter's target goal,
-i.e. structurally outside the PPDA zone**, so the block class barely contributes and the metric
-rests on ~4 tackles per half.
+> **Correction, from measurement during implementation.** This section previously argued the
+> mechanism was that "a block occurs near the shooter's target goal, i.e. structurally outside
+> the PPDA zone, so the block class barely contributes and the metric rests on ~4 tackles per
+> half." **That mechanism is wrong.** Measured over the val split: of the 25 in-zone actions,
+> **17 are blocks and 8 are tackles** — blocks are the *larger* share. Retention into the zone
+> is 17/75 blocks (23%) and 8/25 tackles (32%), so blocks are retained at a *similar* rate,
+> not an anomalously low one. The survivors are blocks made more than 42 m from the blocking
+> club's own goal — interceptions while pressing high, not shot blocks.
+>
+> The **conclusion is unaffected**: 25 in-zone actions over 6 halves is far too small for a
+> per-half number, and every decision below stands. But the stated reason was an assumption
+> that measurement contradicted, and replacing it silently would have left a false mechanism
+> in the record.
+
+The real constraint is simply volume: tackle and block together are 100 events across the
+whole val split, and the zone keeps a quarter of them.
 
 **Decisions:**
 
@@ -772,8 +803,27 @@ to exclude those on a base of ~21 crosses per half.
 Per R1 it ships behind a flag, out of headline tables, with a stratified null (a
 location-shuffled control preserving the cross-location distribution). **Pre-registered per
 R6: at ~21 crosses per half the null test is likely to be underpowered, and "underpowered,
-therefore not reported" is an expected outcome, not a surprise** — it is recorded now so it
-cannot later be presented as a finding either way.
+therefore not reported" is an expected outcome, not a surprise** — recorded before the fact so
+it could not later be presented as a finding either way.
+
+> **Outcome: the pre-registration was wrong, and the null passed.** Pooled over the six val
+> halves there are 99 live crosses, of which 21 start within 3 m of a corner flag and 29 follow
+> a gap of more than 10 s — and **all 21 near-flag crosses are also long-gap ones**, against
+> ~6.2 expected if the two were independent. The permutation p-value hits the floor attainable
+> at 2000 permutations (1/2001). The prediction of underpowerment was made per half; pooling
+> six halves is most of the difference.
+>
+> **What that does and does not establish.** It shows cross *location* and preceding *stoppage*
+> are strongly non-independent. It does **not** show the detections are corners — there is no
+> corner label and no negative class, so nothing here can distinguish "corners" from any other
+> restart taken from near the flag. Separation from a null is a necessary condition that this
+> detector met, not the validation it lacks. It stays behind its flag and out of headline
+> tables, exactly as if the null had failed.
+>
+> Radius sanity, measured: the two real box crosses the paragraph above names sit 14.41 m and
+> 11.77 m from the nearest flag, while the six arc crosses in `game_18_H1` sit 1.15–2.59 m and
+> the next-nearest is 6.48 m. A 3 m radius separates them by roughly 4×. Across all six halves
+> the tightest non-arc cross is 3.43 m.
 
 ## §20 — Goalkeeper metrics
 
