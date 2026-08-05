@@ -57,8 +57,12 @@ from matchlab_core.formation.centroid import _assert_normalised
 #: together at one place in the timeline -- exactly what an argmax is sensitive
 #: to. Validated by the V3 sweep, not assumed.
 DEFAULT_COARSE_SECONDS = 30.0
-#: Refinement stops here. Below ~30 s the consumer cannot tell the difference,
-#: because it only asks which side of the boundary a fragment falls on.
+#: Floor on the reported confidence half-width, and the fallback probe spacing
+#: when the dense scan cannot run. NOT a stop condition -- refinement is a
+#: fixed-budget dense scan, not a loop that converges to a tolerance. (It was
+#: bisection's stop condition until 2026-08-05; bisection could not resolve
+#: below one coarse step against a ~90%-reliable oracle, so the tolerance it
+#: "converged" to was fictitious precision.)
 DEFAULT_TOLERANCE_SECONDS = 5.0
 #: A half is never shorter than this. Defined on the TIME axis, not probe
 #: index: spacing is non-uniform under coarse-to-fine and abstained probes are
