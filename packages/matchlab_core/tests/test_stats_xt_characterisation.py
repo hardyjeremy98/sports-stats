@@ -14,7 +14,7 @@ The headline finding pinned here
 ---------------------------------
 `test_success_only_arm_is_degenerate_on_this_data` is the one test in this file
 that is a *result* rather than a tripwire. On the train split the success-only
-(Singh) arm produces a surface that is nearly **constant** across 13 of the 16
+(Singh) arm produces a surface that is nearly **constant** across 12 of the 16
 length bands, while the absorbing-failure (socceraction) arm is monotone from
 0.006 at a team's own goal to 0.451 at the goal it attacks. That is the
 predictable consequence of a transition matrix whose rows sum to 1: possession
@@ -243,3 +243,53 @@ def test_player_lines_are_keyed_by_match_and_player(train_models, val_half):
     assert len(lines) == 23
     assert all(isinstance(k, tuple) and len(k) == 2 for k in lines)
     assert {k[0] for k in lines} == {"game_18"}
+
+
+def test_location_only_xg_reproduces_xg_on_real_val_shots(val_half):
+    """The claim `xt_shotvalue.py` makes, actually checked.
+
+    That module asserts that on FOOTPASS `xg()` is already a function of
+    location alone, so evaluating a bare synthetic shot at a point reproduces
+    exactly what `xg()` returns for a real shot there. That is the whole
+    justification for the Tier 3 guard's narrow signature -- if it were false,
+    the guard would be silently discarding real signal rather than only
+    discarding a leak.
+
+    An earlier version of this suite left that claim in a docstring with no test
+    behind it, which is the exact shape of unfalsifiable reassurance this branch
+    exists to catch.
+    """
+    from matchlab_core.pitch import FIFA_PITCH
+    from matchlab_core.stats.schema import StatEventType
+    from matchlab_core.stats.xg import xg
+    from matchlab_core.stats.xt_shotvalue import location_only_xg
+
+    shots = [e for e in val_half.events if e.type is StatEventType.SHOT]
+    assert shots, "no shots in the val half -- the test would be vacuous"
+    for shot in shots:
+        assert location_only_xg(shot.start, FIFA_PITCH) == pytest.approx(
+            xg(shot, pitch=FIFA_PITCH)
+        )
+
+
+def test_off_ball_context_would_change_xg_which_is_why_the_guard_matters(val_half):
+    """The disconfirming half: show the guard is not vacuous.
+
+    If off-ball context never changed `xg()`, the Tier 3 guard would be
+    protecting against nothing. Loading opponents into a real shot must move its
+    value, or the previous test proves only that the feature is dead.
+    """
+    from matchlab_core.pitch import FIFA_PITCH
+    from matchlab_core.stats.schema import PitchPoint, StatEventType
+    from matchlab_core.stats.xg import xg
+
+    shot = next(e for e in val_half.events if e.type is StatEventType.SHOT)
+    crowded = shot.model_copy(
+        update={
+            "opponents": [
+                PitchPoint(x=FIFA_PITCH.length - 200.0, y=FIFA_PITCH.width / 2 + d)
+                for d in (-150.0, -50.0, 50.0, 150.0)
+            ]
+        }
+    )
+    assert xg(crowded, pitch=FIFA_PITCH) != pytest.approx(xg(shot, pitch=FIFA_PITCH))
