@@ -334,3 +334,14 @@ def test_half_boundary_guard_holds_when_the_kernel_could_actually_reach():
     # Club 1 did nothing in H2. Without the guard its H1 dominance -- at the
     # same bin numbers -- would pull these toward zero or positive.
     assert all(p.value == pytest.approx(-VALUE_CAP) for p in h2)
+
+
+def test_clamp_value_is_reachable_and_bounds_both_ends():
+    """The zero floor was unreachable inline: the per-bin `max(..., 0.0)`
+    already floored every bin, so deleting the floor survived the whole suite.
+    Testing the seam directly is what gives it teeth."""
+    from matchlab_core.stats.momentum import clamp_value
+
+    assert clamp_value(-0.5, 0.1) == pytest.approx(0.0)
+    assert clamp_value(5.0, 0.1) == pytest.approx(0.1)
+    assert clamp_value(0.04, 0.1) == pytest.approx(0.04)

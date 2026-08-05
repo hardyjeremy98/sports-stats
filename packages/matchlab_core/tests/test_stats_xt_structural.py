@@ -105,12 +105,24 @@ def test_grid_centroid_round_trips_to_its_own_zone():
         assert g.index_of(g.centroid(z)) == z
 
 
-def test_grid_mirror_y_is_an_involution_and_preserves_x():
+def test_grid_mirror_y_actually_mirrors():
+    """Involution + preserves-x is satisfied by the IDENTITY.
+
+    That is what the previous version of this test asserted, so replacing
+    `mirror_y` with `lambda z: z` survived the entire mutation suite. The
+    property that pins it is the row index moving to `ny - 1 - iy`.
+    """
     g = Grid()
     for z in range(g.n_zones):
         m = g.mirror_y(z)
-        assert g.mirror_y(m) == z
-        assert z % g.nx == m % g.nx
+        ix, iy = z % g.nx, z // g.nx
+        assert m == (g.ny - 1 - iy) * g.nx + ix
+        assert g.mirror_y(m) == z  # still an involution
+        assert z % g.nx == m % g.nx  # and still preserves x
+    # Only the centre row (absent for even ny) may map to itself.
+    assert sum(1 for z in range(g.n_zones) if g.mirror_y(z) == z) == (
+        g.nx if g.ny % 2 else 0
+    )
 
 
 def test_default_grid_is_singhs_16x12():

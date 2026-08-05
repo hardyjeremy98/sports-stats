@@ -383,17 +383,45 @@ R5, because the relative metric explodes near zero and the old zero-skip silentl
 * **Team-level split cleanliness is unverifiable**: `PLAYER_ID` is match-local (32 distinct
   values across 48 games), so no cross-match club key exists. Val is out-of-sample at the
   *match* level only.
-* **Two pre-registered obligations were breached and are reported as breaches, not omissions.**
-  R1 requires a stratified null for §15 counter-attacks; the 39-counter-attack headline has
-  none, so it is a corrected count, not a validated one. R7 requires this branch to run its own
-  mutation suite with a stated target survivor rate; it did not — the mutation findings recorded
-  below came from cold reviewers. Since R6 designates the mutation run as §12's only real
-  validation, **§12 currently has no reported validation of its own.**
+* **R1 is breached and reported as a breach:** it requires a stratified null for §15
+  counter-attacks, and the 39-counter-attack headline has none. It is a corrected count, not a
+  validated one.
 * **R6's "val reported separately with a bootstrap CI"** was not done either. No val-fitted
   surface and no CI exist.
 * **`FIFA_PITCH` is a fixed 105 × 68 spec** applied across 48 real pitches of differing size, so
   a pooled fitted grid's zone boundaries do not correspond to identical physical locations
   across matches. Unmeasurable from this data.
+
+## §12's mutation run (R7)
+
+R6 designates this as §12's only real validation, so it is the section that matters most.
+**28 mutations against a copy of the tree** — never the shared worktree — each clearing the fit
+cache so the grid is genuinely refitted under the mutation.
+
+| | |
+|---|---|
+| killed | **26 / 28** |
+| survived | 2 |
+
+Both survivors were real weaknesses in the tests, not in the model, and both are now closed:
+
+* **`Grid.mirror_y` replaced by the identity function.** Its test asserted only that the mapping
+  is an involution and preserves x — *both of which the identity satisfies*. Now pinned to the
+  actual row mapping `iy → ny − 1 − iy`.
+* **The momentum zero floor deleted.** It was **unreachable**: the per-bin aggregation is
+  `max(target.get(key, 0.0), value)`, whose `0.0` default already floors every bin, so removing
+  the inner floor changed no output. It is retained (it is the only thing between a future
+  `max`→`sum` refactor and negative bins) but extracted to a `clamp_value` seam with a direct
+  test, because a guard that cannot be reached cannot be trusted.
+
+> **The first attempt at this run returned 28/28 killed and was worthless.** The scratch
+> environment lacked `torch`, so the baseline suite was already failing and *every* mutation
+> read as "killed". The harness now aborts unless the baseline is green — a 100% kill rate is
+> the signature of a broken harness far more often than of a good suite.
+
+Note the harness reaches the shared `data/` directory through a symlink and writes fitted grids
+into the same cache the experiment uses. The fingerprint added earlier is what makes that safe,
+and it was verified afterwards: a freshly computed fit is bit-identical to the cached one.
 
 ## Defects found by cold review, recorded because each is a trap
 

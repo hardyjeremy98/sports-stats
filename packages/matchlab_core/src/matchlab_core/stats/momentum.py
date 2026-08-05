@@ -125,6 +125,21 @@ class MomentumSeries:
     )
 
 
+def clamp_value(delta: float, cap: float = VALUE_CAP) -> float:
+    """Opta, verbatim: values are "capped between zero and 0.1".
+
+    A module-level function rather than an inline expression because inlined it
+    was **unreachable**: the per-bin aggregation is
+    `max(target.get(key, 0.0), value)`, whose 0.0 default already floors every
+    bin, so deleting the inner floor changed no output and the mutation survived
+    the whole suite. It is kept rather than deleted because it is the only thing
+    standing between a future max->sum refactor and negative bins -- but a guard
+    that cannot be reached is a guard that cannot be trusted, so it now has a
+    seam and a direct test.
+    """
+    return min(max(delta, 0.0), cap)
+
+
 def _bin_index(t: float, half: int, offsets: Mapping[int, float], bin_s: float) -> int:
     return int((t + offsets.get(half, 0.0)) // bin_s)
 
@@ -165,7 +180,7 @@ def build_momentum(
         bins_seen.add(key)
         # Opta takes the MAXIMUM per team per minute, not the sum: momentum is
         # about the most threatening moment, not accumulated volume.
-        value = min(max(credit.delta, 0.0), cap)
+        value = clamp_value(credit.delta, cap)
         target = per_bin_club if credit.club_id == club_id else per_bin_opp
         target[key] = max(target.get(key, 0.0), value)
 
