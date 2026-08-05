@@ -163,6 +163,45 @@ def test_opponent_contest_inside_a_chain_earns_no_sca() -> None:
 # --- disconfirming ---------------------------------------------------------
 
 
+def test_same_club_contest_event_earns_no_sca() -> None:
+    """A team-mate's header between pass and shot must not be credited.
+
+    Contest events are excluded from SCA by TYPE, not only by the club guard --
+    and a mutation adding CONTEST_EVENTS to SCA_ACTION_TYPES previously passed
+    the whole suite because no test exercised a same-club contest in a window.
+    """
+    events = chained(
+        [
+            ev(0, 0, StatEventType.PASS, 101),
+            ev(1, 25, StatEventType.HEADER, 103),  # same club, contest
+            ev(2, 50, StatEventType.SHOT, 102),
+        ]
+    )
+    res = compute_creation(events)
+    # Only the pass is credited; the header earns nothing.
+    assert res.players[101].sca == 1
+    assert 103 not in res.players or res.players[103].sca == 0
+
+
+def test_sca_window_stops_at_a_throw_in_restart() -> None:
+    """An action from before the ball went out did not create this shot.
+
+    `pass -> throw_in -> shot`: the thrower is credited (FBref's dead-ball pass
+    type), but the window must not reach past the restart to the pre-dead-ball
+    pass -- the same credit-across-a-boundary error the shot barrier fixed.
+    """
+    events = chained(
+        [
+            ev(0, 0, StatEventType.PASS, 101),
+            ev(1, 100, StatEventType.THROW_IN, 103),
+            ev(2, 125, StatEventType.SHOT, 102),
+        ]
+    )
+    res = compute_creation(events)
+    assert res.players[103].sca == 1  # the thrower is SCA 1
+    assert 101 not in res.players or res.players[101].sca == 0
+
+
 def test_shot_by_other_club_is_not_a_key_pass() -> None:
     """Club 2 shoots after club 1's pass: nothing was created for anyone."""
     stream = chained(

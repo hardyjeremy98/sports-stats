@@ -119,6 +119,52 @@ def test_gating_table_reports_the_highest_tolerated_drop_rate():
     assert table["count_club1"] == 0.05
 
 
+def test_gating_table_stops_at_the_first_failing_rate():
+    """"Tolerates X%" must mean every rate up to X passed.
+
+    A non-monotone stat (fails at 5%, passes at 10% by luck) must gate at 0.0 --
+    letting the later pass override the earlier failure reported stats at their
+    lucky rate.
+    """
+    from matchlab_core.stats.sensitivity import StatMovement, SweepResult
+
+    r = SweepResult(
+        movements=[
+            StatMovement("s", 0.05, "uniform", 1.0, 1.5, 0.5, 0.0, 5),
+            StatMovement("s", 0.10, "uniform", 1.0, 1.05, 0.05, 0.0, 5),
+        ]
+    )
+    assert r.gating_table(tolerance=0.10) == {"s": 0.0}
+
+
+def test_gating_table_takes_the_worst_model_not_the_optimistic_one():
+    """Crowd-biased loss is the model that matters; a stat passing uniform but
+    failing crowd-biased at the same rate has NOT tolerated that rate."""
+    from matchlab_core.stats.sensitivity import StatMovement, SweepResult
+
+    r = SweepResult(
+        movements=[
+            StatMovement("s", 0.05, "uniform", 1.0, 1.02, 0.02, 0.0, 5),
+            StatMovement("s", 0.05, "crowd-biased", 1.0, 1.5, 0.5, 0.0, 5),
+        ]
+    )
+    assert r.gating_table(tolerance=0.10) == {"s": 0.0}
+
+
+def test_crowd_biased_realised_drop_rate_matches_nominal_under_skew():
+    """Clipping drop probabilities at 1.0 removes mass; without renormalising,
+    a skewed crowding distribution realised roughly half the nominal rate --
+    silently under-stressing exactly the rows the biased model exists for."""
+    # Heavy skew: a few extremely crowded events, many empty ones.
+    events = [_ev(i, 1, near=(10 if i < 20 else 0)) for i in range(400)]
+    kept = [
+        len(drop_events(events, 0.4, model="crowd-biased", rng=random.Random(s)))
+        for s in range(30)
+    ]
+    realised = 1.0 - (sum(kept) / len(kept)) / 400
+    assert realised == pytest.approx(0.4, abs=0.05)
+
+
 def test_zero_baseline_stats_are_skipped_not_reported_as_infinite():
     events = [_ev(i, 1) for i in range(50)]
     result = sweep(

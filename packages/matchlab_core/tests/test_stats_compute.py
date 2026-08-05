@@ -93,10 +93,17 @@ def test_xa_becomes_a_number_once_an_xg_model_is_supplied():
     assert all(line.xa is not None for line in creators)
 
 
-def test_shots_and_xg_are_only_counted_when_a_model_is_supplied():
+def test_shots_are_counted_without_a_model_and_xg_needs_one():
+    """Shots are a raw labelled count, independent of any xG model.
+
+    Gating the count behind `xg_fn` made shots=0 silently mean "not counted" --
+    the exact zero/abstention conflation the schema warns about. Only the xG
+    accumulation needs the model.
+    """
     chained = build_chains(_simple_stream())
     without = compute_tier1(chained, source="t", match_id="m", half=1)
-    assert sum(line.shots for line in without.players) == 0
+    assert sum(line.shots for line in without.players) == 1
+    assert sum(line.xg for line in without.players) == 0.0
 
     chained = build_chains(_simple_stream())
     with_model = compute_tier1(
@@ -104,6 +111,23 @@ def test_shots_and_xg_are_only_counted_when_a_model_is_supplied():
     )
     assert sum(line.shots for line in with_model.players) == 1
     assert sum(line.xg for line in with_model.players) == pytest.approx(0.2)
+
+
+def test_stream_level_abstention_counters_reach_the_sheet():
+    """The stat modules' excluded/abstained counters must survive the fold.
+
+    The design's promise is that the missing part of every denominator stays
+    visible; a sheet that drops the counters breaks it silently.
+    """
+    # A stream ending in a pass: its outcome is UNKNOWN (nothing follows), so it
+    # is excluded from stat 11 and abstained from stat 5 -- and both facts must
+    # be visible on the sheet.
+    events = _simple_stream() + [_ev(3, 3.0, 1, StatEventType.PASS, 104, x=6000.0)]
+    chained = build_chains(events)
+    sheet = compute_tier1(chained, source="t", match_id="m", half=1)
+    assert "passes_excluded_unknown_outcome" in sheet.abstentions
+    assert "progression_abstained_unknown_outcome" in sheet.abstentions
+    assert sheet.abstentions["passes_excluded_unknown_outcome"] >= 1
 
 
 def test_coverage_is_absent_rather_than_defaulted_when_not_supplied():

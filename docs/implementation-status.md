@@ -874,10 +874,13 @@ Measured local findings recorded by the repository guidance:
   carry-length measurement** under a stratified null baseline (0.0715/carry detected vs
   0.0465 with opponents shuffled within start-third × x-gain strata) — it has no GT class and
   no negative class, so it stays flagged `unvalidated` and out of any headline set.
-  The recall-sensitivity sweep gives the build order: **ratios tolerate 20–40% event loss
-  while every count tolerates only 5–10%**, and chain-relational stats (key passes, SCA,
-  shots, xG) degrade roughly 3× faster under crowd-biased loss than uniform loss, because
-  crowded events cluster near the box. xG runs on published, cited coefficients but its
+  The recall-sensitivity sweep gives the build order (corrected 2026-08-05 after a
+  second review round fixed an optimistic gating rule and an under-applied crowd-biased
+  drop): **pass completion tolerates 40% event loss and progressive share 10%, volume
+  counts tolerate only 5%, and the shot-anchored family — key passes, SCA, shots, xG,
+  box touches — fails even a 5% crowd-biased drop**, because a key pass needs two specific
+  events to survive and crowded events cluster near the box. Tolerance means every rate up
+  to it passed under every loss model, crowd-biased included. xG runs on published, cited coefficients but its
   **calibration is entirely untested — this ground truth has no goal labels at all**, so GCA
   abstains (`None`, never 0) and xG is to be reported as a within-userbase percentile.
 

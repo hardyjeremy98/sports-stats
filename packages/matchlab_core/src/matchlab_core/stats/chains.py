@@ -190,16 +190,30 @@ def possession_changes(
 ) -> list[tuple[Chain, Chain]]:
     """Adjacent chain pairs where the ball changed club in live play.
 
-    A boundary caused by the time guard or a half break is NOT a possession
-    change -- the ball went dead, nobody won it -- so those pairs are excluded.
-    Without this, every stoppage manufactures a recovery and a turnover.
+    Two exclusions, both fabrication guards:
+
+    * A boundary caused by the time guard or a half break is NOT a possession
+      change -- the ball went dead, nobody won it. Without this, every stoppage
+      manufactures a recovery and a turnover.
+    * A chain with no possession-defining own event never participates. A
+      contest event can FOUND a chain (a header contesting the first ball after
+      a stoppage starts a new chain under the contesting club, because there is
+      no current possession for it to interrupt); that club never actually held
+      the ball, so charging it with a turnover -- or crediting the next club
+      with a recovery -- would invent both from a single challenge.
     """
+
+    def held_the_ball(c: Chain) -> bool:
+        return any(e.type in POSSESSION_DEFINING for e in c.own_events)
+
     out: list[tuple[Chain, Chain]] = []
     for a, b in zip(chains, chains[1:], strict=False):
         if not (a.events and b.events) or a.club_id == b.club_id:
             continue
         last, first = a.events[-1], b.events[0]
         if first.half != last.half or (first.t - last.t) > max_gap_s:
+            continue
+        if not (held_the_ball(a) and held_the_ball(b)):
             continue
         out.append((a, b))
     return out

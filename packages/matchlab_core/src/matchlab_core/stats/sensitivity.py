@@ -65,13 +65,31 @@ class SweepResult:
         This is the build-order output: stats that hold up under heavy event
         loss can be built first, against whatever recall the detector currently
         has. A stat returning 0.0 does not survive even the smallest sweep step.
+
+        Two rules that earlier versions of this function got wrong:
+
+        * The walk up the drop rates STOPS at the first failure. "Tolerates X%"
+          must mean every rate up to X passed; letting a later pass override an
+          earlier failure reported non-monotone stats at their lucky rate.
+        * A rate passes only if it passes under EVERY model swept. Crowd-biased
+          loss is the model that matters (misses cluster in crowds), so a table
+          quietly keyed on the uniform model flattered exactly the stats the
+          biased model exists to break.
         """
+        by_stat: dict[str, dict[float, list[float]]] = {}
+        for m in self.movements:
+            by_stat.setdefault(m.stat, {}).setdefault(m.drop_rate, []).append(
+                m.mean_relative_movement
+            )
         out: dict[str, float] = {}
-        for m in sorted(self.movements, key=lambda m: m.drop_rate):
-            if m.mean_relative_movement <= tolerance:
-                out[m.stat] = max(out.get(m.stat, 0.0), m.drop_rate)
-            else:
-                out.setdefault(m.stat, 0.0)
+        for stat, by_rate in by_stat.items():
+            tolerated = 0.0
+            for rate in sorted(by_rate):
+                if all(mv <= tolerance for mv in by_rate[rate]):
+                    tolerated = rate
+                else:
+                    break
+            out[stat] = tolerated
         return out
 
 
@@ -120,9 +138,26 @@ def drop_events(
     else:
         raise ValueError(f"unknown drop model {model!r}")
 
-    # Scale weights so the mean drop probability is exactly `rate`, then clip.
+    # Scale weights so the mean drop probability equals `rate`. Clipping at 1.0
+    # removes probability mass, so rescale the unclipped remainder and repeat --
+    # a single clip-after-scale realised roughly half the nominal rate on a
+    # skewed crowding distribution, silently under-stressing exactly the
+    # crowd-biased rows the sweep exists to make honest.
     mean_w = sum(weights) / len(weights)
-    probs = [min(1.0, rate * w / mean_w) for w in weights]
+    probs = [rate * w / mean_w for w in weights]
+    for _ in range(20):
+        clipped = [min(1.0, p) for p in probs]
+        deficit = rate * len(clipped) - sum(clipped)
+        if deficit <= 1e-9:
+            probs = clipped
+            break
+        open_mass = sum(p for p in clipped if p < 1.0)
+        if open_mass <= 0.0:
+            probs = clipped
+            break
+        scale = 1.0 + deficit / open_mass
+        probs = [p if p >= 1.0 else p * scale for p in clipped]
+    probs = [min(1.0, p) for p in probs]
     return [e for e, p in zip(events, probs, strict=True) if rng.random() >= p]
 
 

@@ -107,10 +107,13 @@ should bypass this model (`PENALTY_XG`).
 Reporting
 ---------
 Per `docs/prds/peripheral-stats-tier-1.md` (stat 1) and the Notion source it
-curates, xG is shipped as a **within-userbase percentile**
+curates, xG **must be reported as a within-userbase percentile**
 (`percentile_within`), never as an absolute: coefficients fitted on
 professional shots systematically overstate the conversion of an amateur chance,
-and a percentile is invariant to that shift as long as it is monotone.
+and a percentile is invariant to that shift as long as it is monotone. As of
+2026-08-05 no reporting layer exists yet, so nothing enforces this -- the
+helper is here, tested and waiting for its consumer; do not wire `xg()`'s raw
+value into a user-facing surface directly.
 """
 
 from __future__ import annotations

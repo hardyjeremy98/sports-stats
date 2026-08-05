@@ -107,10 +107,15 @@ from matchlab_core.stats.schema import (
 SCA_WINDOW = 2
 
 #: Action types that can be credited with an SCA. `SCA_ELIGIBLE` is the shared
-#: build-up vocabulary and deliberately excludes `SHOT`; FBref's list includes a
-#: shot that leads to another shot (the rebound), which this stream does carry,
-#: so it is added here and here only.
-SCA_ACTION_TYPES: frozenset[StatEventType] = SCA_ELIGIBLE | {StatEventType.SHOT}
+#: build-up vocabulary and deliberately excludes `SHOT` and `THROW_IN`; FBref's
+#: list includes a shot that leads to another shot (the rebound) and dead-ball
+#: passes, both of which this stream carries, so they are added here and here
+#: only. Both are also window BARRIERS in `find_sca` -- an action from before an
+#: earlier shot or a restart did not create this shot.
+SCA_ACTION_TYPES: frozenset[StatEventType] = SCA_ELIGIBLE | {
+    StatEventType.SHOT,
+    StatEventType.THROW_IN,
+}
 
 #: Why GCA abstained. A reason string, not a magic zero.
 NO_GOAL_LABELS = "no_goal_labels"
@@ -234,6 +239,14 @@ def find_sca(
     type) and terminates the search: whatever came before it created that shot,
     not this one. Without the barrier one event is credited to two shots.
 
+    A **throw-in** is a barrier the same way, for the same reason: it restarts
+    play after the ball went dead, so an action from before it did not lead to
+    this shot. It is also creditable -- FBref's SCA pass types include dead-ball
+    passes -- so `throw_in -> shot` credits the thrower, but the window never
+    reaches past the restart. (Corners and free kicks have no class in this
+    ground truth and arrive as CROSS/PASS; only throw-ins get this treatment
+    because only throw-ins are labelled.)
+
     Events by the other club are skipped. On a chain from `build_chains` that is
     defensive rather than load-bearing -- every foreign event inside a chain is
     a contest event (25 headers, 14 blocks, 6 tackles on `game_18_H1`; zero
@@ -249,7 +262,11 @@ def find_sca(
         if ev.club_id != shot.club_id or ev.type not in SCA_ACTION_TYPES:
             continue
         found.append(ev)
-        if len(found) == window or ev.type is StatEventType.SHOT:
+        if (
+            len(found) == window
+            or ev.type is StatEventType.SHOT
+            or ev.type is StatEventType.THROW_IN
+        ):
             break
     return found
 

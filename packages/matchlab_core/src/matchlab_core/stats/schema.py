@@ -285,4 +285,9 @@ class Tier1StatSheet(BaseModel):
     #: Positions rejected by the plausibility margin, surfaced rather than
     #: silently clamped.
     rejected_positions: int = 0
+    #: Stream-level abstention and exclusion counters from the stat modules
+    #: (unknown outcomes, missing end points, zone-rule exclusions...). These
+    #: are the missing parts of the denominators; a consumer that cannot see
+    #: them cannot tell a quiet half from a half full of unresolvable events.
+    abstentions: dict[str, int] = Field(default_factory=dict)
     notes: dict[str, str] = Field(default_factory=dict)
