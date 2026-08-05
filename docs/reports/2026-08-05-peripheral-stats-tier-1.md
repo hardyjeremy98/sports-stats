@@ -253,6 +253,14 @@ alongside the defaults (max delta +0.309, band membership unchanged); and
 corner or free-kick class — a corner arrives labelled `CROSS` and a free kick `PASS`, so a
 negative there was a claim the vocabulary cannot support.
 
+**Process hazard worth recording:** mutation testing rewrote `stats/xg.py` in place while
+other work was staging files, and a mutated coefficient (`defender_in_lane = -0.75` instead
+of `-0.25`) **did reach a commit** before being caught by diffing the working tree against
+`HEAD`; it was amended out. Mutation testing in a shared worktree must run against a copy,
+and a commit made while agents are editing needs its diff read, not just its test run — the
+suite was green on the mutated value because the mutation only fires on shots the assertions
+tolerate.
+
 Independent re-derivation agreed exactly on every headline number in every module: the xG
 val-split distribution and all six club-match totals, the duel and take-on counts and null
 baselines, the creation counts, and the progression and passing tables.
