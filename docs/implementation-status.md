@@ -853,6 +853,71 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 
 Measured local findings recorded by the repository guidance:
 
+- **Tier 2 peripheral statistics run over ground truth (2026-08-06; report
+  [`2026-08-05-peripheral-stats-tier-2.md`](reports/2026-08-05-peripheral-stats-tier-2.md)).**
+  All nine Tier 2 stats (xT, momentum, sequence taxonomy, counter-attacks, field tilt, PPDA,
+  high turnovers, set pieces, goalkeeper) as source-agnostic modules in `matchlab_core.stats`,
+  with an end-to-end runner (`matchlab_train.experiments.tier2_stats`). **Prototype**, GT-only,
+  no stage registered and no `ArtifactName` added — same posture as Tier 1. xT is fitted on the
+  96 FOOTPASS **train** halves and applied to the 6 val halves (games disjoint; team-level
+  disjointness is *not* verifiable, because `PLAYER_ID` is match-local — only 32 distinct ids
+  across 48 games). Findings:
+  (a) the **failure-handling fork is resolvable**: per-player rank correlation between the two
+  arms is 0.433 against a pre-registered equivalence gate of 0.95, and the success-only arm is
+  **degenerate** on this data — with `T`'s rows summing to 1 the chain has no absorbing state,
+  so the surface plateaus at 0.1222–0.1228 across 9 of 16 length bands and is not monotone;
+  (b) against a **pure distance-to-goal baseline**, xT scores ρ = 0.99 per zone but only
+  **0.655 per player** — the level the stat is consumed at — because an action's value is a
+  difference between two nearby zones; leading with the zone number gives a confidently wrong
+  headline;
+  (c) this exposed a **latent defect in Tier 1's xG model**: `xg()` returns **0.531 from 106 m
+  out** against 0.181 at the penalty spot, because the Soccermatics quadratics extrapolate far
+  outside their sample's support. Tier 1 never saw it because it only ever scored real shots.
+  **`xg()` needs a domain clamp**; it is masked in the xT fit only because `s(z) = 0` there;
+  (d) **PPDA abstains at team-half granularity** — only 25 in-zone defensive actions across the
+  whole val split (17 blocks, 8 tackles) with 4 of 12 team-halves at a zero denominator; the
+  pooled 80.8 against a league average ~11 is the size of the missing interception/foul class;
+  (e) the **§14 attack taxonomy is substantially a knob** — counter-attacks span 12–84 on the
+  directness threshold alone though every threshold is a published provider value, and
+  `unclassified` is 83.4%, outside its pre-registered 25–60% band;
+  (f) the **geometric corner detector failed** — not on its p-value, which sits at the
+  permutation floor, but because there is no corner label and no negative class. Its p is also
+  insensitive to radius over 2–10 m.
+  Sensitivity reproduces Tier 1: ratios tolerate 20–40% event loss, counts 0–10%, and the
+  gating table must be computed on the **crowd-biased** model — taking the max over both models
+  publishes a build order derived from the easier one.
+  Data note: **46.7% of FOOTPASS throw-in labels are replays**, systematically (broadcasts cut
+  to replays during dead-ball periods), and **5 rows of 9,917,540 sit at an exact pitch corner,
+  all of them crosses** — a sentinel coordinate, not a measurement.
+
+- **Tier 1 peripheral statistics run over ground truth (2026-08-05; report
+  [`2026-08-05-peripheral-stats-tier-1.md`](reports/2026-08-05-peripheral-stats-tier-1.md)).**
+  `matchlab_core.stats` implements all eleven Tier 1 stats as a source-agnostic library over
+  a `MatchEvent` stream, with a FOOTPASS ground-truth adapter
+  (`matchlab_train.datasets.footpass_events`) and an end-to-end runner
+  (`matchlab_train.experiments.tier1_stats`). **Prototype**, and GT-only: no pipeline stage
+  is registered, no `ArtifactName` was added, and nothing here consumes detector, tracker or
+  spotter output. Four measured findings, each with a test that fails if it regresses:
+  (a) **10.1% of FOOTPASS val events are broadcast replays** and the flag exists only in
+  `playbyplay_*.json`, not the tactical h5 — and the natural cross-check between the two
+  streams passes perfectly because they are otherwise identical, so only a filter-toggle test
+  detects the contamination; (b) `TEAM` is **pitch side**, not club — the club↔side binding
+  rebinds every half, so `(TEAM, SHIRT)` silently merges clubs across halves, and attack
+  normalisation must be a 180° rotation, not the upstream `1−x` mirror, which swaps flanks;
+  (c) treating an **opponent's contest event as an interruption inside a possession** rather
+  than a new one took `game_18_H1` from 168 chains / 125 possession changes to 132 / 89 —
+  29% of "possession changes" were deflections, and the turnover had been credited to the
+  blocker rather than the player who lost the ball; (d) the **take-on detector was ~65% a
+  carry-length measurement** under a stratified null baseline (0.0715/carry detected vs
+  0.0465 with opponents shuffled within start-third × x-gain strata) — it has no GT class and
+  no negative class, so it stays flagged `unvalidated` and out of any headline set.
+  The recall-sensitivity sweep gives the build order: **ratios tolerate 20–40% event loss
+  while every count tolerates only 5–10%**, and chain-relational stats (key passes, SCA,
+  shots, xG) degrade roughly 3× faster under crowd-biased loss than uniform loss, because
+  crowded events cluster near the box. xG runs on published, cited coefficients but its
+  **calibration is entirely untested — this ground truth has no goal labels at all**, so GCA
+  abstains (`None`, never 0) and xG is to be reported as a within-userbase percentile.
+
 - **Global assignment / mutual exclusivity is the two-pass default (2026-08-03;
   report [`2026-08-03-global-assignment.md`](reports/2026-08-03-global-assignment.md)).**
   `merge_threads_two_pass` now resolves pass-1 decisions per mutual-overlap clique via
