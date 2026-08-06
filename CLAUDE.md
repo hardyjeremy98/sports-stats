@@ -75,6 +75,16 @@ uv run matchlab-train export-detections --run-dir data/runs/<id> --out data/exch
 uv run matchlab-train import-tracklets --mot external.txt --sidecar sidecar.json \
   --out data/runs/<id>-external --fps 25 --frame-count 750
 
+# PCBAS two-stage player-centric action spotter (docs/reference/pcbas-inference-recipe.md).
+# Weights: data/release/pcbas-v1/ (not in git; verify with sha256sum -c SHA256SUMS).
+# Needs a FOOTPASS tactical h5 + the 640x352 match mp4 -- it consumes tracking as an INPUT.
+# Stage 1 (~8 min/half on a 4060 Ti) -> frozen (9,26,T) logits; stage 2 -> playbyplay.json.
+# Then score one half against its tactical GT and publish it as a viewable Lab run:
+uv run matchlab-train publish-pcbas-half --key game_18_H1 \
+  --playbyplay data/pcbas-demo/playbyplay_game18_h1.json --label "PCBAS v1 game_18 H1"
+# One run = one HALF (left_to_right rebinds to clubs at half time). The Lab shows it as an
+# "Actions" tab + "Actions vs GT" overlay: green hit / red false alarm / amber missed.
+
 uv run matchlab-train run <experiment.yaml>   # config-driven experiments (matchlab_train/experiments/)
 ```
 

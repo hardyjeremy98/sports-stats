@@ -175,6 +175,24 @@ def main() -> int:
     fs_p.add_argument("--h5", required=True, help="Path to <split>_tactical_data.h5")
     fs_p.add_argument("--out", default=None, help="Write the report JSON here")
 
+    pcl_p = sub.add_parser(
+        "publish-pcbas-half",
+        help="Score one PCBAS half against its tactical GT and register it as a Lab run",
+    )
+    pcl_p.add_argument("--key", required=True, help="Half key, e.g. game_18_H1")
+    pcl_p.add_argument("--h5", default="data/footpass/tactical/val_tactical_data.h5")
+    pcl_p.add_argument("--playbyplay", required=True, help="Stage-2 predictions JSON")
+    pcl_p.add_argument("--video-root", default="data/footpass/videos_352x640")
+    pcl_p.add_argument("--run-id", default=None, help="Default: pcbas-<key>")
+    pcl_p.add_argument("--runs-dir", default="data/runs")
+    pcl_p.add_argument("--label", default=None, help="Run label shown in the Lab")
+    pcl_p.add_argument("--delta", type=int, default=None, help="Match tolerance, frames")
+    pcl_p.add_argument("--conf-thresh", type=float, default=None)
+    pcl_p.add_argument(
+        "--no-register", action="store_true",
+        help="Write the run directory but do not touch the Lab database",
+    )
+
     g1_p = sub.add_parser(
         "gate1-calibration-eval",
         help="Gate 1 (SPO-60): reproduce PnLCalib's SoccerNet-Calibration test-split "
@@ -313,6 +331,34 @@ def main() -> int:
         n_tracklets = len(json.loads((out_dir / "tracklets.json").read_text()))
         print(f"imported to {out_dir}")
         print(f"{n_tracklets} tracklets")
+        return 0
+
+    if args.command == "publish-pcbas-half":
+        from pathlib import Path
+
+        from matchlab_core.pcbas.eval import DEFAULT_CONF_THRESH, DEFAULT_DELTA
+
+        from matchlab_train.datasets.footpass_lab import publish_half
+        from matchlab_train.datasets.footpass_pcbas import parse_key
+
+        game_id, _ = parse_key(args.key)
+        run_id = args.run_id or f"pcbas-{args.key}"
+        metrics = publish_half(
+            h5_path=Path(args.h5),
+            playbyplay_path=Path(args.playbyplay),
+            video_path=Path(args.video_root) / f"{game_id}.mp4",
+            run_dir=Path(args.runs_dir) / run_id,
+            key=args.key,
+            run_id=run_id,
+            delta=args.delta if args.delta is not None else DEFAULT_DELTA,
+            conf_thresh=(
+                args.conf_thresh if args.conf_thresh is not None else DEFAULT_CONF_THRESH
+            ),
+            label=args.label,
+            register=not args.no_register,
+        )
+        for k, v in metrics.items():
+            print(f"{k}: {v}")
         return 0
 
     if args.command == "ingest-soccernet":

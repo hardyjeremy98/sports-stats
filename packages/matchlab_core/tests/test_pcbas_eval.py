@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from matchlab_core.pcbas.eval import score_events, score_halves
+from matchlab_core.pcbas.eval import (
+    score_events,
+    score_events_with_verdicts,
+    score_halves,
+)
 from matchlab_core.pcbas.events import PCBASEvent
 
 
@@ -159,3 +163,46 @@ def test_known_shirts_still_match_normally():
     """Guard on the above: the fix must not break ordinary identity matching."""
     r = score_events([_ev(100, 0, 2, shirt=7)], [_ev(100, 5, 2, shirt=7)], identity="shirt")
     assert r.tp == 1
+
+
+# --- per-event verdicts (Lab inspection) -------------------------------------
+# The verdict list must never become a second, drifting matcher: these pin it to
+# the same report the aggregate metric publishes.
+
+
+def test_verdicts_agree_with_report():
+    gt = [_ev(100, 0, 2), _ev(200, 0, 2), _ev(300, 1, 5)]
+    pred = [_ev(104, 0, 2), _ev(900, 0, 2), _ev(300, 3, 5)]
+    report, verdicts = score_events_with_verdicts(gt, pred)
+    assert sum(v.kind == "tp" for v in verdicts) == report.tp
+    assert sum(v.kind == "fp" for v in verdicts) == report.fp
+    assert sum(v.kind == "fn" for v in verdicts) == report.fn
+
+
+def test_verdicts_do_not_change_the_report():
+    gt = [_ev(100, 0, 2), _ev(200, 1, 3)]
+    pred = [_ev(101, 0, 2), _ev(500, 1, 3)]
+    plain = score_events(gt, pred)
+    observed, _ = score_events_with_verdicts(gt, pred)
+    assert observed.model_dump() == plain.model_dump()
+
+
+def test_a_true_positive_carries_both_sides():
+    report, verdicts = score_events_with_verdicts([_ev(100, 0, 2)], [_ev(107, 0, 2)])
+    (tp,) = [v for v in verdicts if v.kind == "tp"]
+    assert tp.gt is not None and tp.pred is not None
+    # The offset the aggregate F1 cannot show.
+    assert tp.pred.frame_idx - tp.gt.frame_idx == 7
+
+
+def test_unmatched_ground_truth_becomes_a_false_negative():
+    _, verdicts = score_events_with_verdicts([_ev(100, 0, 2)], [])
+    (fn,) = verdicts
+    assert fn.kind == "fn" and fn.pred is None
+    assert fn.gt is not None and fn.gt.frame_idx == 100
+
+
+def test_sub_threshold_predictions_produce_no_verdict():
+    # Rule 1: dropped BEFORE matching, so not a false positive and not an event.
+    _, verdicts = score_events_with_verdicts([], [_ev(100, 0, 2, score=0.01)])
+    assert verdicts == []

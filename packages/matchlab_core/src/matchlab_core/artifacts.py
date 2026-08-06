@@ -24,6 +24,7 @@ ARTIFACT_FILES: dict[ArtifactName, str] = {
     ArtifactName.POSSESSION_TIMELINE: "possession_timeline.json",
     ArtifactName.EVENTS: "events.json",
     ArtifactName.SPOTTING: "spotting.json",
+    ArtifactName.PCBAS_EVENTS: "pcbas_events.json",
     ArtifactName.STATS: "stats.json",
     ArtifactName.QA_ITEMS: "qa_items.json",
     ArtifactName.TIMELINE: "timeline.json",

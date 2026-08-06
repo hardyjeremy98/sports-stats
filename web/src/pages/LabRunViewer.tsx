@@ -31,6 +31,7 @@ import { LAYER_LABEL, SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
 import { MergeInspector } from "../components/MergeInspector";
 import { IdentityQATab } from "../components/IdentityQATab";
+import { PCBASPanel } from "../components/PCBASPanel";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
 import {
@@ -52,7 +53,15 @@ import {
   TeamDot,
 } from "../components/ui";
 
-type TabId = "stages" | "tracklets" | "assoc" | "players" | "events" | "eval" | "qa";
+type TabId =
+  | "stages"
+  | "tracklets"
+  | "assoc"
+  | "players"
+  | "events"
+  | "actions"
+  | "eval"
+  | "qa";
 
 export default function LabRunViewer() {
   const { runId = "" } = useParams();
@@ -292,6 +301,15 @@ export default function LabRunViewer() {
                 : []),
               { id: "players", label: "Players", count: artifacts.players?.length },
               { id: "events", label: "Events", count: artifacts.events?.length },
+              ...(artifacts.pcbasEvents
+                ? [
+                    {
+                      id: "actions" as const,
+                      label: "Actions",
+                      count: artifacts.pcbasEvents.events.length,
+                    },
+                  ]
+                : []),
               ...(artifacts.eval
                 ? [{ id: "eval" as const, label: "Eval", count: artifacts.eval.instances.length }]
                 : []),
@@ -302,6 +320,9 @@ export default function LabRunViewer() {
           />
           <div className="flex-1 overflow-y-auto p-3">
             {tab === "stages" && <StagesTab run={r} />}
+            {tab === "actions" && artifacts.pcbasEvents && (
+              <PCBASPanel data={artifacts.pcbasEvents} onSeek={seek} />
+            )}
             {tab === "tracklets" && (
               <TrackletsTab
                 artifacts={artifacts}

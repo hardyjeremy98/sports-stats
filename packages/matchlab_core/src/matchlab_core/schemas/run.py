@@ -75,6 +75,7 @@ class ArtifactName(StrEnum):
     POSSESSION_TIMELINE = "possession_timeline"  # possession_timeline.json — list[PossessorFrame]
     EVENTS = "events"                # events.json — list[Event]
     SPOTTING = "spotting"            # spotting.json — list[SpottedEvent] (native taxonomy)
+    PCBAS_EVENTS = "pcbas_events"    # pcbas_events.json — PCBASLabEvents (per-event vs GT)
     STATS = "stats"                  # stats.json — StatSheet
     QA_ITEMS = "qa_items"            # qa_items.json — list[QAItem]
     TIMELINE = "timeline"            # timeline.json — list[TimelineBucket]

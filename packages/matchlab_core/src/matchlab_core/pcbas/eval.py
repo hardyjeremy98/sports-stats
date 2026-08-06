@@ -102,6 +102,22 @@ def _identity_key(ev: PCBASEvent, identity: Identity) -> tuple[int, ...]:
     return (ev.left_to_right, ev.shirt_number)
 
 
+class Verdict(BaseModel):
+    """What the matcher decided about one event, for per-event inspection.
+
+    Exactly one of `pred`/`gt` is None for `fp`/`fn`; both are set for `tp`. A `tp`
+    carries BOTH sides deliberately: the frame offset between them is the
+    localisation error, which the aggregate F1 cannot show.
+
+    Predictions dropped by `conf_thresh` before matching produce no verdict at all,
+    mirroring rule 1 in `_match_one_group` -- they are not false positives.
+    """
+
+    kind: Literal["tp", "fp", "fn"]
+    pred: PCBASEvent | None = None
+    gt: PCBASEvent | None = None
+
+
 class _Counts:
     """TP/FP/GT accumulated per class across any number of halves."""
 
@@ -124,6 +140,7 @@ def _match_one_group(
     delta: int,
     conf_thresh: float,
     identity: Identity,
+    verdicts: list[Verdict] | None = None,
 ) -> None:
     """Greedy match within one half, accumulating into `counts`.
 
@@ -134,6 +151,11 @@ def _match_one_group(
        class. A confident wrong-class prediction therefore claims its GT first.
     3. Within a group, the chosen GT is the unmatched one with the smallest
        |dframe| <= delta, with ties going to the earliest GT (`dt < best_dt`).
+
+    When `verdicts` is supplied, each decision is also appended to it as a `Verdict`.
+    This is the ONLY matcher: a per-event view and the aggregate counts must never
+    come from two implementations that can drift apart. The verdict list is a pure
+    observer -- it cannot change a single count.
     """
     buckets: defaultdict[tuple[int, ...], list[PCBASEvent]] = defaultdict(list)
     for ev in gt:
@@ -177,8 +199,20 @@ def _match_one_group(
                 counts.tp_with_bbox += 1
             elif matched.has_bbox is False:
                 counts.tp_without_bbox += 1
+            if verdicts is not None:
+                verdicts.append(Verdict(kind="tp", pred=det, gt=matched))
         else:
             counts.fp[det.class_id] += 1
+            if verdicts is not None:
+                verdicts.append(Verdict(kind="fp", pred=det, gt=None))
+
+    if verdicts is not None:
+        # Every GT event no detection claimed. Ordering is by frame so the Lab's
+        # timeline reads chronologically without a second sort.
+        for group, flags in used.items():
+            for i, taken in enumerate(flags):
+                if not taken:
+                    verdicts.append(Verdict(kind="fn", pred=None, gt=buckets[group][i]))
 
 
 def _report(
@@ -254,6 +288,35 @@ def score_events(
         identity=identity,
     )
     return _report(counts, delta=delta, conf_thresh=conf_thresh, identity=identity)
+
+
+def score_events_with_verdicts(
+    gt: Iterable[PCBASEvent],
+    pred: Iterable[PCBASEvent],
+    *,
+    delta: int = DEFAULT_DELTA,
+    conf_thresh: float = DEFAULT_CONF_THRESH,
+    identity: Identity = "slot",
+) -> tuple[PCBASReport, list[Verdict]]:
+    """`score_events`, plus the per-event decisions behind the report.
+
+    The report is bit-identical to `score_events` on the same input -- same matcher,
+    same call, the verdict list is only an observer (pinned by
+    `test_verdicts_agree_with_report`).
+    """
+    counts = _Counts()
+    verdicts: list[Verdict] = []
+    _match_one_group(
+        list(gt),
+        list(pred),
+        counts,
+        delta=delta,
+        conf_thresh=conf_thresh,
+        identity=identity,
+        verdicts=verdicts,
+    )
+    report = _report(counts, delta=delta, conf_thresh=conf_thresh, identity=identity)
+    return report, verdicts
 
 
 def score_halves(

@@ -16,6 +16,8 @@ import type {
   MatchEvent,
   MinimapFrame,
   NamingReport,
+  PCBASLabEvent,
+  PCBASLabEvents,
   PlayerEntity,
   PossessorFrame,
   ReidDetailReport,
@@ -51,7 +53,9 @@ export interface RunArtifacts {
   association: AssociationReport | null;
   naming: NamingReport | null;
   reidDetail: ReidDetailReport | null;
+  pcbasEvents: PCBASLabEvents | null;
   // Derived indexes.
+  pcbasByFrame: Map<number, PCBASLabEvent[]>; // widened by the matcher's delta
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
   entityByTracklet: Map<number, PlayerEntity>;
@@ -94,6 +98,7 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "association", fn: () => fetchJson<AssociationReport>(api.artifactUrl(runId, "association")) },
   { key: "naming", fn: () => fetchJson<NamingReport>(api.artifactUrl(runId, "naming")) },
   { key: "reid_detail", fn: () => fetchJson<ReidDetailReport>(api.artifactUrl(runId, "reid_detail")) },
+  { key: "pcbas_events", fn: () => fetchJson<PCBASLabEvents>(api.artifactUrl(runId, "pcbas_events")) },
 ].map((q) => ({
   queryKey: ["artifact", runId, q.key],
   queryFn: q.fn,
@@ -122,6 +127,7 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     association,
     naming,
     reidDetail,
+    pcbasEvents,
   ] = results.map((r) => (r.isSuccess ? r.data : null));
 
   const trackletBoxesByFrame = new Map<number, TrackletBox[]>();
@@ -150,6 +156,26 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
   for (const p of (players as PlayerEntity[] | null) ?? [])
     for (const tid of p.tracklet_ids) entityByTracklet.set(tid, p);
 
+  // An action is an instant, but a viewer scrubbing at 25 fps would have to land on
+  // the exact frame to ever see one. Each event is therefore registered across a
+  // window of frames either side of it, so the overlay can hold it on screen while
+  // the moment plays. The window is the matcher's own tolerance (`delta`), which
+  // keeps what the viewer sees aligned with what the metric counted as "here".
+  const pcbasByFrame = new Map<number, PCBASLabEvent[]>();
+  if (pcbasEvents) {
+    const { events, delta } = pcbasEvents as PCBASLabEvents;
+    for (const ev of events) {
+      for (let f = ev.frame_idx - delta; f <= ev.frame_idx + delta; f++) {
+        let list = pcbasByFrame.get(f);
+        if (!list) {
+          list = [];
+          pcbasByFrame.set(f, list);
+        }
+        list.push(ev);
+      }
+    }
+  }
+
   const possessorByFrame = new Map<number, PossessorFrame>();
   for (const fr of (possessionTimeline as PossessorFrame[] | null) ?? [])
     possessorByFrame.set(fr.frame_idx, fr);
@@ -171,6 +197,8 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     association: association as AssociationReport | null,
     naming: naming as NamingReport | null,
     reidDetail: reidDetail as ReidDetailReport | null,
+    pcbasEvents: pcbasEvents as PCBASLabEvents | null,
+    pcbasByFrame,
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,

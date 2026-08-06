@@ -150,6 +150,74 @@ export interface SpottedEvent {
   half: number | null;
 }
 
+// pcbas_events.json — mirrors matchlab_core/schemas/pcbas_lab.py. One row is one
+// MATCHER DECISION, not one prediction: the player-centric spotter is only
+// readable next to the ground truth it did or didn't match, so predictions and
+// missed GT events share a single ordered array.
+export type PCBASVerdict = "tp" | "fp" | "fn";
+
+export interface PCBASLabEvent {
+  verdict: PCBASVerdict;
+  // tp/fp are anchored at the prediction, fn at the ground truth.
+  frame_idx: number;
+  t: number;
+  class_id: number;
+  class_name: string;
+  score: number | null; // null for fn — ground truth has no confidence
+  gt_frame_idx: number | null;
+  frame_error: number | null; // prediction − ground truth, in frames
+  shirt_number: number | null;
+  left_to_right: number | null; // pitch side within this half, NOT a club
+  role_id: number | null;
+  slot: number | null;
+  has_bbox: boolean | null; // false ⇒ actor off-screen; no visual model can see it
+  is_replay: boolean | null;
+  box: [number, number, number, number] | null; // 640×352 video pixels
+}
+
+export interface PCBASClassMetrics {
+  class_id: number;
+  class_name: string;
+  n_gt: number;
+  n_pred: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number;
+  recall: number;
+  f1: number;
+}
+
+export interface PCBASReport {
+  delta: number;
+  conf_thresh: number;
+  identity: string;
+  per_class: Record<string, PCBASClassMetrics>;
+  tp: number;
+  fp: number;
+  fn: number;
+  n_gt: number;
+  precision: number;
+  recall: number;
+  micro_f1: number;
+  macro_f1: number;
+  tp_with_bbox: number;
+  tp_without_bbox: number;
+  gt_without_bbox: number;
+}
+
+export interface PCBASLabEvents {
+  key: string;
+  game_id: string;
+  half: number;
+  fps: number;
+  identity: string;
+  delta: number;
+  conf_thresh: number;
+  report: PCBASReport;
+  events: PCBASLabEvent[];
+}
+
 export interface PossessionSegment {
   player_id: number;
   team: Team;

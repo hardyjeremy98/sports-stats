@@ -9,7 +9,8 @@
 | 2 | `stage2_dst_b1_attn.pt` (174 MB) | DST + PAVE per-player attention (spatial-first), arm B1 |
 
 Both are staged under `data/release/pcbas-v1/` with `SHA256SUMS`. They are NOT in
-git — `data/` is gitignored, so copy them across out of band (scp/rsync).
+git — `data/` is gitignored, so copy them across out of band (scp/rsync). Verify with
+`sha256sum -c SHA256SUMS` in that directory before quoting any number from a run.
 
 ## Measured performance (FOOTPASS VAL, 6,070 events, `identity="shirt"`)
 
@@ -93,9 +94,41 @@ YAML
 `[frame, left_to_right, shirt_number, class_id, score]` rows. Class ids are
 `matchlab_core.pcbas.schema.CLASS_NAMES` (0 = background, 1-8 the actions).
 
-Both stages read `temporal` / `encoder` / `attn_order` out of the checkpoint and
-rebuild the architecture they were trained as, so no config flags are needed to
-match them — see `action_head_from_checkpoint` and `denoiser_from_state`.
+Both stages rebuild the architecture their checkpoint was trained as, so no config
+flags are needed to match them — see `matchlab_core.pcbas.action_head
+.action_head_from_checkpoint` (which takes a PATH, not a loaded dict) and
+`matchlab_train.experiments.pcbas_denoise_infer.denoiser_from_state` (which takes the
+loaded state dict and a device). Note that `pcbas-v1`'s stage-2 file carries
+`temporal` / `encoder` / `attn_order` as `None`, so the rebuild falls back to the
+defaults rather than reading recorded config; the defaults are what B1 was trained
+with, but a future checkpoint that changes them must record them or it will load
+without error and score wrong.
+
+## Watching it in the Lab
+
+Scoring one half against its tactical ground truth and publishing it as a Lab run:
+
+```bash
+uv run matchlab-train publish-pcbas-half --key game_18_H1 \
+  --playbyplay data/mymatch/playbyplay.json \
+  --label "PCBAS v1 (A1+B1) — game_18 H1"
+```
+
+That writes `data/runs/pcbas-game_18_H1/` (`pcbas_events.json` + a downcast
+`spotting.json` + `manifest.json`) and registers the match mp4 and the run in the Lab
+database. Open the run and use the **Actions** inspector tab (filter by verdict,
+class, or off-screen; click a row to seek) and the **Actions vs GT** overlay layer
+(green = hit, red = false alarm, amber dashed = missed).
+
+One run is one HALF, deliberately: `left_to_right` is a pitch side that rebinds to
+clubs at half time, and frame indices only mean anything inside the match they came
+from. The video registered is the whole match — FOOTPASS ships one mp4 per match with
+frame indices continuous across both halves — so a `_H1` run's events simply occupy
+the first half's frame range inside it, with no re-encode and no offset arithmetic.
+
+The run's video is deliberately left with **no `gt_path`**: that column means TRACKING
+ground truth, and the worker would auto-score any run on such a video with motmetrics,
+writing an `eval.json` of zeros next to a perfectly good spotting result.
 
 ## Caveats to carry with any number quoted from this
 
