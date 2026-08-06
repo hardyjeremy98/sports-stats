@@ -85,6 +85,16 @@ class PassingCounts:
 
 @dataclass
 class PassingResult:
+    """Stat 11 per player, plus the stream-level exclusion counters.
+
+    Counter-bucketing caveat: a multi-defect event lands in the FIRST failing
+    check, and this module checks outcome -> actor -> end while `progression`
+    checks actor -> end -> outcome. Each module's partition is exact (asserted
+    on real GT), but an actorless UNKNOWN pass is `excluded_unknown_outcome`
+    here and `skipped_no_actor` there -- the counters are per-module partitions,
+    not a shared taxonomy, and must not be compared across modules.
+    """
+
     players: dict[int, PassingCounts] = field(default_factory=dict)
     #: Pass events whose outcome is UNKNOWN: excluded from BOTH numerator and
     #: denominator. An abstention is not a failure.

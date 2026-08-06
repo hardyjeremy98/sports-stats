@@ -94,41 +94,40 @@ class SweepResult:
         loss can be built first, against whatever recall the detector currently
         has. A stat returning 0.0 does not survive even the smallest sweep step.
 
-        **`model` matters and defaults to the strictest available.** The first
-        version took the max over ALL movements, so a stat qualified if *either*
-        loss model passed -- which meant the published column was derived from
-        the *easier* (uniform) model while the report argued the crowd-biased
-        one is the one that matters. Measured consequence on Tier 2:
-        `count_chains` read as tolerating 40% while its own crowd-biased row
-        showed 13% movement at a 20% drop. Passing `model=None` now gates on
-        every model at once (a stat must survive the hardest); pass an explicit
-        name to reproduce a single-model column.
+        Rules, each the fix for a measured defect in an earlier version:
+
+        * **The walk up the drop rates STOPS at the first failure.** "Tolerates
+          X%" must mean every rate up to X passed; letting a later pass override
+          an earlier failure reported non-monotone stats at their lucky rate.
+        * **A rate passes only if it passes under EVERY model swept** (when
+          `model` is None, the default). Crowd-biased loss is the model that
+          matters (misses cluster in crowds); a table quietly keyed on the
+          uniform model flattered exactly the stats the biased model exists to
+          break -- measured on Tier 2, `count_chains` read as tolerating 40%
+          while its own crowd-biased row showed 13% movement at a 20% drop.
+        * **A rate with a missing model row fails, not skips.** Absent evidence
+          is not a pass. Pass an explicit `model` name to reproduce a
+          single-model column.
         """
         models = {m.model for m in self.movements}
-        out: dict[str, float] = {}
-        for m in sorted(self.movements, key=lambda m: m.drop_rate):
+        needed = len(models) if model is None else 1
+        by_stat: dict[str, dict[float, list[float]]] = {}
+        for m in self.movements:
             if model is not None and m.model != model:
                 continue
-            out.setdefault(m.stat, 0.0)
-        for stat in out:
-            rates = sorted(
-                {m.drop_rate for m in self.movements if m.stat == stat}
+            by_stat.setdefault(m.stat, {}).setdefault(m.drop_rate, []).append(
+                m.mean_relative_movement
             )
-            best = 0.0
-            for rate in rates:
-                rows = [
-                    m
-                    for m in self.movements
-                    if m.stat == stat
-                    and m.drop_rate == rate
-                    and (model is None or m.model == model)
-                ]
-                needed = len(models) if model is None else 1
-                if len(rows) == needed and all(
-                    r.mean_relative_movement <= tolerance for r in rows
-                ):
-                    best = max(best, rate)
-            out[stat] = best
+        out: dict[str, float] = {}
+        for stat, by_rate in by_stat.items():
+            tolerated = 0.0
+            for rate in sorted(by_rate):
+                rows = by_rate[rate]
+                if len(rows) == needed and all(mv <= tolerance for mv in rows):
+                    tolerated = rate
+                else:
+                    break
+            out[stat] = tolerated
         return out
 
 
@@ -177,9 +176,26 @@ def drop_events(
     else:
         raise ValueError(f"unknown drop model {model!r}")
 
-    # Scale weights so the mean drop probability is exactly `rate`, then clip.
+    # Scale weights so the mean drop probability equals `rate`. Clipping at 1.0
+    # removes probability mass, so rescale the unclipped remainder and repeat --
+    # a single clip-after-scale realised roughly half the nominal rate on a
+    # skewed crowding distribution, silently under-stressing exactly the
+    # crowd-biased rows the sweep exists to make honest.
     mean_w = sum(weights) / len(weights)
-    probs = [min(1.0, rate * w / mean_w) for w in weights]
+    probs = [rate * w / mean_w for w in weights]
+    for _ in range(20):
+        clipped = [min(1.0, p) for p in probs]
+        deficit = rate * len(clipped) - sum(clipped)
+        if deficit <= 1e-9:
+            probs = clipped
+            break
+        open_mass = sum(p for p in clipped if p < 1.0)
+        if open_mass <= 0.0:
+            probs = clipped
+            break
+        scale = 1.0 + deficit / open_mass
+        probs = [p if p >= 1.0 else p * scale for p in clipped]
+    probs = [min(1.0, p) for p in probs]
     return [e for e, p in zip(events, probs, strict=True) if rng.random() >= p]
 
 

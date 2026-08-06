@@ -75,6 +75,10 @@ def test_thirds_partition_the_pitch():
     assert third_of(PitchPoint(x=9000.0, y=3400.0), P) == "final"
     assert in_final_third(PitchPoint(x=7000.1, y=3400.0), P)
     assert not in_final_third(PitchPoint(x=6999.9, y=3400.0), P)
+    # Exactly on the 2L/3 line: `third_of` and `in_final_third` must agree, or
+    # passes_by_third["final"] and final_third_entries desync at the boundary.
+    assert third_of(PitchPoint(x=7000.0, y=3400.0), P) == "final"
+    assert in_final_third(PitchPoint(x=7000.0, y=3400.0), P)
 
 
 def test_opposition_box_boundaries():

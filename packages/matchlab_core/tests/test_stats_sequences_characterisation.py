@@ -95,13 +95,18 @@ def test_type_counts_and_the_unclassified_share_is_a_finding(classified):
 
     flat = [c for half in classified for c in half]
     counts = Counter(c.type for c in flat)
+    # Re-pinned after the Tier 1 round-2/3 fixes merged (end points no longer
+    # read from replay successors; a contest event founding a chain after a
+    # stoppage no longer counts as a possession change): unclassified 627->626,
+    # direct_attack 5->4, counter_attack 39->41. Small, explained drift, not
+    # silent drift.
     assert counts == Counter(
         {
-            ChainType.UNCLASSIFIED: 627,
+            ChainType.UNCLASSIFIED: 626,
             ChainType.HIGH_TURNOVER: 63,
             ChainType.BUILD_UP: 18,
-            ChainType.COUNTER_ATTACK: 39,
-            ChainType.DIRECT_ATTACK: 5,
+            ChainType.COUNTER_ATTACK: 41,
+            ChainType.DIRECT_ATTACK: 4,
         }
     )
     share = counts[ChainType.UNCLASSIFIED] / len(flat)
@@ -109,7 +114,7 @@ def test_type_counts_and_the_unclassified_share_is_a_finding(classified):
     # finding to report, not a signal to retune the thresholds -- so this test
     # asserts the band is BREACHED and will fail if someone quietly tunes it
     # back into range without saying so.
-    assert share == pytest.approx(0.834, abs=0.001)
+    assert share == pytest.approx(0.832, abs=0.001)
     assert not (0.25 <= share <= 0.60)
     assert counts[ChainType.SET_PIECE] == 0
 
@@ -149,9 +154,10 @@ def test_counter_attack_counts_after_the_spec_clause_was_corrected(classified):
     from matchlab_core.stats.sequences import counter_attacks
 
     per_half = [counter_attacks(h, n_halves=1).count for h in classified]
-    assert per_half == [8, 4, 5, 10, 3, 9]
+    # game_47_H2 9 -> 11 after the Tier 1 chain fixes (see type-counts pin).
+    assert per_half == [8, 4, 5, 10, 3, 11]
     whole = counter_attacks(
         [c for half in classified for c in half], n_halves=len(VAL_HALVES)
     )
-    assert whole.count == 39 and whole.shot_ending == 3
+    assert whole.count == 41 and whole.shot_ending == 3
     assert whole.per_half_rate is None

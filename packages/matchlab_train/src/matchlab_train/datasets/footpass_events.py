@@ -193,13 +193,33 @@ def _fill_end_points(
 
     Both are reconstructions, not labels. A carry whose next event is far in the
     future gets no end point rather than an invented one.
+
+    The successor must have the SAME replay status as the event. 3.8% of live
+    ball-moving events on the val split are immediately followed in the raw
+    stream by a broadcast replay; reading the "next actor's position" from a
+    replay row takes a position from re-broadcast old footage, not from where
+    the ball arrived -- and it disagrees with the outcome/receiver, which the
+    chain layer resolves against the post-replay live event. So a live event's
+    end point comes from the next live event, and a replay's from the next
+    replay row (those are filtered out downstream anyway).
+
+    Known edge, accepted: an event whose start position failed the plausibility
+    margin never enters `events`, so the successor search skips it and reads a
+    position one event later than the raw stream would. Rejections are rare
+    (0-41 per val half, counted on the sheet), and the alternative --
+    reconstructing an end from a position already known to be implausible --
+    is worse than a slightly later read.
     """
     from matchlab_core.stats.chains import DEFAULT_MAX_GAP_S
 
     for i, ev in enumerate(events):
-        if i + 1 >= len(events):
+        nxt = None
+        for j in range(i + 1, len(events)):
+            if events[j].replay == ev.replay:
+                nxt = events[j]
+                break
+        if nxt is None:
             continue
-        nxt = events[i + 1]
         if nxt.half != ev.half or (nxt.t - ev.t) > DEFAULT_MAX_GAP_S:
             continue
         if ev.type is StatEventType.SHOT:
@@ -234,12 +254,19 @@ def _fill_end_points(
 def load_half_events(
     tactical_path: str | Path,
     key: str,
-    playbyplay_path: str | Path | None = None,
+    playbyplay_path: str | Path | None,
     *,
     pitch: PitchSpec = FIFA_PITCH,
     with_offball: bool = True,
 ) -> tuple[list[MatchEvent], int]:
-    """Load one half's ground-truth event stream, replay flags attached."""
+    """Load one half's ground-truth event stream, replay flags attached.
+
+    `playbyplay_path` has NO default on purpose: it is the only source of the
+    replay flag, and a stream built without it carries 10.1% duplicated
+    broadcast replays. Passing `None` is allowed but must be written out --
+    an unfiltered stream should be an explicit choice, never the result of
+    forgetting an optional argument.
+    """
     half = load_half(tactical_path, key)
     flags = load_replay_flags(playbyplay_path)[key] if playbyplay_path else None
     return build_events(half, flags, pitch=pitch, with_offball=with_offball)

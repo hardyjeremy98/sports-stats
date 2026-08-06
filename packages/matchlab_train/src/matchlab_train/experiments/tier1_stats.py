@@ -26,7 +26,7 @@ from matchlab_core.stats.chains import build_chains
 from matchlab_core.stats.compute import compute_tier1
 from matchlab_core.stats.schema import MatchEvent, StatEventType
 from matchlab_core.stats.sensitivity import sweep
-from matchlab_core.stats.xg import xg
+from matchlab_core.stats.xg import percentile_within, xg
 
 from matchlab_train.datasets.footpass import load_half
 from matchlab_train.datasets.footpass_events import coverage_frames, load_half_events
@@ -155,7 +155,26 @@ def run(out_dir: str | Path = "data/reports/tier1-stats", *, trials: int = 10) -
     sweep_result = sweep(live, sweep_metrics, trials=trials)
     gating = sweep_result.gating_table()
 
+    # xG is REPORTED as a within-pool percentile, per the source doc's mandate:
+    # the coefficients were fitted on professional shots, so the absolute value
+    # overstates an amateur chance by an unknown monotone factor that the
+    # percentile is invariant to. The absolute stays in the per-half sheets for
+    # debugging; the percentile is the reportable number. This is the reporting
+    # layer `stats/xg.py` refers to.
+    shooter_rows = [
+        (h.key, p["player_id"], p["xg"])
+        for h in halves
+        for p in h.sheet["players"]
+        if p["shots"] > 0
+    ]
+    pcts = percentile_within([row[2] for row in shooter_rows])
+    xg_percentiles = [
+        {"half": key, "player_id": pid, "xg_percentile": round(pct, 1)}
+        for (key, pid, _), pct in zip(shooter_rows, pcts, strict=True)
+    ]
+
     summary = {
+        "xg_percentiles": xg_percentiles,
         "halves": [
             {
                 "key": h.key,

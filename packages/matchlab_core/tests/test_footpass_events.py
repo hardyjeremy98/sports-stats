@@ -151,6 +151,56 @@ def test_carry_and_pass_end_points_use_different_players(half_events):
     assert moved / len(carries) > 0.9
 
 
+def test_live_end_points_never_come_from_replay_successors():
+    """3.8% of live ball-moving events on val are immediately followed by a
+    broadcast replay in the raw stream. A live pass's end point must be read
+    from the next LIVE event -- the same one the chain layer resolves the
+    outcome against -- not from the position of an actor inside re-broadcast
+    footage.
+
+    Synthetic: live pass by 101 at frame 100; replay pass by 201 at frame 125
+    standing at x=0.9; live carry by 102 at frame 150 standing at x=0.3. The
+    pass's end must be 102's position (the live receipt), not 201's.
+    """
+    import numpy as np
+    from matchlab_train.datasets.footpass import FootpassHalf
+    from matchlab_train.datasets.footpass_events import build_events
+
+    nan = float("nan")
+
+    def row(frame, pid, team, shirt, x, y, cls=0.0):
+        return [frame, pid, team, shirt, 2.0, x, y, 0.0, 0.0, nan, 0.0, 0.0, 0.0, cls]
+
+    rows = np.array(
+        [
+            # frame 100: 101 passes from x=0.2; 102 and 201 also on pitch
+            row(100, 101, 0, 1, 0.2, 0.5, cls=2.0),
+            row(100, 102, 0, 2, 0.25, 0.5),
+            row(100, 201, 1, 9, 0.6, 0.5),
+            # frame 125: replay pass by 201, standing at x=0.9
+            row(125, 101, 0, 1, 0.21, 0.5),
+            row(125, 102, 0, 2, 0.27, 0.5),
+            row(125, 201, 1, 9, 0.9, 0.5, cls=2.0),
+            # frame 150: live carry by 102 at x=0.3 -- the true receipt point
+            row(150, 101, 0, 1, 0.22, 0.5),
+            row(150, 102, 0, 2, 0.3, 0.5, cls=1.0),
+            row(150, 201, 1, 9, 0.61, 0.5),
+        ],
+        dtype=np.float32,
+    )
+    half = FootpassHalf(game_id="synthetic", half=1, rows=rows)
+    flags = {(125, 1, 9, 2): True}  # only the frame-125 pass is a replay
+    events, _ = build_events(half, flags, with_offball=False)
+
+    live_pass = next(e for e in events if e.frame_idx == 100)
+    assert not live_pass.replay
+    assert live_pass.end is not None
+    # 102's x=0.3 normalised for club 1 attacking +x on a 10500 cm pitch.
+    assert live_pass.end.x == pytest.approx(0.3 * 10500, abs=1.0)
+    # The replay actor stood at x=0.9 -> 9450 cm; that must never be the end.
+    assert abs(live_pass.end.x - 0.9 * 10500) > 1000
+
+
 def test_positions_outside_the_plausibility_margin_are_rejected_not_clamped(half_events):
     """FOOTPASS really contains y = -0.646 (44 m off the pitch).
 

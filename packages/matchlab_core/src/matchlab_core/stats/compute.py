@@ -61,8 +61,9 @@ STAT_REGISTRY: tuple[StatSpec, ...] = (
         key="sca",
         tier1_number=4,
         abstention=AbstentionClass.LOSES_INCREMENT,
-        note="A strict subset of FBref SCA: shot rebounds and fouls won have no class in "
-        "this ground truth. GCA is None -- there are no goal labels.",
+        note="A near-subset of FBref SCA: fouls won have no class in this ground truth "
+        "(shot rebounds ARE credited -- an earlier same-club shot is both a creditable "
+        "action and a window barrier). GCA is None -- there are no goal labels.",
     ),
     StatSpec(
         key="progressive_actions",
@@ -153,9 +154,13 @@ def compute_tier1(
         line_.progressive_passes = c.progressive_passes
         line_.progressive_carries = c.progressive_carries
         line_.progressive_distance_cm = c.progressive_distance_cm
+        line_.progressive_passing_distance_cm = c.progressive_passing_distance_cm
+        line_.progressive_carrying_distance_cm = c.progressive_carrying_distance_cm
         line_.final_third_entries_pass = c.final_third_entries_pass
         line_.final_third_entries_carry = c.final_third_entries_carry
         line_.box_entries_pass = c.box_entries_pass
+        line_.box_entries_open_pass = c.box_entries_open_pass
+        line_.box_entries_cross = c.box_entries_cross
         line_.box_entries_carry = c.box_entries_carry
         line_.touches_in_opp_box = c.touches_in_opp_box
 
@@ -172,6 +177,10 @@ def compute_tier1(
         line_.passes_back_completed = c.passes_back_completed
         line_.passes_under_pressure = c.passes_under_pressure
         line_.passes_under_pressure_completed = c.passes_under_pressure_completed
+        line_.passes_not_under_pressure = c.passes_not_under_pressure
+        line_.passes_not_under_pressure_completed = c.passes_not_under_pressure_completed
+        line_.passes_pressure_unknown = c.passes_pressure_unknown
+        line_.passes_pressure_unknown_completed = c.passes_pressure_unknown_completed
         line_.passes_by_third = dict(c.passes_by_third)
         line_.passes_completed_by_third = dict(c.passes_completed_by_third)
 
@@ -221,13 +230,17 @@ def compute_tier1(
         if b.actor is not None:
             line(b.actor.player_id, b.club_id).turnovers += 1
 
-    if xg_fn is not None:
-        from matchlab_core.stats.schema import StatEventType
+    # Shots are a raw labelled count, independent of any model -- gating them
+    # behind xg_fn made shots=0 silently mean "not counted", the exact
+    # zero/abstention conflation this module exists to prevent. Only the xG
+    # accumulation needs the model.
+    from matchlab_core.stats.schema import StatEventType
 
-        for ev in events:
-            if ev.type is StatEventType.SHOT and ev.actor is not None:
-                line_ = line(ev.actor.player_id, ev.actor.club_id)
-                line_.shots += 1
+    for ev in events:
+        if ev.type is StatEventType.SHOT and ev.actor is not None:
+            line_ = line(ev.actor.player_id, ev.actor.club_id)
+            line_.shots += 1
+            if xg_fn is not None:
                 line_.xg += xg_fn(ev)
 
     return Tier1StatSheet(
@@ -239,6 +252,23 @@ def compute_tier1(
         n_chains=len(chained.chains),
         players=sorted(lines.values(), key=lambda ln: (ln.club_id, ln.player_id)),
         rejected_positions=rejected_positions,
+        # The stream-level abstention/exclusion counters the stat modules
+        # return. Dropping these at the fold broke the design's own promise
+        # that the missing denominator stays visible to the sheet's consumer.
+        abstentions={
+            "passes_excluded_unknown_outcome": passing.excluded_unknown_outcome,
+            "passes_skipped_no_end": passing.skipped_no_end,
+            "passes_skipped_no_actor": passing.skipped_no_actor,
+            "passes_pressure_unknown": passing.pressure_unknown,
+            "progression_abstained_unknown_outcome": prog.abstained_unknown_outcome,
+            "progression_excluded_incomplete": prog.excluded_incomplete,
+            "progression_skipped_no_end": prog.skipped_no_end,
+            "progression_skipped_no_actor": prog.skipped_no_actor,
+            "progression_passes_excluded_defending_40pct": (
+                prog.passes_excluded_defending_40pct
+            ),
+            "progression_carries_excluded_own_half": prog.carries_excluded_own_half,
+        },
         notes={
             spec.key: spec.note
             for spec in STAT_REGISTRY

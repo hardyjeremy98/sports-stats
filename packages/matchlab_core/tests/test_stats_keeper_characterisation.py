@@ -138,8 +138,10 @@ def test_distribution_buckets_are_sample_starved_almost_everywhere():
                     starved += 1
                 else:
                     rendered += 1
-    assert starved == 34
-    assert rendered == 2  # 36 keeper-half buckets in total
+    # 34 -> 35 after the Tier 1 chain fixes: one keeper bucket lost its only
+    # resolvable pass when end points stopped being read from replay successors.
+    assert starved == 35
+    assert rendered == 1  # 36 keeper-half buckets in total
 
 
 def test_every_keeper_line_abstains_on_saves_and_post_shot_xg():

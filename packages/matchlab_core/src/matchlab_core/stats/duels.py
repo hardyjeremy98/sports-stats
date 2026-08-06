@@ -34,7 +34,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from matchlab_core.pitch import FIFA_PITCH, PitchSpec
-from matchlab_core.stats.chains import Chain, possession_changes
+from matchlab_core.stats.chains import DEFAULT_MAX_GAP_S, Chain, possession_changes
 from matchlab_core.stats.schema import (
     POSSESSION_DEFINING,
     AbstentionClass,
@@ -139,6 +139,10 @@ def detect_take_ons(
 ) -> list[TakeOn]:
     """Detect take-ons during carries. **This cannot be validated, and a matched
     null reproduces most of what it detects.**
+
+    Expects a replay-filtered stream (`build_chains(...).events`); it does not
+    filter itself, so feeding it the raw adapter output would count take-ons
+    inside re-broadcast footage twice.
 
     The ground truth carries no take-on class, and -- more importantly -- no
     negative class either: there is no labelled set of "carries that were not
@@ -347,16 +351,34 @@ class DuelCounts:
 
 
 def _next_possession_club(events: Sequence[MatchEvent], after_index: int) -> int | None:
+    """Club with the ball next -- ONLY while play stays live.
+
+    A duel just before a stoppage, or the last duel of a half, has no resolvable
+    winner: whoever restarts play minutes later did not win that ball. The
+    half/gap guard mirrors `chains._resolve_outcomes`; without it a tackle at
+    the end of H1 was "won" by an H2 event 890 s later. Unresolved is the
+    correct answer there, and `DuelCounts` keeps unresolved duels out of both
+    sides of every ratio.
+    """
+    anchor = events[after_index]
     for j in range(after_index + 1, len(events)):
-        if events[j].type in POSSESSION_DEFINING:
-            return events[j].club_id
+        nxt = events[j]
+        if nxt.half != anchor.half or (nxt.t - anchor.t) > DEFAULT_MAX_GAP_S:
+            return None
+        if nxt.type in POSSESSION_DEFINING:
+            return nxt.club_id
     return None
 
 
 def _prev_possession_event(events: Sequence[MatchEvent], before_index: int) -> MatchEvent | None:
+    """Possession-defining event before the duel, within the same live spell."""
+    anchor = events[before_index]
     for j in range(before_index - 1, -1, -1):
-        if events[j].type in POSSESSION_DEFINING:
-            return events[j]
+        prev = events[j]
+        if prev.half != anchor.half or (anchor.t - prev.t) > DEFAULT_MAX_GAP_S:
+            return None
+        if prev.type in POSSESSION_DEFINING:
+            return prev
     return None
 
 
@@ -536,6 +558,11 @@ def recoveries_and_turnovers(
     with an opponent's block sitting inside it, and `events[-1]` would then credit
     the turnover to the defender who won the ball rather than to the player who
     lost it.
+
+    A chain that ends in a SHOT charges the shooter with the turnover when the
+    other club comes away with the ball -- a saved or blocked shot IS a loss of
+    possession, but readers comparing against providers that book it separately
+    (as "shot saved", not turnover) should know the convention.
 
     Locations are each event's own attack-normalised coordinates, so "defensive
     third" on a turnover means the *losing* club's defensive third and on a

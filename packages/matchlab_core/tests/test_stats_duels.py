@@ -283,6 +283,101 @@ def test_no_header_appears_in_two_duels():
     assert len(set(used)) == len(used)
 
 
+def test_aerial_inner_reuse_guard_with_same_club_adjacency():
+    """Kills the deletion of the inner `j in used` guard.
+
+    Pattern c1, c1, c2: header 0 pairs with header 2 (the first opposing one),
+    then header 1's scan reaches header 2 too -- without the inner guard it
+    would reuse it and invent a second duel from the same contest.
+    """
+    stream = [
+        ev(0, 1.0, StatEventType.HEADER, 1, player=101),
+        ev(1, 1.1, StatEventType.HEADER, 1, player=102),
+        ev(2, 1.2, StatEventType.HEADER, 2, player=201),
+    ]
+    duels = find_aerial_duels(stream, window_s=1.0)
+    assert len(duels) == 1
+    assert sorted(duels[0].event_ids) == [0, 2]
+
+
+def test_duel_winner_is_unresolved_across_a_half_boundary_or_dead_ball():
+    """Whoever restarts play minutes later did not win this ball.
+
+    Mirrors the chain layer's guard: a tackle at the end of H1 must not take
+    its winner from an H2 event, and a duel followed by a long stoppage must be
+    unresolved, entering neither side of any ratio.
+    """
+    # Ground duel then 70 s of nothing, then the opponents restart.
+    stream = [
+        ev(0, 1.0, StatEventType.PASS, 1, outcome=EventOutcome.COMPLETE),
+        ev(1, 2.0, StatEventType.TACKLE, 2),
+        ev(2, 72.0, StatEventType.PASS, 2, outcome=EventOutcome.COMPLETE),
+    ]
+    duels = find_ground_duels(stream)
+    assert len(duels) == 1
+    assert duels[0].winner_club is None
+
+    # Aerial pair as the last events of H1; the "next possession" is in H2.
+    h2 = ev(5, 10.0, StatEventType.PASS, 1, outcome=EventOutcome.COMPLETE)
+    h2 = h2.model_copy(update={"half": 2})
+    stream = [
+        ev(3, 100.0, StatEventType.HEADER, 1, player=101),
+        ev(4, 100.5, StatEventType.HEADER, 2, player=201),
+        h2,
+    ]
+    duels = find_aerial_duels(stream, window_s=1.0)
+    assert len(duels) == 1
+    assert duels[0].winner_club is None
+
+
+def test_turnover_timestamp_is_the_losing_event_not_the_gaining_one():
+    """`BallEvent.t` on a turnover must be when the ball was LOST.
+
+    The recovery already carries the gaining event's time; stamping the
+    turnover with it too would erase the interval between losing and winning
+    the ball, which downstream sequence analysis reads.
+    """
+    from matchlab_core.stats.chains import build_chains
+
+    r = build_chains(
+        [
+            ev(0, 1.0, StatEventType.PASS, 1, outcome=EventOutcome.COMPLETE),
+            ev(1, 4.0, StatEventType.PASS, 2, outcome=EventOutcome.COMPLETE),
+        ]
+    )
+    res = recoveries_and_turnovers(r.chains)
+    tov = next(b for b in res.events if b.kind == "turnover")
+    rec = next(b for b in res.events if b.kind == "recovery")
+    assert tov.t == pytest.approx(1.0)
+    assert rec.t == pytest.approx(4.0)
+
+
+def test_take_on_radius_boundary_is_inclusive_at_exactly_three_metres():
+    """An opponent at exactly 300 cm is engaged; at 300.1 cm they are not."""
+    at_boundary = ev(
+        0,
+        1.0,
+        StatEventType.CARRY,
+        1,
+        start=(5000.0, 3400.0),
+        end=(6000.0, 3400.0),
+        outcome=EventOutcome.COMPLETE,
+        opponents=[(5300.0, 3400.0)],
+    )
+    beyond = ev(
+        1,
+        3.0,
+        StatEventType.CARRY,
+        1,
+        start=(5000.0, 3400.0),
+        end=(6000.0, 3400.0),
+        outcome=EventOutcome.COMPLETE,
+        opponents=[(5300.1, 3400.0)],
+    )
+    assert len(detect_take_ons([at_boundary])) == 1
+    assert len(detect_take_ons([beyond])) == 0
+
+
 def test_aerial_window_default_is_one_second():
     """NIT guard: every other aerial test passes window_s explicitly, so the
     default was never exercised and could be mutated freely."""

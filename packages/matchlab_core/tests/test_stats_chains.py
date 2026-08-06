@@ -187,6 +187,24 @@ def test_labelled_outcomes_are_never_overwritten_by_inference():
     assert r.events[0].outcome_source is OutcomeSource.LABELLED
 
 
+def test_contest_event_founding_a_chain_is_not_a_turnover():
+    """A header contesting the first ball after a stoppage founds its own chain
+    (there is no possession for it to interrupt) -- but the contesting club
+    never held the ball, so neither boundary of that chain is a possession
+    change. Without the guard, one challenge invented a turnover charged to the
+    header-maker plus a recovery for a club whose possession was never lost.
+    """
+    events = [
+        _ev(0, 0.0, 1, StatEventType.PASS, 101),
+        # 30 s dead ball, then club 2 wins a header, then club 1 plays on.
+        _ev(1, 30.0, 2, StatEventType.HEADER, 201),
+        _ev(2, 31.0, 1, StatEventType.PASS, 102),
+        _ev(3, 32.0, 1, StatEventType.PASS, 103),
+    ]
+    r = build_chains(events)
+    assert possession_changes(r.chains) == []
+
+
 def test_half_boundary_breaks_the_chain_without_a_possession_change():
     events = [
         _ev(0, 2900.0, 1, StatEventType.PASS, 101, half=1),

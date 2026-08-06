@@ -258,14 +258,21 @@ class Tier1StatLine(BaseModel):
     # 4 SCA / GCA
     sca: int = 0
     gca: int | None = None  # None => no goal labels in the source
-    # 5 progressive actions
+    # 5 progressive actions. `progressive_distance_cm` is the merged total and
+    # always equals the sum of the two decomposed fields -- FBref reports
+    # passing and carrying distance separately, so the sheet carries both forms.
     progressive_passes: int = 0
     progressive_carries: int = 0
     progressive_distance_cm: float = 0.0
-    # 6 entries
+    progressive_passing_distance_cm: float = 0.0
+    progressive_carrying_distance_cm: float = 0.0
+    # 6 entries. `box_entries_pass` is the merged form; FBref splits PPA
+    # (open-play passes) from CrsPA (crosses), so both components are carried.
     final_third_entries_pass: int = 0
     final_third_entries_carry: int = 0
     box_entries_pass: int = 0
+    box_entries_open_pass: int = 0
+    box_entries_cross: int = 0
     box_entries_carry: int = 0
     # 7 box touches
     touches_in_opp_box: int = 0
@@ -291,6 +298,14 @@ class Tier1StatLine(BaseModel):
     passes_back_completed: int = 0
     passes_under_pressure: int = 0
     passes_under_pressure_completed: int = 0
+    #: Explicit complement of under-pressure, and the abstention bucket for
+    #: attempts with no opponent positions. pressed + free + unknown must
+    #: partition `passes_attempted`; without the unknown bucket on the sheet,
+    #: an unobserved pass would be indistinguishable from a free one.
+    passes_not_under_pressure: int = 0
+    passes_not_under_pressure_completed: int = 0
+    passes_pressure_unknown: int = 0
+    passes_pressure_unknown_completed: int = 0
     passes_by_third: dict[str, int] = Field(default_factory=dict)
     passes_completed_by_third: dict[str, int] = Field(default_factory=dict)
 
@@ -312,4 +327,9 @@ class Tier1StatSheet(BaseModel):
     #: Positions rejected by the plausibility margin, surfaced rather than
     #: silently clamped.
     rejected_positions: int = 0
+    #: Stream-level abstention and exclusion counters from the stat modules
+    #: (unknown outcomes, missing end points, zone-rule exclusions...). These
+    #: are the missing parts of the denominators; a consumer that cannot see
+    #: them cannot tell a quiet half from a half full of unresolvable events.
+    abstentions: dict[str, int] = Field(default_factory=dict)
     notes: dict[str, str] = Field(default_factory=dict)

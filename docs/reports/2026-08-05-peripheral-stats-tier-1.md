@@ -121,12 +121,17 @@ that must be quoted alongside the split.
 
 | Half | events raw → live | replays | chains | shots | xG | key passes | SCA | prog. passes | recoveries | passes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| game_18_H1 | 1042 → 905 | 137 | 132 | 14 | 1.75 | 12 | 25 | 43 | 89 | 398/456 |
-| game_18_H2 | 837 → 716 | 121 | 118 | 12 | 1.09 | 6 | 16 | 29 | 69 | 286/336 |
+| game_18_H1 | 1042 → 905 | 137 | 132 | 14 | 1.75 | 12 | 25 | 42 | 87 | 398/456 |
+| game_18_H2 | 837 → 716 | 121 | 118 | 12 | 1.09 | 6 | 16 | 31 | 68 | 286/336 |
 | game_24_H1 | 924 → 867 | 57 | 116 | 9 | 0.58 | 6 | 15 | 34 | 73 | 375/426 |
-| game_24_H2 | 1052 → 970 | 82 | 140 | 5 | 0.31 | 3 | 9 | 24 | 100 | 410/471 |
-| game_47_H1 | 1202 → 1108 | 94 | 115 | 10 | 1.05 | 10 | 20 | 36 | 81 | 525/586 |
-| game_47_H2 | 1013 → 890 | 123 | 131 | 15 | 1.84 | 12 | 28 | 46 | 87 | 400/447 |
+| game_24_H2 | 1052 → 970 | 82 | 140 | 5 | 0.31 | 3 | 9 | 24 | 99 | 410/471 |
+| game_47_H1 | 1202 → 1108 | 94 | 115 | 10 | 1.05 | 10 | 20 | 35 | 81 | 525/586 |
+| game_47_H2 | 1013 → 890 | 123 | 131 | 15 | 1.84 | 12 | 28 | 49 | 86 | 400/447 |
+
+*(Small deltas vs the first published table — prog. passes ±1–3, recoveries −1/−2 per half —
+come from two second-round review fixes: live end points are no longer read from replay
+successors, and a contest event founding a chain after a stoppage no longer counts as a
+possession change.)*
 
 Pass completion runs 84–90% per half, which is broadcast-professional-shaped. xG per club-match lands 0.25–1.97; four of six sit in or just under the plausible 1–3 band, and the two low ones are both `game_24`, which has 14 shots in a full match against a typical ~25 — a shot-supply property of this ground truth, not a coefficient problem.
 
@@ -153,40 +158,45 @@ Mean relative movement at a 10% drop (and at 40%):
 
 | Stat | uniform | crowd-biased |
 |---|---|---|
-| `ratio_pass_completion` | 0.008 (0.023) | 0.007 (0.011) |
-| `ratio_progressive_share` | 0.011 (0.075) | 0.017 (0.138) |
-| `ratio_field_tilt_box_share` | 0.043 (0.109) | 0.132 (0.577) |
-| `count_recoveries` | 0.066 (0.309) | 0.118 (0.484) |
-| `count_progressive_actions` | 0.103 (0.407) | 0.105 (0.367) |
-| `count_passes_attempted` | 0.106 (0.434) | 0.114 (0.444) |
-| `count_touches_in_opp_box` | 0.107 (0.387) | 0.223 (0.739) |
-| `count_shots` | 0.121 (0.393) | 0.307 (0.829) |
-| `count_sca` | 0.128 (0.480) | 0.300 (0.840) |
-| `total_xg` | 0.130 (0.454) | 0.314 (0.882) |
+| `ratio_pass_completion` | 0.008 (0.023) | 0.007 (0.015) |
+| `ratio_progressive_share` | 0.045 (0.170) | 0.066 (0.218) |
+| `ratio_field_tilt_box_share` | 0.043 (0.109) | 0.132 (0.592) |
+| `count_recoveries` | 0.068 (0.322) | 0.116 (0.513) |
+| `count_passes_attempted` | 0.106 (0.434) | 0.114 (0.466) |
+| `count_final_third_entries` | 0.106 (0.471) | 0.131 (0.557) |
+| `count_progressive_actions` | 0.129 (0.515) | 0.173 (0.582) |
+| `count_touches_in_opp_box` | 0.107 (0.387) | 0.223 (0.755) |
+| `count_shots` | 0.121 (0.393) | 0.307 (0.850) |
+| `count_sca` | 0.128 (0.492) | 0.300 (0.856) |
+| `total_xg` | 0.130 (0.454) | 0.314 (0.908) |
 | `count_key_passes` | 0.217 (0.583) | 0.350 (0.892) |
 
-**Gating table** — the highest drop rate each stat tolerates within 10% movement:
+**Gating table** — the highest drop rate each stat tolerates within 10% movement, where
+"tolerates" now means *every rate up to it passed under **every** loss model*. (The first
+published version of this table let a later lucky pass override an earlier failure and
+quietly keyed on the optimistic uniform model; the second review round caught both, plus a
+normalisation bug that made the crowd-biased sweep apply only about half its nominal stress.
+The corrected table is harsher, and the harsher version is the honest one.)
 
-| tolerates 40% | tolerates 20% | tolerates 10% | tolerates only 5% |
+| tolerates 40% | tolerates 10% | tolerates 5% | tolerates 0% — fails even a 5% drop |
 |---|---|---|---|
-| pass completion % | progressive share, box-touch share | recoveries | every other count: passes, progressive actions, key passes, SCA, box touches, final-third entries, shots, xG |
+| pass completion % | progressive share | field-tilt share, recoveries, passes attempted, progressive actions, final-third entries | key passes, SCA, shots, xG, box touches |
 
 Two things fall out, and they set the build order:
 
 1. **The source doc's "prefer ratios over counts" principle is measured, not assumed.** Pass
    completion moves 0.8% when a tenth of the event stream vanishes; the raw pass count moves
-   10.6%, essentially one-for-one. Every ratio outranks every count.
-2. **Chain-relational stats degrade about 3× faster under crowd-biased loss than uniform**
-   (key passes 0.217 → 0.350, SCA 0.128 → 0.300, shots 0.121 → 0.307, xG 0.130 → 0.314),
-   while stats that are one query over one event barely notice the difference (progressive
-   actions 0.103 → 0.105). A key pass needs *two* specific events to survive, and crowded
-   events cluster near the box — precisely where shots and the passes that create them live.
-   A sweep run only against uniform loss would have reported a clean bill of health that the
-   attacking stats do not deserve.
+   ~11%, essentially one-for-one. Ratios sit at the top of the table, counts at the bottom.
+2. **The shot-anchored family fails outright under crowd-biased loss.** Key passes, SCA,
+   shots, xG and box touches all move ≥ 22% at a 5–10% crowd-biased drop — versus ~12% under
+   uniform loss — because a key pass needs *two* specific events to survive and crowded
+   events cluster near the box, precisely where shots and the passes that create them live.
+   A sweep run only against uniform loss, or with the earlier optimistic gating, reported
+   these stats as merely "5%-tolerant"; honestly gated, they tolerate **no** measured loss.
 
-So: ratios and the single-event counts are buildable against a weak event detector; the
-creation family (stats 2–4) and xG need a materially higher recall bar, and specifically one
-measured **in crowds**, not on average.
+So: pass completion and progressive share are buildable against a weak event detector; the
+volume counts need ~95% recall; and the creation family (stats 2–4), xG and box touches need
+near-perfect recall **in crowds specifically** before their numbers mean anything.
 
 ## What is not derivable from this ground truth
 
@@ -260,6 +270,41 @@ of `-0.25`) **did reach a commit** before being caught by diffing the working tr
 and a commit made while agents are editing needs its diff read, not just its test run — the
 suite was green on the mutated value because the mutation only fires on shots the assertions
 tolerate.
+
+**Second review round (final state, 2026-08-05).** After the fixes above landed, five fresh
+cold reviewers re-reviewed the committed state of every module, confirmed all first-round
+fixes present, and found no blockers — but the foundation reviewer demonstrated five further
+defects by direct probe, none of which the (then-green) suite pinned:
+
+| Second-round finding | Effect of the fix |
+|---|---|
+| Live end points were reconstructed from **replay successors** (3.8% of live ball-moving events) — a position from re-broadcast footage, disagreeing with the outcome the chain layer resolves | prog. passes/recoveries shift by ±1–3 per half |
+| A contest event **founding** a chain after a stoppage (nothing to interrupt) manufactured a turnover charged to a club that never held the ball | recoveries −1/−2 per half |
+| `gating_table` let a later lucky pass override an earlier failure, and keyed on the optimistic uniform model | gating table substantially harsher (see above) |
+| The crowd-biased drop clipped probabilities at 1.0 without renormalising — a nominal 40% drop realised ~21% | crowd-biased rows now apply full stress |
+| `shots` was gated behind `xg_fn`, so `shots=0` silently meant "not counted" — the exact zero/abstention conflation the schema warns about | shots always counted; only xG needs the model |
+
+Plus, from the other reviewers: duel winners were resolved across half boundaries and dead
+balls (now unresolved, matching the chain layer's guard); the SCA window walked past a
+throw-in restart (now a creditable barrier, like the shot rebound); the abstention counters
+the passing/progression modules return were dropped at the sheet fold (now on
+`Tier1StatSheet.abstentions`); and a handful of surviving mutations got pinning tests
+(same-club contest in an SCA window, the aerial-duel reuse guard, the ground-duel type set).
+
+Every one of those behaviors was demonstrable while the whole suite was green — which is the
+recurring lesson of this branch: the suite proves what it pins, and nothing else.
+
+The remaining NIT-level review items were then also implemented rather than left as notes:
+the FBref decompositions (passing/carrying distance, PPA vs CrsPA, the pressure-unknown
+buckets) now have real slots on `Tier1StatLine` instead of living only in the module
+dataclasses; `load_half_events` requires the play-by-play argument explicitly (an unfiltered
+stream must be written out as `None`, never produced by forgetting an optional); an
+actor-less shot earns no key pass (without a shooter identity the self-pass check cannot
+fire); `percentile_within` rejects NaN and gained its first consumer — the runner emits
+`xg_percentiles` as the reportable xG number, per the source doc's mandate; duel timestamps
+and the 3 m take-on boundary are pinned; and the cross-chain throw-in precedence in the xG
+set-piece rule plus the counter-bucketing divergence between the passing and progression
+modules are stated where the code lives.
 
 Independent re-derivation agreed exactly on every headline number in every module: the xG
 val-split distribution and all six club-match totals, the duel and take-on counts and null
