@@ -36,11 +36,54 @@ uv run matchlab-train ingest-soccernet-ball --split test --limit 8
 uv run matchlab-run --video data/clips/x.mp4 \
   --config configs/pipeline.tdeed-spotting-smoke.yaml --run-id my-spotting-smoke
 
+# Possession-transition spotting (SPO-77..82, docs/prds/action-spotting-possession-transition.md):
+# image-space possession baseline -> passes/receptions. Smoke runs on stub upstream (no GPU);
+# the eval config targets a soccernet-ball video (real detector/weights, human-gated). Pass
+# number = action_spotting_eval.class_ap(result, "PASS"), not the diluted multi-class avg-mAP.
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.possession-heuristic-smoke.yaml --run-id my-possession-smoke
+# Weak possessor labels for the (gated) learned Peral estimator, from an existing run's artifacts:
+uv run matchlab-train derive-possessor-labels --run-dir data/runs/<id> --out data/labels/<id>-possessor.json
+# Label-risk profile of those weak labels on GT/oracle inputs (SPO-83 gate criterion 2):
+uv run matchlab-train audit-possessor-labels --root data/soccernet/tracking/test --out audit.json
+
+# Possession denoising (B3) — same slot, same evidence, different temporal model (Viterbi over
+# the heuristic signal). Swapping the two impls IS the ablation; nothing downstream changes:
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.possession-viterbi-smoke.yaml --run-id my-viterbi-smoke
+uv run matchlab-train crossval-events --root data/soccernet/tracking/test \
+  --estimator possession-viterbi --tolerance-frames 25 --out crossval-viterbi.json
+uv run matchlab-train spot-localization --signal possession-viterbi --out loc-viterbi.json
+# Read the localisation arm as a GUARD, not a score: it matches the NEAREST prediction, so
+# removing events can only raise the error — a denoiser cannot look good on it, only avoid
+# looking bad. Results: docs/reports/2026-07-27-b3-possession-denoise-ablation.md
+
+# Ball-trajectory action spotting (B3) — the rule-based baseline, independent of the possession
+# signal (it reads ball motion, not player proximity). No model, no weights, no GPU:
+uv run matchlab-run --video data/clips/x.mp4 \
+  --config configs/pipeline.ball-trajectory-smoke.yaml --run-id my-trajectory-smoke
+# Cross-validate the two signals (agreement is CORROBORATION, never accuracy — neither is GT):
+uv run matchlab-train crossval-events --root data/soccernet/tracking/test --out crossval.json
+# Score a spotting signal against SNMOT's one-action-per-clip labels — the only event GT we can
+# reach (SoccerNet-ball and FOOTPASS are NDA-gated: docs/reference/footpass-pcbas-acquisition.md).
+# LOCALISATION/RECALL ONLY — one label per 30s clip, so precision/F1/mAP are unsupported:
+uv run matchlab-train spot-localization --signal ball-trajectory --out loc.json
+
 # External tracker exchange (SPO-18): freeze a run's detections for an external MOT tracker,
 # then import its output (with a required ExternalProvenance sidecar) as a scoreable run dir:
 uv run matchlab-train export-detections --run-dir data/runs/<id> --out data/exchange/<id>-det
 uv run matchlab-train import-tracklets --mot external.txt --sidecar sidecar.json \
   --out data/runs/<id>-external --fps 25 --frame-count 750
+
+# PCBAS two-stage player-centric action spotter (docs/reference/pcbas-inference-recipe.md).
+# Weights: data/release/pcbas-v1/ (not in git; verify with sha256sum -c SHA256SUMS).
+# Needs a FOOTPASS tactical h5 + the 640x352 match mp4 -- it consumes tracking as an INPUT.
+# Stage 1 (~8 min/half on a 4060 Ti) -> frozen (9,26,T) logits; stage 2 -> playbyplay.json.
+# Then score one half against its tactical GT and publish it as a viewable Lab run:
+uv run matchlab-train publish-pcbas-half --key game_18_H1 \
+  --playbyplay data/pcbas-demo/playbyplay_game18_h1.json --label "PCBAS v1 game_18 H1"
+# One run = one HALF (left_to_right rebinds to clubs at half time). The Lab shows it as an
+# "Actions" tab + "Actions vs GT" overlay: green hit / red false alarm / amber missed.
 
 uv run matchlab-train run <experiment.yaml>   # config-driven experiments (matchlab_train/experiments/)
 ```
@@ -103,7 +146,7 @@ Read `README.md` first for the pipeline diagram. The pieces that span multiple f
 ### Stage registry and configs
 
 `matchlab_core` defines fixed stage slots (`StageKind` in `schemas/run.py`: detect, track,
-team, calibrate, associate, identity, fuse, events, spotting, annotate). Each implementation
+team, calibrate, associate, identity, fuse, possession, events, spotting, annotate). Each implementation
 registers under a slot name; a YAML in `configs/` picks one impl + params per slot, plus
 top-level `video:` options (`sample_stride` etc.). `PipelineRunner` executes the slots in
 order against an `ArtifactStore`. Identity decisions are made **per tracklet, never per
@@ -184,6 +227,10 @@ Non-negotiable invariants:
 - Identity evidence is aggregated at tracklet/entity level, never decided independently per
   frame (ADR 002). The final system uses the complete uploaded match so strong later
   observations can backfill earlier ambiguous tracklets.
+- **Tactical role slots are not roster slots** (ADR 008). A role slot is a tactical
+  position index consumed inside a model; a roster slot is an identity anchor consumed
+  outside it. The slot→identity relation is **per-half and time-varying** (attacking
+  direction inverts at half time; substitutes reuse slots), never a per-match bijection.
 - Face, body appearance, structured attributes, gait, motion, and position are
   **quality-gated evidence modalities**, not universally available inputs (ADR 003).
   Missing or low-quality evidence is neutral — abstention is a valid outcome.
@@ -204,6 +251,10 @@ validation still open.
 
 Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md). Summary:
 
+0. **`docs/superpowers/specs/` and `docs/superpowers/plans/` are NOT in this precedence
+   order.** A spec or plan may *record* a supersession enacted elsewhere; it can never
+   itself supersede an ADR or a PRD. Amend an ADR with a new ADR, and a PRD with a
+   banner edited into the PRD.
 1. `docs/decisions/` — accepted ADRs, highest precedence. Supersede with a new ADR, never
    edit one to reverse its meaning.
 2. `../docs/player-identity-vision.md` — canonical product/identity direction. Update only

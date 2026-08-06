@@ -18,6 +18,7 @@ from matchlab_core.schemas import (
     MinimapFrame,
     PlayerEntity,
     PossessionSegment,
+    PossessorFrame,
     QAItem,
     StatSheet,
     TeamAssignment,
@@ -152,6 +153,26 @@ class EventsOutput:
     events: list[Event]
     stats: StatSheet
     qa_items: list[QAItem]
+
+
+class PossessionEstimator(Stage):
+    """Per-frame ball-possessor estimation from game-state artifacts (SPO-77).
+
+    Image-space and calibration-optional: consumes tracklets/teams/ball (pixel
+    space), never the fused minimap — that is what distinguishes it from the
+    pitch-space `EventEngine`. Output is a per-frame possessor timeline
+    (`PossessorFrame`) that the transition->event rules (SPO-78) turn into
+    passes/receptions. Two impls register here: `possession-heuristic-image`
+    (Phase 1) and, later, `possession-peral` (learned) — a drop-in swap."""
+
+    @abstractmethod
+    def estimate(
+        self,
+        ctx: StageContext,
+        tracklets: list[Tracklet],
+        teams: list[TeamAssignment],
+        ball: list[BallObservation],
+    ) -> list[PossessorFrame]: ...
 
 
 class EventEngine(Stage):

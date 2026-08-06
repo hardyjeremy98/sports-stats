@@ -1,0 +1,73 @@
+# Keyless/GPU-less smoke for the DENOISED possession-transition track (B3).
+#
+# Identical to pipeline.possession-heuristic-smoke.yaml except for the
+# `possession:` block. That is deliberate: the two configs differ in exactly one
+# stage impl, so running both on the same clip is a controlled ablation of the
+# temporal model (per-frame argmin + windowed majority, vs a first-order HMM
+# decoded by Viterbi with touch / ball-travel / team-flip priors).
+#
+# Everything downstream is unchanged -- transition_to_events consumes the same
+# PossessorFrame timeline either way. Runs anywhere matchlab-core installs; no
+# models, no keys, no GPU.
+#
+# Design: docs/superpowers/specs/2026-07-27-possession-denoise-design.md
+name: possession-viterbi-smoke
+description: >-
+  Synthetic upstream + possession-viterbi estimator; derives passes/receptions
+  and writes possession_timeline.json + spotting.json. The denoised counterpart
+  of possession-heuristic-smoke. Smoke only.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: synthetic
+    params:
+      dropout_rate: 0.05
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  possession:
+    impl: possession-viterbi
+    params:
+      possession_radius_px: 60.0
+      switch_cost: 2.0
+      # Set any prior's weight to 0 for a clean ablation row -- the tests in
+      # test_possession_denoise.py pin that a zeroed prior reproduces the
+      # un-prior'd transition cost exactly.
+      touch_bonus: 1.5
+      no_touch_penalty: 0.75
+      no_travel_penalty: 2.0
+      team_flip_penalty: 1.0
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

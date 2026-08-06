@@ -1,0 +1,61 @@
+# Keyless/GPU-less smoke for the possession-transition track (SPO-80).
+#
+# Stub upstream (synthetic detector supplies both player boxes and a ball) +
+# the image-space possession estimator (SPO-79). The runner derives passes and
+# receptions from the possessor timeline (SPO-78) and, since no learned spotter
+# runs, writes them to spotting.json so they can be scored by the same avg-mAP
+# path as the tdeed reference spotter. Runs anywhere matchlab-core installs;
+# pair with a `matchlab-demo` clip. No models, no keys, no GPU.
+name: possession-heuristic-smoke
+description: >-
+  Synthetic upstream + possession-heuristic-image estimator; derives passes/
+  receptions and writes possession_timeline.json + spotting.json. Smoke only.
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: synthetic
+    params:
+      dropout_rate: 0.05
+  track:
+    impl: iou
+    params:
+      iou_threshold: 0.2
+      max_age_frames: 20
+      min_length: 5
+  team:
+    impl: kit-color
+    params: {}
+  calibrate:
+    impl: static-demo
+    params: {}
+  associate:
+    impl: global-color
+    params:
+      max_color_distance: 35.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.5
+  possession:
+    impl: possession-heuristic-image
+    params:
+      possession_radius_px: 60.0
+      min_margin_px: 0.0
+      smooth_radius: 2
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 250.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

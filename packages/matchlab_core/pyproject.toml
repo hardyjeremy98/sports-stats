@@ -28,6 +28,7 @@ cv = [
     "umap-learn>=0.5",
     "scikit-learn>=1.4",
     "huggingface-hub>=0.24",    # OSNet-AIN weight download (currently transitive; make explicit)
+    "fvcore>=0.1.5",            # required by pytorchvideo's torch.hub X3D-S entrypoint (PCBAS action head)
 ]
 # Face identity path (note: insightface CODE is MIT, but its distributed model
 # packs (buffalo_l) are research-only — commercial use needs a license from

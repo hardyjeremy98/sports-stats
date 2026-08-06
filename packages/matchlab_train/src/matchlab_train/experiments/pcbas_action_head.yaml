@@ -1,0 +1,34 @@
+# Stage 1: TAAD action head on FOOTPASS TRAIN, validated on VAL.
+# Run from the main checkout (paths are relative to `data/`), NOT from a worktree.
+#   uv run matchlab-train run packages/matchlab_train/src/matchlab_train/experiments/pcbas_action_head.yaml
+#
+# HONEST MEASUREMENT NOTES
+#   Reference recipe except micro-batch 1 x accum 48 in place of 6 x 8 -- a single
+#   (1,3,50,352,640) clip peaks at 6.2 GiB and batch 2 OOMs on a 16 GiB card. The
+#   effective batch is unchanged, so this is a memory workaround, not a
+#   hyperparameter change. `max_hours` stops cleanly mid-schedule; whenever it
+#   fires, `epochs_run` vs `epochs_planned` in result.json is the honest record and
+#   any number quoted from a short run must say so.
+name: pcbas-action-head
+task: pcbas-action-head
+description: TAAD action head (X3D-S + FPN + ROI pooling) on FOOTPASS TRAIN.
+output_dir: data/experiments
+seed: 345
+params:
+  h5_path: data/footpass/tactical/train_tactical_data.h5
+  video_root: data/footpass/videos_352x640
+  val_h5_path: data/footpass/tactical/val_tactical_data.h5
+  val_video_root: data/footpass/videos_352x640
+  anchors_cache: data/footpass/anchors_train.json
+  val_anchors_cache: data/footpass/anchors_val.json
+  checkpoint_dir: data/weights/pcbas
+  epochs: 20
+  max_samples_per_class: 500
+  max_val_samples_per_class: 40
+  val_every: 2
+  num_workers: 6
+  # Phase 0 control: the SAME recipe that scored micro-F1 0.3274 at 12 of 20
+  # epochs, now run to completion. How much of the 0.3274 -> 0.4100 gap was
+  # simply the truncated schedule is currently unknown, and every PAVE arm is
+  # measured against this number, not against the truncated one.
+  max_hours: null

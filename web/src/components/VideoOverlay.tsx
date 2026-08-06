@@ -16,6 +16,8 @@ export interface LayerState {
   keypoints: boolean;
   events: boolean;
   spotting: boolean;
+  pcbas: boolean;
+  possessor: boolean;
   gt: boolean;
 }
 
@@ -28,6 +30,8 @@ export const DEFAULT_LAYERS: LayerState = {
   keypoints: false,
   events: true,
   spotting: true,
+  pcbas: true,
+  possessor: true,
   gt: true,
 };
 
@@ -44,6 +48,8 @@ const LAYER_DEFS: {
   { id: "keypoints", label: "Pitch keypoints", needs: (a) => !!a.calibration },
   { id: "events", label: "Events", needs: (a) => !!a.events },
   { id: "spotting", label: "Spotting", needs: (a) => !!a.spotting?.length },
+  { id: "pcbas", label: "Actions vs GT", needs: (a) => !!a.pcbasEvents?.events.length },
+  { id: "possessor", label: "Possessor", needs: (a) => !!a.possessionTimeline?.length },
   { id: "gt", label: "Ground truth", needs: (_a, gt) => !!gt },
 ];
 
@@ -205,6 +211,39 @@ export const VideoOverlay = forwardRef<
         }
       }
 
+      // Image-space possessor (SPO-79/81): ring the player the heuristic thinks
+      // holds the ball this frame. Low confidence -> dashed + "?" (abstention-
+      // aware, per the PRD's honesty stance).
+      if (layers.possessor && artifacts.possessionTimeline) {
+        const row = floorRow(artifacts.possessionTimeline, frameIdx, (r) => r.frame_idx);
+        if (row && frameIdx - row.frame_idx <= 12 && row.possessor_tracklet_id != null) {
+          const pb = nearestFrameBoxes(artifacts, frameIdx).find(
+            (b) => b.tracklet_id === row.possessor_tracklet_id,
+          );
+          if (pb) {
+            const low = row.confidence < 0.45;
+            const color = low ? "#F5C518" : "#22D3EE";
+            const pad = 3 * px;
+            ctx.setLineDash(low ? [6 * px, 4 * px] : []);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 4 * px;
+            ctx.strokeRect(
+              pb.box.x1 - pad,
+              pb.box.y1 - pad,
+              pb.box.x2 - pb.box.x1 + 2 * pad,
+              pb.box.y2 - pb.box.y1 + 2 * pad,
+            );
+            ctx.setLineDash([]);
+            const tag = low ? "ball?" : "ball";
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = color;
+            ctx.fillRect(pb.box.x1 - pad, pb.box.y2 + pad, tw + 8 * px, 14 * px);
+            ctx.fillStyle = "rgba(11,15,13,0.95)";
+            ctx.fillText(tag, pb.box.x1 - pad + 4 * px, pb.box.y2 + pad + 11 * px);
+          }
+        }
+      }
+
       if (layers.ball && artifacts.ball) {
         const idx = floorIndex(artifacts.ball, frameIdx);
         if (idx >= 0) {
@@ -303,6 +342,53 @@ export const VideoOverlay = forwardRef<
           ctx.fillRect(x, y, tw + 12 * px, 20 * px);
           ctx.fillStyle = "#2C91FF";
           ctx.fillText(text, x + 6 * px, y + 14 * px);
+          ctx.font = `${Math.round(11 * px)}px ui-monospace, monospace`;
+        });
+      }
+
+      // Player-centric actions against ground truth. Colour IS the verdict:
+      // green = the system got it, red = it claimed an action that GT does not
+      // have, amber = GT has one it never called. An event with no box is an
+      // actor the camera never showed -- captioned, but nothing to outline.
+      if (layers.pcbas && artifacts.pcbasEvents) {
+        const here = artifacts.pcbasByFrame.get(frameIdx) ?? [];
+        const captions: { text: string; color: string }[] = [];
+        for (const ev of here) {
+          const color =
+            ev.verdict === "tp" ? "#4ADE80" : ev.verdict === "fp" ? "#FF5B5B" : "#F5C518";
+          const who = ev.shirt_number != null && ev.shirt_number >= 0 ? `#${ev.shirt_number}` : "?";
+          if (ev.box) {
+            const [x1, y1, x2, y2] = ev.box;
+            ctx.setLineDash(ev.verdict === "fn" ? [6 * px, 4 * px] : []);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3 * px;
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.setLineDash([]);
+            const tag = `${who} ${ev.class_name}`;
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = "rgba(11,15,13,0.85)";
+            ctx.fillRect(x1, y1 - 15 * px, tw + 8 * px, 14 * px);
+            ctx.fillStyle = color;
+            ctx.fillText(tag, x1 + 4 * px, y1 - 4 * px);
+          }
+          const verdictWord =
+            ev.verdict === "tp" ? "HIT" : ev.verdict === "fp" ? "FALSE ALARM" : "MISSED";
+          // has_bbox is ground truth's own observability flag, not "we drew a box":
+          // it marks actions no purely visual model could have seen.
+          const offscreen = ev.has_bbox === false ? " · off-screen" : "";
+          captions.push({
+            text: `${verdictWord} ${who} ${ev.class_name.toUpperCase()}${offscreen}`,
+            color,
+          });
+        }
+        captions.slice(0, 4).forEach((c, i) => {
+          ctx.font = `bold ${Math.round(13 * px)}px ui-monospace, monospace`;
+          const tw = ctx.measureText(c.text).width;
+          const y = canvas.height - (72 - i * 22) * px;
+          ctx.fillStyle = "rgba(11,15,13,0.82)";
+          ctx.fillRect(12 * px, y, tw + 12 * px, 20 * px);
+          ctx.fillStyle = c.color;
+          ctx.fillText(c.text, 18 * px, y + 14 * px);
           ctx.font = `${Math.round(11 * px)}px ui-monospace, monospace`;
         });
       }
