@@ -53,7 +53,7 @@ BEST_PARAMS = {
     "merge_strategy": "two-pass",
     "fusion_model": "configs/reid/fusion-footpass-v2.json",
     "pass1_min_score": 4.0,
-    "pass2_min_score": 2.0,
+    "pass2_min_score": 3.0,
     "merge_min_margin": 0.5,
     "occupancy_coords": "formation-relative",
     "calibration_min_confidence": 0.5,

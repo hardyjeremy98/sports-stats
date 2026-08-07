@@ -227,6 +227,17 @@ class Params(BaseModel):
     # query itself. Was hard-coded at 3; now a contract-checked param because
     # the fit side historically had NO floor and the mismatch was invisible.
     min_centroid_teammates: int = 3
+    # UNRESOLVED, deliberately left at main's incumbent value (2026-08-07).
+    # `reid-motion-gate` raised this to 3.0, arguing that the old bar was tuned
+    # while missing endpoints were served as a (0,0) sentinel whose fabricated
+    # penalty suppressed body-only pass-2 pairs, and that once fixed, 2.0
+    # admits wrong merges at 2.35/2.62 nats (outcome stable across [2.75, 3.5]).
+    # Main fixed the same sentinel independently and kept 2.0. That measurement
+    # predates main's batched-clique pass 1, which changes WHICH candidate wins
+    # a pass-1 assignment and so changes what reaches pass 2 at all -- so it
+    # does not transfer, and flipping a product default on a stale measurement
+    # is the failure this repo has already recorded. Re-measure the threshold
+    # sweep under the current pass 1 before moving it.
     pass2_min_score: float | None = 2.0
     # Pitch extent used to normalise calibrated positions into the occupancy
     # grid. Homographies in this repo map to centimetres.
@@ -346,6 +357,21 @@ class Params(BaseModel):
     # (a truncated list cannot distinguish "true link absent" from "true link
     # ranked 9th").
     reid_detail_max_candidates: int = 8
+    # Physically-certain motion gate for the two-pass engine (2026-08-02).
+    # A pair whose exit->entry displacement exceeds
+    # max_speed * gap + slack is vetoed outright. 15 m/s is comfortably above
+    # any human sprint (world-class peak ~12.4 m/s), so a TRUE continuation
+    # can never trip it -- this is deliberately not the old realistic-speed
+    # feasibility veto (8-9 m/s), which was measured to block 31 correct
+    # merges per 1 wrong one. The slack absorbs endpoint/calibration noise,
+    # which over a sub-second gap masquerades as enormous speed. Missing
+    # endpoints abstain (ADR 003). 0 disables.
+    motion_gate_max_speed_ms: float = 15.0
+    motion_gate_slack_m: float = 3.0
+    # Both sides need at least this many calibrated positions before the
+    # motion gate may veto -- a starved-position tracklet's endpoints carry
+    # tens of metres of systematic projection error (see twopass.infeasible).
+    motion_gate_min_positions: int = 5
 
 
 def _tracklet_evidence(
@@ -412,6 +438,7 @@ def _tracklet_evidence(
     for t in tracklets:
         xs, ys = [], []
         first_xy = last_xy = None
+        first_f = last_f = None
         team = team_by_tid.get(t.tracklet_id)
         for fr in t.frames:
             if fr.frame_idx not in pos_by_tid[t.tracklet_id]:
@@ -444,7 +471,9 @@ def _tracklet_evidence(
             # -2.82-nat tax instead of evidence (found 2026-08-01).
             if first_xy is None:
                 first_xy = np.array([px / pw, py / ph], dtype=np.float64)
+                first_f = fr.frame_idx
             last_xy = np.array([px / pw, py / ph], dtype=np.float64)
+            last_f = fr.frame_idx
         out.append(
             TrackletEvidence(
                 tracklet_id=t.tracklet_id,
@@ -457,6 +486,9 @@ def _tracklet_evidence(
                 embedding=mean_emb.get(t.tracklet_id),
                 entry_xy=first_xy,
                 exit_xy=last_xy,
+                entry_frame=first_f,
+                exit_frame=last_f,
+                n_positions=len(pos_by_tid[t.tracklet_id]),
             )
         )
     return out
@@ -680,6 +712,9 @@ class ReidEngineAssociator(Associator):
                 jersey_prior=jersey_prior if p.jersey_enabled else None,
                 jersey_weight=p.jersey_weight_twopass,
                 max_candidates=p.reid_detail_max_candidates,
+                max_speed_ms=p.motion_gate_max_speed_ms,
+                speed_slack_m=p.motion_gate_slack_m,
+                gate_min_positions=p.motion_gate_min_positions,
                 pass1_rule=p.pass1_rule,
                 pass2_rule=p.pass2_rule,
             )
