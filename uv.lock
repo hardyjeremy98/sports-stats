@@ -1266,6 +1266,22 @@ wheels = [
 ]
 
 [[package]]
+name = "fvcore"
+version = "0.1.5.post20221221"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "iopath" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pyyaml" },
+    { name = "tabulate" },
+    { name = "termcolor" },
+    { name = "tqdm" },
+    { name = "yacs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a5/93/d056a9c4efc6c79ba7b5159cc66bb436db93d2cc46dca18ed65c59cc8e4e/fvcore-0.1.5.post20221221.tar.gz", hash = "sha256:f2fb0bb90572ae651c11c78e20493ed19b2240550a7e4bbb2d6de87bdd037860", size = 50217, upload-time = "2022-12-21T08:10:53.563Z" }
+
+[[package]]
 name = "gitdb"
 version = "4.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -2275,6 +2291,159 @@ sdist = { url = "https://files.pythonhosted.org/packages/55/79/de6c16cc902f4fc37
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/2f/5108cb3ee4ba6501748c4908b908e55f42a5b66245b4cfe0c99326e1ef6e/marshmallow-3.26.2-py3-none-any.whl", hash = "sha256:013fa8a3c4c276c24d26d84ce934dc964e2aa794345a0f8c7e5a7191482c8a73", size = 50964, upload-time = "2025-12-22T06:53:51.801Z" },
 ]
+
+[[package]]
+name = "matchlab-core"
+version = "0.1.0"
+source = { editable = "packages/matchlab_core" }
+dependencies = [
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.optional-dependencies]
+cv = [
+    { name = "fvcore" },
+    { name = "huggingface-hub" },
+    { name = "inference" },
+    { name = "scikit-learn" },
+    { name = "supervision" },
+    { name = "torch" },
+    { name = "trackers" },
+    { name = "transformers" },
+    { name = "umap-learn" },
+]
+eval = [
+    { name = "motmetrics" },
+]
+face = [
+    { name = "insightface" },
+    { name = "onnxruntime" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fvcore", marker = "extra == 'cv'", specifier = ">=0.1.5" },
+    { name = "huggingface-hub", marker = "extra == 'cv'", specifier = ">=0.24" },
+    { name = "inference", marker = "extra == 'cv'", specifier = ">=0.29" },
+    { name = "insightface", marker = "extra == 'face'", specifier = ">=0.7" },
+    { name = "motmetrics", marker = "extra == 'eval'", specifier = ">=1.4" },
+    { name = "networkx", specifier = ">=3.0" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "onnxruntime", marker = "extra == 'face'", specifier = ">=1.18" },
+    { name = "opencv-python-headless", specifier = ">=4.9" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "scikit-learn", marker = "extra == 'cv'", specifier = ">=1.4" },
+    { name = "scipy", specifier = ">=1.10" },
+    { name = "supervision", marker = "extra == 'cv'", specifier = ">=0.24" },
+    { name = "torch", marker = "extra == 'cv'", specifier = ">=2.3" },
+    { name = "trackers", marker = "extra == 'cv'", specifier = "==2.4.0" },
+    { name = "transformers", marker = "extra == 'cv'", specifier = ">=4.44" },
+    { name = "umap-learn", marker = "extra == 'cv'", specifier = ">=0.5" },
+]
+provides-extras = ["cv", "face", "eval"]
+
+[[package]]
+name = "matchlab-server"
+version = "0.1.0"
+source = { editable = "packages/matchlab_server" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "matchlab-core" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "python-multipart" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[[package]]
+name = "matchlab-train"
+version = "0.1.0"
+source = { editable = "packages/matchlab_train" }
+dependencies = [
+    { name = "matchlab-core" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+detector = [
+    { name = "rfdetr" },
+    { name = "roboflow" },
+]
+qa = [
+    { name = "matchlab-server" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
+    { name = "matchlab-server", marker = "extra == 'qa'", editable = "packages/matchlab_server" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rfdetr", marker = "extra == 'detector'", specifier = ">=1.0" },
+    { name = "roboflow", marker = "extra == 'detector'", specifier = ">=1.1" },
+]
+provides-extras = ["detector", "qa"]
+
+[[package]]
+name = "matchlab-workspace"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "matchlab-core" },
+    { name = "matchlab-server" },
+    { name = "matchlab-train" },
+]
+
+[package.dev-dependencies]
+cv = [
+    { name = "matchlab-core", extra = ["cv"] },
+]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+eval = [
+    { name = "matchlab-core", extra = ["eval"] },
+]
+face = [
+    { name = "matchlab-core", extra = ["face"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "matchlab-core", editable = "packages/matchlab_core" },
+    { name = "matchlab-server", editable = "packages/matchlab_server" },
+    { name = "matchlab-train", editable = "packages/matchlab_train" },
+]
+
+[package.metadata.requires-dev]
+cv = [{ name = "matchlab-core", extras = ["cv"], editable = "packages/matchlab_core" }]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+eval = [{ name = "matchlab-core", extras = ["eval"], editable = "packages/matchlab_core" }]
+face = [{ name = "matchlab-core", extras = ["face"], editable = "packages/matchlab_core" }]
 
 [[package]]
 name = "matplotlib"
@@ -3314,152 +3483,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/72/c9b4e7c2d6216d85fadde8dc3d6074d70c2734ee5627065f4ca6403cadcf/pillow_avif_plugin-1.5.5-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:1bc75fe3ce1f369bb5068911625fca1430c63b62ae8d8c1ae85e4c839b4dd23c", size = 5763739, upload-time = "2026-01-22T20:33:14.338Z" },
     { url = "https://files.pythonhosted.org/packages/53/eb/27af95ea3db131f5ed17541c74b9a14c40bc33f68ff9a78e1696f0285565/pillow_avif_plugin-1.5.5-cp314-cp314t-win_amd64.whl", hash = "sha256:3ec51ff05f6d254b3d2ec2fd134040921959554b542a5f1dbb62ee49c29e51ed", size = 9959564, upload-time = "2026-01-22T20:33:15.936Z" },
 ]
-
-[[package]]
-name = "matchlab-core"
-version = "0.1.0"
-source = { editable = "packages/matchlab_core" }
-dependencies = [
-    { name = "numpy" },
-    { name = "opencv-python-headless" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-cv = [
-    { name = "huggingface-hub" },
-    { name = "inference" },
-    { name = "scikit-learn" },
-    { name = "supervision" },
-    { name = "torch" },
-    { name = "trackers" },
-    { name = "transformers" },
-    { name = "umap-learn" },
-]
-eval = [
-    { name = "motmetrics" },
-]
-face = [
-    { name = "insightface" },
-    { name = "onnxruntime" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "huggingface-hub", marker = "extra == 'cv'", specifier = ">=0.24" },
-    { name = "inference", marker = "extra == 'cv'", specifier = ">=0.29" },
-    { name = "insightface", marker = "extra == 'face'", specifier = ">=0.7" },
-    { name = "motmetrics", marker = "extra == 'eval'", specifier = ">=1.4" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "onnxruntime", marker = "extra == 'face'", specifier = ">=1.18" },
-    { name = "opencv-python-headless", specifier = ">=4.9" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scikit-learn", marker = "extra == 'cv'", specifier = ">=1.4" },
-    { name = "supervision", marker = "extra == 'cv'", specifier = ">=0.24" },
-    { name = "torch", marker = "extra == 'cv'", specifier = ">=2.3" },
-    { name = "trackers", marker = "extra == 'cv'", specifier = "==2.4.0" },
-    { name = "transformers", marker = "extra == 'cv'", specifier = ">=4.44" },
-    { name = "umap-learn", marker = "extra == 'cv'", specifier = ">=0.5" },
-]
-provides-extras = ["cv", "face", "eval"]
-
-[[package]]
-name = "matchlab-server"
-version = "0.1.0"
-source = { editable = "packages/matchlab_server" }
-dependencies = [
-    { name = "fastapi" },
-    { name = "matchlab-core" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "python-multipart" },
-    { name = "sqlalchemy" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "matchlab-core", editable = "packages/matchlab_core" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-]
-
-[[package]]
-name = "matchlab-train"
-version = "0.1.0"
-source = { editable = "packages/matchlab_train" }
-dependencies = [
-    { name = "matchlab-core" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-detector = [
-    { name = "rfdetr" },
-    { name = "roboflow" },
-]
-qa = [
-    { name = "matchlab-server" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "matchlab-core", editable = "packages/matchlab_core" },
-    { name = "matchlab-server", marker = "extra == 'qa'", editable = "packages/matchlab_server" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rfdetr", marker = "extra == 'detector'", specifier = ">=1.0" },
-    { name = "roboflow", marker = "extra == 'detector'", specifier = ">=1.1" },
-]
-provides-extras = ["detector", "qa"]
-
-[[package]]
-name = "matchlab-workspace"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "matchlab-core" },
-    { name = "matchlab-server" },
-    { name = "matchlab-train" },
-]
-
-[package.dev-dependencies]
-cv = [
-    { name = "matchlab-core", extra = ["cv"] },
-]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-eval = [
-    { name = "matchlab-core", extra = ["eval"] },
-]
-face = [
-    { name = "matchlab-core", extra = ["face"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "matchlab-core", editable = "packages/matchlab_core" },
-    { name = "matchlab-server", editable = "packages/matchlab_server" },
-    { name = "matchlab-train", editable = "packages/matchlab_train" },
-]
-
-[package.metadata.requires-dev]
-cv = [{ name = "matchlab-core", extras = ["cv"], editable = "packages/matchlab_core" }]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "ruff", specifier = ">=0.8" },
-]
-eval = [{ name = "matchlab-core", extras = ["eval"], editable = "packages/matchlab_core" }]
-face = [{ name = "matchlab-core", extras = ["face"], editable = "packages/matchlab_core" }]
 
 [[package]]
 name = "platformdirs"
@@ -5302,6 +5325,24 @@ wheels = [
 ]
 
 [[package]]
+name = "tabulate"
+version = "0.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/58/8c37dea7bbf769b20d58e7ace7e5edfe65b849442b00ffcdd56be88697c6/tabulate-0.10.0.tar.gz", hash = "sha256:e2cfde8f79420f6deeffdeda9aaec3b6bc5abce947655d17ac662b126e48a60d", size = 91754, upload-time = "2026-03-04T18:55:34.402Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl", hash = "sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3", size = 39814, upload-time = "2026-03-04T18:55:31.284Z" },
+]
+
+[[package]]
+name = "termcolor"
+version = "3.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/79/cf31d7a93a8fdc6aa0fbb665be84426a8c5a557d9240b6239e9e11e35fc5/termcolor-3.3.0.tar.gz", hash = "sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5", size = 14434, upload-time = "2025-12-29T12:55:21.882Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/d1/8bb87d21e9aeb323cc03034f5eaf2c8f69841e40e4853c2627edf8111ed3/termcolor-3.3.0-py3-none-any.whl", hash = "sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5", size = 7734, upload-time = "2025-12-29T12:55:20.718Z" },
+]
+
+[[package]]
 name = "threadpoolctl"
 version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5945,6 +5986,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/19/70/80f3b7c10d2630aa66414bf23d210386700aa390547278c789afa994fd7e/xmltodict-1.0.4.tar.gz", hash = "sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61", size = 26124, upload-time = "2026-02-22T02:21:22.074Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/34/98a2f52245f4d47be93b580dae5f9861ef58977d73a79eb47c58f1ad1f3a/xmltodict-1.0.4-py3-none-any.whl", hash = "sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a", size = 13580, upload-time = "2026-02-22T02:21:21.039Z" },
+]
+
+[[package]]
+name = "yacs"
+version = "0.1.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/3e/4a45cb0738da6565f134c01d82ba291c746551b5bc82e781ec876eb20909/yacs-0.1.8.tar.gz", hash = "sha256:efc4c732942b3103bea904ee89af98bcd27d01f0ac12d8d4d369f1e7a2914384", size = 11100, upload-time = "2020-08-10T16:37:47.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/4f/fe9a4d472aa867878ce3bb7efb16654c5d63672b86dc0e6e953a67018433/yacs-0.1.8-py3-none-any.whl", hash = "sha256:99f893e30497a4b66842821bac316386f7bd5c4f47ad35c9073ef089aa33af32", size = 14747, upload-time = "2020-08-10T16:37:46.4Z" },
 ]
 
 [[package]]

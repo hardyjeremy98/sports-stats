@@ -1,0 +1,141 @@
+# TIER: BENCHMARK (see configs/README.md)
+#
+# ISOLATION HARNESS (2026-08-02, Jeremy): the current live re-ID merging
+# system on a substrate where EVERY input above it is ground truth, so any
+# failure attributes to the merge engine and nothing else.
+#
+# Why: on the real substrate (pipeline.reid-best-snmot.yaml, runs best2-*)
+# SNMOT-125 arrives at the associate stage with tracklet purity 0.733 and 20
+# of 28 tracklets impure -- 14 of the tracker's 20 across-gap identity joins
+# are already wrong before re-ID is consulted. "The engine merged wrongly"
+# and "the engine was handed two half-players" are indistinguishable there.
+# This config removes that confound.
+#
+# GT above the re-ID stage:
+#   detect: oracle          -- GT boxes, no detector error
+#   track:  oracle          -- GT tracks fragmented at their NATURAL gaps
+#                              (SPO-85), so tracklet purity is 1.0 by
+#                              construction and the correct pairs are known
+#                              exactly rather than attributed by GT-argmax
+#   team:   oracle          -- GT team labels, so TeamConsistencyGate cannot
+#                              false-veto a true pair and silently delete a
+#                              test case
+#
+# NOT ground truth, because it cannot be:
+#   calibrate: pnlcalib     -- the real calibrator. The position/occupancy
+#                              channels need a homography and there is no GT
+#                              one. This is the harness's one impure input;
+#                              if results look calibration-bound, that is the
+#                              first thing to ablate (drop to
+#                              calibration_min_confidence: 0.1, or disable the
+#                              stage and re-run to see the channel starve).
+#
+# PRE-REGISTERED, DO NOT TUNE: gap_frames / min_fragment_frames set the task's
+# difficulty and are pinned by SPO-85. Changing them after an arm has run
+# re-tunes the benchmark rather than the method.
+#
+# NOT a do-no-harm gate. GT fragments are easier than real tracklets, so
+# absolute numbers here do not transfer to the pipeline. A win here is grounds
+# for a real-substrate held-out gate, nothing more; a LOSS here is decisive,
+# because the engine cannot blame its inputs.
+name: gt-substrate-reid-live
+description: >
+  The live re-ID merge engine (two-pass, fusion-footpass-v1, formation-relative
+  occupancy, jersey channel ON) on GT detections + GT-fragmented tracklets + GT
+  teams. Contamination-free isolation of the merge layer, instrumented for the
+  Lab's merge inspector.
+sport: soccer
+pitch: fifa
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: oracle
+    params: {}
+  track:
+    impl: oracle
+    params:
+      # Pre-registered (SPO-85) -- do not tune.
+      gap_frames: 2
+      min_fragment_frames: 1
+      # The live re-ID engine consumes PRTreID part-based features (P=6) via
+      # the tracker; the in-repo/osnet backend is a single-vector model and
+      # would NOT be the system under test.
+      features_backend: external
+      features_model: prtreid
+  team:
+    impl: oracle
+    params: {}
+  calibrate:
+    impl: pnlcalib
+    params:
+      command:
+        - "../external-calibrators/PnLCalib/.venv/bin/python"
+        - "../external-calibrators/pnlcalib_cli.py"
+      weights_kp: "../external-calibrators/PnLCalib/weights/SV_kp"
+      weights_line: "../external-calibrators/PnLCalib/weights/SV_lines"
+      kp_threshold: 0.3434
+      line_threshold: 0.7867
+      pnl_refine: true
+      device: cuda:0
+      max_gap_frames: 150
+      outlier_threshold_cm: 2500.0
+      smoothing_window: 15
+  associate:
+    impl: reid-engine
+    params:
+      # Round-2 measured winners, copied from pipeline.reid-best-snmot.yaml.
+      # These are also the current code defaults; written out explicitly so
+      # the run's provenance records what was tested.
+      merge_strategy: two-pass
+      fusion_model: configs/reid/fusion-footpass-v2.json
+      pass1_min_score: 4.0
+      pass2_min_score: 2.0
+      merge_min_margin: 0.5
+      pass2_min_margin: 0.0
+      occupancy_coords: formation-relative
+      # 0.5 as shipped. On THIS substrate detections are GT, so the
+      # starvation concern that motivated 0.1 may apply -- ablate, don't
+      # assume.
+      calibration_min_confidence: 0.5
+      gmc: true
+      gmc_downscale: 2
+      # ANCHORLESS. Both merge engines merge two tracklets sharing an anchor
+      # on the anchor alone (reid/merge.py:113-125, reid/twopass.py:253-261),
+      # so oracle-jersey anchors would have GT reassemble the fragments and
+      # there would be nothing left to test.
+      anchor_source: none
+      anchor_coverage: 1.0
+      anchor_noise: 0.0
+      anchor_min_box_height: 0.0
+      anchor_seed: 0
+      # Jersey-OCR channel ON: it is part of the live system as of 4d21772.
+      # pipeline.reid-best-snmot.yaml deliberately runs it OFF to isolate the
+      # merge engine's own evidence stack -- flip this to false for that arm.
+      jersey_enabled: true
+      jersey_checkpoint: data/weights/parseq-jersey.ckpt
+      jersey_legibility_checkpoint: data/weights/legibility-resnet34-soccer.pth
+      jersey_per_tracklet_crops: 100
+      jersey_margin_tau: 2.0
+      jersey_weight: 0.15
+  identity:
+    impl: none
+    params: {}
+  # Enabled, unlike the gt-tracklets-reid harness: this substrate exists to be
+  # WATCHED as well as measured. minimap feeds the Lab's pitch view; overlay
+  # renders annotated.mp4.
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  events:
+    impl: possession-heuristic
+    enabled: false
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

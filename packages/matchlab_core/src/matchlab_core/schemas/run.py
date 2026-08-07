@@ -22,6 +22,7 @@ class StageKind(StrEnum):
     ASSOCIATE = "associate"
     IDENTITY = "identity"
     FUSE = "fuse"
+    POSSESSION = "possession"  # per-frame ball possessor (image-space, SPO-77)
     EVENTS = "events"
     SPOTTING = "spotting"  # v2: learned action spotting
     ANNOTATE = "annotate"  # renders the annotated output video
@@ -71,8 +72,10 @@ class ArtifactName(StrEnum):
     PLAYERS = "players"              # players.json — list[PlayerEntity]
     MINIMAP = "minimap"              # minimap.jsonl — MinimapFrame rows
     POSSESSION = "possession"        # possession.json — list[PossessionSegment]
+    POSSESSION_TIMELINE = "possession_timeline"  # possession_timeline.json — list[PossessorFrame]
     EVENTS = "events"                # events.json — list[Event]
     SPOTTING = "spotting"            # spotting.json — list[SpottedEvent] (native taxonomy)
+    PCBAS_EVENTS = "pcbas_events"    # pcbas_events.json — PCBASLabEvents (per-event vs GT)
     STATS = "stats"                  # stats.json — StatSheet
     QA_ITEMS = "qa_items"            # qa_items.json — list[QAItem]
     TIMELINE = "timeline"            # timeline.json — list[TimelineBucket]

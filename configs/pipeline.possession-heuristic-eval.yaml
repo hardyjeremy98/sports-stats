@@ -1,0 +1,115 @@
+# Benchmark eval for the possession-transition track (SPO-80): image-space
+# possession baseline scored as pass avg-mAP@1 against SoccerNet Ball Action
+# Spotting.
+#
+# Intended target: a video registered from the `soccernet-ball` tier
+# (configs/datasets/soccernet-ball.json, ingested via
+# `matchlab-train ingest-soccernet-ball`) so the run auto-scores against its
+# event ground truth (matchlab_core.action_spotting_eval).
+#
+# HONEST MEASUREMENT NOTES (read before quoting a number):
+#
+#  1. Pass number, not the raw avg-mAP. SoccerNet-ball GT has ~12 classes; the
+#     possession track only predicts PASS (and RECEPTION, which has no GT
+#     class). The auto-scored `avg_map` averages over all GT classes, so it is
+#     diluted by the classes this track never attempts. The honest pass number
+#     is the PASS-class AP: matchlab_core.action_spotting_eval.class_ap(result,
+#     "PASS"). RECEPTION predictions have no GT counterpart and only count as
+#     false positives -- they do not enter the mean.
+#
+#  2. This config measures the WHOLE pipeline (real detector + tracker + ball +
+#     possession), not the possession layer in isolation: SoccerNet-ball videos
+#     carry event GT only -- no box/track GT exists for them. Tracker/ball errors
+#     are folded into the number; interpret accordingly.
+#
+#     SUPERSEDED IN PART (2026-07-25, SPO-83): this note used to say "no
+#     oracle-tracklet isolation is possible". That holds for the pass avg-mAP
+#     number here, which needs event GT. It does NOT hold for the possession
+#     layer generally -- the SoccerNet-tracking tier carries GT boxes, GT teams
+#     AND a GT ball track (gameinfo "ball;N", parsed by gt.py), so the possession
+#     layer can be profiled on oracle inputs via
+#     `matchlab-train audit-possessor-labels`. See
+#     docs/reports/2026-07-25-spo83-possessor-label-audit.md.
+#
+#  3. Real ball detection is load-bearing. The heuristic possessor needs the
+#     ball; the detect stage below must emit ball observations. On handheld/
+#     amateur footage ball detection is intermittent -> abstention-heavy output
+#     by design (see the PRD's honesty section).
+#
+#  4. Local-eval-only weights. detect/calibrate use AGPL roboflow-sports/
+#     ultralytics weights -- same never-shipped posture as the other *-eval
+#     configs (CLAUDE.md -> Licensing notes). No number has been measured yet;
+#     producing one is SPO-83's gated step and must be reported with full
+#     provenance (dataset, split, tracklet source, code revision).
+#
+# The tracking stack mirrors pipeline.tdeed-spotting-eval.yaml so this run also
+# yields normal tracking artifacts; spotting is `none` so spotting.json comes
+# purely from the possession-derived passes.
+name: possession-heuristic-eval
+description: >-
+  SoccerNet-ball eval: real tracking stack + possession-heuristic-image;
+  pass avg-mAP@1 via class_ap(result, "PASS"). No number measured yet (SPO-83).
+sport: soccer
+video:
+  sample_stride: 1
+  max_frames: null
+  resize_width: null
+stages:
+  detect:
+    impl: yolo-local
+    params:
+      weights: data/weights/football-player-detection.pt
+      imgsz: 1280
+      confidence: 0.4
+  track:
+    impl: botsort
+    params:
+      track_activation_threshold: 0.25
+      lost_track_buffer_s: 1.0
+      minimum_consecutive_frames: 3
+      min_length: 5
+      enable_cmc: true
+      minimum_iou_threshold_first_assoc: 0.2
+      minimum_iou_threshold_second_assoc: 0.5
+      minimum_iou_threshold_unconfirmed_assoc: 0.3
+      high_conf_det_threshold: 0.4
+      cmc_method: sparseOptFlow
+      cmc_downscale: 2
+      instant_first_frame_activation: true
+      state_estimator: xcycwh
+  team:
+    impl: kit-color
+    params:
+      crops_per_tracklet: 8
+  calibrate:
+    impl: yolo-pitch-local
+    params:
+      weights: data/weights/football-pitch-detection.pt
+      keypoint_confidence: 0.5
+  associate:
+    impl: global-color
+    params:
+      max_gap_s: 20.0
+  identity:
+    impl: none
+    params: {}
+  fuse:
+    impl: minimap
+    params:
+      smoothing_alpha: 0.6
+  possession:
+    impl: possession-heuristic-image
+    params:
+      possession_radius_px: 60.0
+      min_margin_px: 0.0
+      smooth_radius: 2
+  events:
+    impl: possession-heuristic
+    params:
+      possession_radius_cm: 200.0
+  spotting:
+    impl: none
+    enabled: false
+  annotate:
+    impl: overlay
+    params: {}

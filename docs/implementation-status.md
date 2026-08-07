@@ -82,7 +82,7 @@ project in Linear.
 | Body re-ID association | Planned | Registry seam exists; no learned body embedding is wired in | — |
 | Face identity | Prototype | InsightFace anchors from largest boxes, weighted embedding, greedy clustering | `stages/identity/face.py` |
 | Optional face-crop upscaling | Prototype | RealESRGAN path in face resolver | `stages/identity/face.py` |
-| Jersey OCR as a re-ID merge channel (SPO-90s, 2026-07-30/31) | Implemented, ON by default in the live re-ID configs (2026-08-01) | A pairwise merge-evidence channel — not a naming/roster resolver, not ADR 001's identity foundation. In-tree PARSeq reader (`matchlab_core/ocr/parseq.py`) + a fixed vertical crop band (RTMPose torso crops measured worse, removed) + a hard ResNet34 legibility gate (`>=0.9`) + Σw-normalised per-tracklet digit likelihood with top1–top2 margin abstention (`matchlab_core/reid/jersey.py`), fused into `reid_engine.py`'s pairwise LLR behind `jersey_enabled: bool = False` (default OFF; commits `a61fdba`/`70982d0`) with bounded contribution `jersey_weight * (llr / LOG_CLAMP)`, default weight 0.15, so one confident channel disagreement can never act as an absolute veto (a real defect caught in review and fixed in the same round). **Reader frontier** on SNMOT (32 clips, oracle-fragment tracklets): shipped rule precision 0.953 / coverage 0.637; the full precision/coverage curve runs 1.0@0.465 to 0.80@0.84 as the margin threshold relaxes. **Fusion headline (the goal gate, commits `06f78ec`/`7c3900f`, adversarially reviewed and survived)**: on 16 held-out clips (7474 pairs, exact prefix scan, no tune/held leakage) the fused channel recovers 50 pairs at zero wrong merges, versus jersey-alone 14 and body-alone (OSNet) 0 — the first non-trivial zero-wrong yield measured on this substrate. **Veto precision 0.9994** on SNMOT (3319+ fired pairs) — the curated-split false-veto figure of 0.1244 reported mid-investigation did not reproduce on this substrate and must not be cited. **Coverage is per-fragment and unremarkable by industry standards**: 29% of the SoccerNet jersey test set's own tracklets are human-labelled illegible in the reference dataset itself, so partial coverage is the modality's normal operating regime, not a defect of this implementation. **ADR 001 stands unamended**: the channel abstains at exactly zero evidence (flat likelihood ⇒ LLR 0) with no gate or threshold, needs no roster or numbered-kit assumption to run, and 79% of held-out pairs receive zero jersey evidence — the system degrades to body-only exactly on those pairs, confirmed empirically, not merely by construction. **Caveats, load-bearing, must accompany every citation of the above:** (1) every number above is measured on **oracle-fragment tracklets** (the SPO-85 GT-tracklet harness, oracle TRACK stage) — validation against real-tracker output tracklets is open; (2) the body arm in the fusion comparison is OSNet, not PRTreID (PRTreID integration remains open, see the re-ID engine finding above); (3) the PARSeq checkpoint is fine-tuned on hockey + SoccerNet, so accuracy measured on SoccerNet-derived data (SNMOT) is train-adjacent, not an independent-domain result; (4) `reid/frontier.py`'s `zero_wrong_frontier` function returned an internally incoherent `0 correct / 0 wrong / threshold None` on this channel (prime suspect: `saturate()`'s tanh clamp ties confidently-agreeing pairs) — this bug is **undiagnosed and excluded from every claim above**; all merge counts here were produced by an exact prefix scan instead, not that function. Full story: [`docs/reports/2026-08-01-jersey-ocr-channel.md`](reports/2026-08-01-jersey-ocr-channel.md). **Default flipped ON 2026-08-01 (Jeremy)** after the anchor-free engine-level A/B on held-out SNMOT-124..127 (`configs/pipeline.jersey-ab-{on,off}.yaml`, oracle-fragment substrate, anchor_source none): merge precision 0.75 -> 0.82 (12/16 -> 14/17 correct merges), mean entity IDF1 0.851 -> 0.866, entity purity up on the one impure clip (0.918 -> 0.942), no regressions on any clip; the saturated clip (127) is unchanged. The code-level default in `reid_engine.py` stays `jersey_enabled: false` for dependency isolation (the stage needs pytorch_lightning/nltk and the parseq/legibility checkpoints); the live tdlp-full-reid* configs set `jersey_enabled: true` explicitly. An earlier A/B round with `anchor_source: oracle-jersey` showed jersey bit-identical to OFF — with oracle anchors at coverage 1.0 the channel is redundant by construction; anchored benchmarks cannot measure it. | `matchlab_core/reid/jersey.py`, `matchlab_core/ocr/parseq.py`, `stages/associate/reid_engine.py` |
+| Jersey OCR as a re-ID merge channel (SPO-90s, 2026-07-30/31) | Implemented, ON by default in the live re-ID configs (2026-08-01) | A pairwise merge-evidence channel — not a naming/roster resolver, not ADR 001's identity foundation. In-tree PARSeq reader (`matchlab_core/ocr/parseq.py`) + a fixed vertical crop band (RTMPose torso crops measured worse, removed) + a hard ResNet34 legibility gate (`>=0.9`) + Σw-normalised per-tracklet digit likelihood with top1–top2 margin abstention (`matchlab_core/reid/jersey.py`), fused into `reid_engine.py`'s pairwise LLR behind `jersey_enabled: bool = False` (default OFF; commits `a61fdba`/`70982d0`) with bounded contribution `jersey_weight * (llr / LOG_CLAMP)`, default weight 0.15, so one confident channel disagreement can never act as an absolute veto (a real defect caught in review and fixed in the same round). **Reader frontier** on SNMOT (32 clips, oracle-fragment tracklets): shipped rule precision 0.953 / coverage 0.637; the full precision/coverage curve runs 1.0@0.465 to 0.80@0.84 as the margin threshold relaxes. **Fusion headline (the goal gate, commits `06f78ec`/`7c3900f`, adversarially reviewed and survived)**: on 16 held-out clips (7474 pairs, exact prefix scan, no tune/held leakage) the fused channel recovers 50 pairs at zero wrong merges, versus jersey-alone 14 and body-alone (OSNet) 0 — the first non-trivial zero-wrong yield measured on this substrate. **Veto precision 0.9994** on SNMOT (3319+ fired pairs) — the curated-split false-veto figure of 0.1244 reported mid-investigation did not reproduce on this substrate and must not be cited. **Coverage is per-fragment and unremarkable by industry standards**: 29% of the SoccerNet jersey test set's own tracklets are human-labelled illegible in the reference dataset itself, so partial coverage is the modality's normal operating regime, not a defect of this implementation. **ADR 001 stands unamended**: the channel abstains at exactly zero evidence (flat likelihood ⇒ LLR 0) with no gate or threshold, needs no roster or numbered-kit assumption to run, and 79% of held-out pairs receive zero jersey evidence — the system degrades to body-only exactly on those pairs, confirmed empirically, not merely by construction. **Caveats, load-bearing, must accompany every citation of the above:** (1) every number above is measured on **oracle-fragment tracklets** (the SPO-85 GT-tracklet harness, oracle TRACK stage) — validation against real-tracker output tracklets is open; (2) the body arm in the fusion comparison is OSNet, not PRTreID (PRTreID integration remains open, see the re-ID engine finding above); (3) the PARSeq checkpoint is fine-tuned on hockey + SoccerNet, so accuracy measured on SoccerNet-derived data (SNMOT) is train-adjacent, not an independent-domain result; (4) `reid/frontier.py`'s `zero_wrong_frontier` function returned an internally incoherent `0 correct / 0 wrong / threshold None` on this channel (prime suspect: `saturate()`'s tanh clamp ties confidently-agreeing pairs) — this bug is **undiagnosed and excluded from every claim above**; all merge counts here were produced by an exact prefix scan instead, not that function. Full story: [`docs/reports/2026-08-01-jersey-ocr-channel.md`](reports/2026-08-01-jersey-ocr-channel.md). **Default flipped ON 2026-08-01 (Jeremy)** after the anchor-free engine-level A/B on held-out SNMOT-124..127 (`configs/pipeline.jersey-ab-{on,off}.yaml`, oracle-fragment substrate, anchor_source none): merge precision 0.75 -> 0.82 (12/16 -> 14/17 correct merges), mean entity IDF1 0.851 -> 0.866, entity purity up on the one impure clip (0.918 -> 0.942), no regressions on any clip; the saturated clip (127) is unchanged. **Superseded 2026-08-03:** the code-level default is now `jersey_enabled: true` (Jeremy's call, after the FOOTPASS full re-ID ablation strictly dominated OFF — see the 2026-08-03 jersey entry); environments without the OCR stack (pytorch_lightning/nltk or the checkpoints) degrade to jersey-off with a loud warning and a recorded marker rather than failing, per ADR 003's missing-modality-is-neutral rule. Set `jersey_enabled: false` explicitly to exclude the channel (attribution configs like `reid-best-snmot` do). An earlier A/B round with `anchor_source: oracle-jersey` showed jersey bit-identical to OFF — with oracle anchors at coverage 1.0 the channel is redundant by construction; anchored benchmarks cannot measure it. | `matchlab_core/reid/jersey.py`, `matchlab_core/ocr/parseq.py`, `stages/associate/reid_engine.py` |
 | Jersey OCR resolver (naming/roster anchor path) | Research candidate | Schema supports `jersey`; no registered anchor-source resolver exists. The merge-channel use above is a separate, already-implemented capability — see the row above. | — |
 | Structured visual attributes | Research candidate | No extractor, schema, or artifact exists | — |
 | Gait identity | Research candidate | No temporal identity model or artifact exists | — |
@@ -92,6 +92,12 @@ project in Linear.
 | Identity-specific human QA | Implemented | Pair same/different/unsure verdicts (seeded from association near-misses, eval ID switches, and — SPO-58 — a tier-aware naming queue of QA-tier threads from `naming.json`, deduped against existing roster labels), entity merge/split flags, and roster labels, stored as annotations that never mutate run artifacts; exportable as re-ID training pairs via `matchlab-train export-reid` | `web/src/components/IdentityQATab.tsx` + `matchlab_server/api/identity_qa.py` |
 | Minimap fusion | Implemented | Homography projection using associated entity IDs | `stages/fuse/minimap.py` |
 | Event attribution | Prototype | Possession heuristic and contested-event QA | `stages/events/possession.py` |
+| Possession-transition spotting (SPO-77–82) | Prototype | Image-space `possession` stage slot (before `events`): `possession-heuristic-image` estimates a per-frame ball possessor from tracklets/teams/ball (calibration-free, abstention-aware), written to `possession_timeline.json`. Shared `transition_to_events` rules (Peral et al. VISAPP 2025 Te/Ts) derive passes/receptions → `events.json` (attributed) + `spotting.json` (scored). Honest bounds: only **passes** are benchmark-scorable (SoccerNet-ball GT has no reception class and no possessor GT — use `action_spotting_eval.class_ap(result, "PASS")`, not the diluted multi-class mean); player attribution is emitted but scored as B4, not here; no oracle-tracklet isolation exists for the event-GT-only tier (but see the audit row below — the *tracking* tier does support oracle isolation). **No benchmark number measured yet** (data/weights/GPU-gated, SPO-83). Learned Peral estimator is specified-but-gated; weak training labels via `matchlab-train derive-possessor-labels`. | `stages/possession/heuristic_image.py`, `stages/possession/events_from_possession.py` |
+| SNMOT action-label benchmark (B3) | Measured | `matchlab_core/snmot_action_gt.py` + `matchlab-train spot-localization`: SNMOT `gameinfo.ini` records one labelled action per clip (`actionClass`, `actionPosition`), making the already-downloaded tracking tier a sparse action-spotting benchmark — the **only event GT this project can currently reach** (SoccerNet-ball and FOOTPASS are both agreement-gated). 47 scorable sequences: `ball-trajectory` localises ball-contact classes to a median **2.0 frames (0.08s)**, 87% ≤0.2s, 97% ≤1s; `possession` 3.0 frames. Non-ball classes (card/substitution) 17–22 frames — correct behaviour for a ball-motion spotter. Honest bounds: **localisation/recall only** — one label per 30s clip means precision, F1 and mAP are unsupported and the code refuses to compute them; oracle inputs; no attribution scored. See [`reports/2026-07-27-b3-snmot-action-localization.md`](reports/2026-07-27-b3-snmot-action-localization.md). | `snmot_action_gt.py`, `matchlab_train/datasets/possessor_audit.py` |
+| Ball-trajectory action spotting (B3) | Measured | `ball-trajectory` spotting impl + `matchlab_core/ball_kinematics.py`: touches from the ball's own motion (turn + speed change, camera-pan compensated via median player-box displacement). Rule-based, no model/weights/GPU; `configs/pipeline.ball-trajectory-smoke.yaml`. **Independent of** the possession signal, so `matchlab_core/event_crossval.py` cross-validates the two (B3's disagreement → confidence penalty → abstention design) and `refine_event_timing` snaps corroborated events onto the touch frame. Measured on 49 SNMOT sequences / oracle inputs at rev `c3cd058`: touches land within 60px of a player **83.4% vs a 64.0% null**; PASS agreement **55.7% at ±1s** (58.9% over all event types) — *corrected 2026-07-27, the report originally read 71.4% and that figure does not reproduce*; a systematic timing bias (passes lag the strike 3 frames, receptions lead it 2 — the signs physics predicts) whose correction nearly doubles tight-tolerance agreement. Honest bounds: **corroboration, not accuracy** — neither signal is ground truth; oracle-input ceiling; touches are untyped and unattributed; depth change uncompensated without calibration. See [`reports/2026-07-26-b3-ball-trajectory-crossval.md`](reports/2026-07-26-b3-ball-trajectory-crossval.md). | `ball_kinematics.py`, `event_crossval.py`, `stages/events/ball_trajectory.py` |
+| Player-centric action spotting (B3+B4, PCBAS) | **Both stages measured and working** | Two-stage player-centric spotter reproducing the FOOTPASS `TAAD -> DST` baseline, joined by a frozen `(9, 26, T)` fp16 contract. The selected release is **`pcbas-v1`** (stage 1 = TAAD+PAVE arm A1 epoch 13; stage 2 = DST+PAVE spatial-first attention arm B1), staged at `data/release/pcbas-v1/` with `SHA256SUMS` -- weights are NOT in git. **Measured on FOOTPASS VAL (3 matches, 6,070 events, `identity="shirt"`): micro-F1 0.7102 / macro 0.4583 against the reference TAAD+DST's 0.7186 / 0.4926**, with stage 1 alone at 0.4574 / 0.2522. It recovers **505 of the 1,062 VAL events whose player has no bounding box** (48%) vs stage 1's 48 and the reference DST's 390 -- the capability that argues for the sequence stage, and one no purely visual model can have. Per class the profile is what decides usability: pass 0.751 and drive 0.726 are trustworthy, throw-in 0.602 / shot 0.560 usable, cross 0.482 indicative, header 0.291 and block 0.188 weak, **tackle 0.067 must not be relied on** (174 trainable anchors in all of TRAIN; the reference scores 0.061 on it). Re-measured end to end on `game_18_H1` 2026-08-06 with the released checkpoints: micro 0.7498 / macro 0.4743, P 0.7105 / R 0.7937, 827 TP / 337 FP / 215 FN over 1,042 GT events, 117 of 227 off-screen actions recovered. **Caveats:** VAL is 3 matches so rare-class figures rest on 26-162 events; stage 2 is a single seed (two flat-DST seeds differ by up to 0.015 micro / 0.022 macro); B1 was still improving at its last epoch, so this is a floor. **Input contract:** the pipeline consumes tracking as an INPUT -- 640x352 25fps video plus a FOOTPASS-schema tactical HDF5 -- so it is not yet runnable on the amateur single-camera footage that is MatchDay's target; our own tracker and role assignment would have to supply that second stream (Phase 3). Earlier rows recording stage 2 as "failing" at 0.1188 described a pre-fix checkpoint and are superseded. **Lab integration:** one half publishes to a run directory via `matchlab-train publish-pcbas-half`, writing `pcbas_events.json` (one row per MATCHER DECISION -- tp/fp/fn -- carrying player, class, confidence, localisation error, the ground truth off-screen flag, and the actor's box) plus a downcast `spotting.json`; the Lab renders it as an "Actions" inspector tab and an "Actions vs GT" overlay layer. Identity contract: [ADR 008](decisions/008-role-slots-are-not-roster-slots.md). See [inference recipe](reference/pcbas-inference-recipe.md), [Phase 0](reports/2026-07-27-pcbas-phase0-ingest.md), [Phase 1 build](reports/2026-07-27-pcbas-phase1-build.md), [Phase 1 gate](reports/2026-07-27-pcbas-phase1-gate.md), [DST investigation](reports/2026-07-28-pcbas-dst-investigation.md). | `matchlab_core/pcbas/{schema,events,eval,lab_view,logits,decode,action_head,denoiser}.py`, `matchlab_core/schemas/pcbas_lab.py`, `matchlab_train/datasets/footpass_{pcbas,video,clips,windows,lab}.py`, `matchlab_train/experiments/pcbas_*.py`, `matchlab-train publish-pcbas-half`, `web/src/components/PCBASPanel.tsx` |
+| Possession denoising by Viterbi (B3) | Measured | `possession-viterbi` — a second impl in the **same** possession slot (`possession_denoise.py` + `stages/possession/viterbi.py`, `configs/pipeline.possession-viterbi-smoke.yaml`), so swapping it for `possession-heuristic-image` is a controlled ablation and nothing downstream of `transition_to_events` changes. Identical evidence (shared `possession_ranking.py` geometry, same confidence formula); only the temporal model differs: a first-order HMM over {loose ball} + nearby candidates decoded by Viterbi, with touch-corroboration, ball-travel and team-flip transition priors, each independently zeroable. This is Notion B3 development-path **step 2's selection layer** — *not* the Peral tube model. Measured on 49 SNMOT test sequences / oracle inputs at rev `4c7714c`: agreement with the independent ball-trajectory signal **58.9% → 71.6% at ±1s** (PASS-only 55.7% → **73.6%**) while emitting **31.5% fewer events**, removing uncorroborated to corroborated events at **8.6 : 1**; segments 1,133 → 722, mean length 19.1 → 28.4 frames. SNMOT localisation guard **holds** (ball-contact median 3.0 frames and 97.4% within 1s, both unchanged). Ablation: bare Viterbi with all priors off already gives 68.7%, so the **structure, not the priors**, carries +9.8 of the +12.8 pts; team-flip +2.3, touch +1.3, **ball-travel +0.2 (inert — it fires on 22.2% of frames but on 0 of 230 decoded switches, being redundant with the emission model; scoped to oracle inputs)**. Honest bounds: **corroboration, not accuracy** — no per-frame possessor GT exists on any tier, so no possessor-accuracy claim is made; oracle inputs only; localisation is a disconfirming guard a denoiser structurally cannot win, never a score. See [`reports/2026-07-27-b3-possession-denoise-ablation.md`](reports/2026-07-27-b3-possession-denoise-ablation.md). | `possession_denoise.py`, `possession_ranking.py`, `stages/possession/viterbi.py` |
+| Weak possessor-label audit (SPO-83) | Measured | `matchlab-train audit-possessor-labels` profiles weak possessor labels on **oracle inputs** (GT boxes + GT teams + GT ball from the SoccerNet-tracking tier, which declares a `ball;N` track) — coverage/abstention causes, contested-margin curve, temporal stability. Measured over 49 SNMOT test sequences / 36,750 frames at rev `54716ad`: **58.8% label coverage**, ~8% of asserted labels on a <5px margin, mean possession 19.1 frames. Honest bounds: **label-risk profile, not accuracy** — no per-frame possessor GT exists on any tier; these are ceiling numbers on perfect inputs; the depth-based false-possession proxy was **invalidated by frame inspection** (bbox height tracks posture, not depth) and must not be quoted. A hand-labelled possessor set remains a Phase 2 prerequisite. See [`reports/2026-07-25-spo83-possessor-label-audit.md`](reports/2026-07-25-spo83-possessor-label-audit.md). | `possession_profile.py`, `matchlab_train/datasets/possessor_audit.py` |
 | Learned action spotting (SPO-45/46) | Prototype | `tdeed` `EventSpotter` runs an external action spotter via a subprocess bridge over a documented CLI contract (`docs/reference/spotting-exchange-contract.md`), writing a dedicated `spotting.json` artifact in the spotter's native ball-action taxonomy (no `EventType` mapping applied). The real model (GPL-3.0 T-DEED, SoccerNet-trained weights) is isolated in a sibling `external-spotters/` env (`docs/reference/external-spotters-setup.md`) — the same env-isolation pattern as `ultralytics`/`external-trackers/` (dependency hygiene, not a capability qualifier). A permissive in-repo reference CLI (`matchlab_core/spotting/reference_cli.py`) stands in for dev/test with no GPU or real model. | `stages/events/tdeed.py`, `spotting/bridge.py` |
 
 Paths in this table are relative to `packages/matchlab_core/src/matchlab_core/` unless otherwise
@@ -853,6 +859,193 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 
 Measured local findings recorded by the repository guidance:
 
+- **Formation prediction from broadcast-visible threads: a real but small effect, and
+  SoccerCPD's actual contribution is unmeasurable here (2026-08-06).** Module
+  `matchlab_core.formation.soccercpd` (role representation, Delaunay role-adjacency,
+  line labels, graph change-point detection) with harness
+  `matchlab_train.experiments.formation_pred`. FOOTPASS TRAIN, 48 matches / 192
+  team-halves, 5 CV seeds x 5 folds held out **by match**, merged GT threads, exGK.
+  Target: the set of 10 distinct outfield role slots a team fields in a half
+  ("formation"), 9 classes, counts 116/47/12/4/4/4/2/2/1, majority baseline **0.604**.
+  - **A template-match arm (EFPI's idea, Hungarian match of role-slot means to fitted
+    role templates) reaches 0.697** vs the 0.604 baseline: +0.093, cluster-bootstrap 95%
+    CI [+0.008, +0.176], leave-one-match-out [+0.073, +0.106]. It wins on all four
+    position arms. **Uncorrected for 12 comparisons** — suggestive, not established.
+    The line-signature and adjacency arms did not separate from the baseline
+    (+0.027 [-0.025, +0.083] and +0.020 [-0.043, +0.081]).
+  - **Downstream, the effect is small and must be read against the right baseline.**
+    Restricting the role inventory pays only through a capacity-2 assignment, and that
+    assignment alone is worth +0.010 *without any formation information*. Against
+    `unrestricted-cap2`: oracle inventory **+0.029** [+0.023, +0.036], predicted
+    inventory **+0.012** [+0.004, +0.021]. The learned predictor beats a **constant
+    guess of the most common formation** by **+0.009** [+0.002, +0.017], LOO
+    [+0.008, +0.011] — real, and roughly a third of the accessible ceiling.
+  - **Off-camera gap-filling is what makes the descriptor work.** The role
+    representation needs frames showing all ten outfield threads; with observed rows
+    only the EM gets a median of **104** such frames, with bracketed fill **1811**.
+    Formation accuracy follows: template-match 0.623 (observed) -> 0.721 (linear fill)
+    -> 0.697 (concave TimeWarp k=2) -> 0.680 (true off-camera positions). The concave
+    warp, fitted for the *centroid* in different units, does not transfer. `gt` is
+    **not** a ceiling: it carries never-observed leading/trailing segments the fill
+    arms lack, and is served against an observed-rows-only spread denominator.
+  - **Controls.** A label-free GK proxy reproduces the result (0.696 vs 0.697), so the
+    oracle keeper label buys nothing. Likelihood temperature is fitted per arm by an
+    identical procedure — without that, an arm whose log-likelihood is scaled in larger
+    units drowns the prior and behaves as prior-free while the baseline is prior-only;
+    that exact defect made a first run report 0.266 for the adjacency arm.
+  - **NOT measured: SoccerCPD's own contribution.** `FormCPD`/`RoleCPD` detect *changes*
+    in formation; FOOTPASS assigns `ROLE` once per player per half and substitutes
+    inherit the slot, so the fielded inventory changes mid-half in **0 of 192**
+    team-halves. That is an annotation-scheme property, not evidence that teams hold
+    shape. `detect_change_points` is unit-tested on synthetic sequences only. No claim
+    about SoccerCPD-as-published is supportable from this work: three of its four
+    pieces were repurposed from change detection to classification under a likelihood
+    the paper does not contain. Arms are named for what they compute, not for papers.
+  - **Adopted system: `matchlab_core.formation.model`** (`FormationModel`,
+    `fit_formation_model`, `predict_inventory`, `assign_team`). Predicts the formation,
+    then assigns roles jointly under it at **capacity 2** (a substitution reuses a
+    slot). Serializable, fit/serve frame-checked, abstains on short or undefined
+    threads. Role accuracy **0.666 -> 0.689**, +0.022 [+0.011, +0.033], 33/48 matches.
+    This **partly supersedes** `formation.roles`' note that Hungarian assignment is
+    harmful: a *strict bijection* still loses; *capacity 2* wins. `roles.assign_role`
+    remains the unrestricted per-thread baseline and the ablation arm.
+  - **Failure mode (`matchlab_train.experiments.formation_errors`).** Exact inventory
+    0.688; **defender/midfielder/attacker counts correct 0.849**; line-safe 0.849.
+    Of 60 wrong predictions, 31 (52%) keep the right line counts. 78% of errors are a
+    **single** role slot. The dominant confusion is **AM <-> DM** (17 + 14 of 47
+    single-slot errors), which is within-line and harmless to line structure. The
+    destructive mode is narrow and total: **every** five-at-the-back team-half
+    (5-2-3 n=12, 5-3-2 n=4, 5-4-1 n=4) is predicted as 4-3-3 — accuracy **0.000** on
+    all seven minority classes, which collapse onto the majority shape. Per class:
+    0.853 on the modal 4-3-3-with-AM (n=116), 0.702 on 4-3-3-with-DM (n=47).
+    So the system does not currently detect a back five at all; the prior wins every
+    time, which is consistent with those classes living in 1-2 matches each and never
+    appearing in both sides of a by-match split.
+  - **Caveats.** Every input is oracle (GT threads, GT identity through gaps, oracle
+    attacking direction). Clubs recur across the 48 matches and the tactical h5 has no
+    global club key, so a by-match split cannot separate them and formation is largely
+    a club property — all figures optimistic by an unmeasured amount. VAL holds one
+    formation in all 12 team-halves and is untouched. A label-free positional
+    assignment reproduces `ROLE` at mean 0.700 (max 0.830, none >0.95, 41 team-halves),
+    so the harness is not scoring against its own label generator — though `ROLE`
+    remains likely to be substantially positionally derived.
+
+- **Tier 2 peripheral statistics run over ground truth (2026-08-06; report
+  [`2026-08-05-peripheral-stats-tier-2.md`](reports/2026-08-05-peripheral-stats-tier-2.md)).**
+  All nine Tier 2 stats (xT, momentum, sequence taxonomy, counter-attacks, field tilt, PPDA,
+  high turnovers, set pieces, goalkeeper) as source-agnostic modules in `matchlab_core.stats`,
+  with an end-to-end runner (`matchlab_train.experiments.tier2_stats`). **Prototype**, GT-only,
+  no stage registered and no `ArtifactName` added — same posture as Tier 1. xT is fitted on the
+  96 FOOTPASS **train** halves and applied to the 6 val halves (games disjoint; team-level
+  disjointness is *not* verifiable, because `PLAYER_ID` is match-local — only 32 distinct ids
+  across 48 games). Findings:
+  (a) the **failure-handling fork is resolvable**: per-player rank correlation between the two
+  arms is 0.433 against a pre-registered equivalence gate of 0.95, and the success-only arm is
+  **degenerate** on this data — with `T`'s rows summing to 1 the chain has no absorbing state,
+  so the surface plateaus at 0.1222–0.1228 across 9 of 16 length bands and is not monotone;
+  (b) against a **pure distance-to-goal baseline**, xT scores ρ = 0.99 per zone but only
+  **0.655 per player** — the level the stat is consumed at — because an action's value is a
+  difference between two nearby zones; leading with the zone number gives a confidently wrong
+  headline;
+  (c) this exposed a **latent defect in Tier 1's xG model**: `xg()` returns **0.531 from 106 m
+  out** against 0.181 at the penalty spot, because the Soccermatics quadratics extrapolate far
+  outside their sample's support. Tier 1 never saw it because it only ever scored real shots.
+  **`xg()` needs a domain clamp**; it is masked in the xT fit only because `s(z) = 0` there;
+  (d) **PPDA abstains at team-half granularity** — only 25 in-zone defensive actions across the
+  whole val split (17 blocks, 8 tackles) with 4 of 12 team-halves at a zero denominator; the
+  pooled 80.8 against a league average ~11 is the size of the missing interception/foul class;
+  (e) the **§14 attack taxonomy is substantially a knob** — counter-attacks span 12–84 on the
+  directness threshold alone though every threshold is a published provider value, and
+  `unclassified` is 83.4%, outside its pre-registered 25–60% band;
+  (f) the **geometric corner detector failed** — not on its p-value, which sits at the
+  permutation floor, but because there is no corner label and no negative class. Its p is also
+  insensitive to radius over 2–10 m.
+  Sensitivity reproduces Tier 1: ratios tolerate 20–40% event loss, counts 0–10%, and the
+  gating table must be computed on the **crowd-biased** model — taking the max over both models
+  publishes a build order derived from the easier one.
+  Data note: **46.7% of FOOTPASS throw-in labels are replays**, systematically (broadcasts cut
+  to replays during dead-ball periods), and **5 rows of 9,917,540 sit at an exact pitch corner,
+  all of them crosses** — a sentinel coordinate, not a measurement.
+
+- **Tier 1 peripheral statistics run over ground truth (2026-08-05; report
+  [`2026-08-05-peripheral-stats-tier-1.md`](reports/2026-08-05-peripheral-stats-tier-1.md)).**
+  `matchlab_core.stats` implements all eleven Tier 1 stats as a source-agnostic library over
+  a `MatchEvent` stream, with a FOOTPASS ground-truth adapter
+  (`matchlab_train.datasets.footpass_events`) and an end-to-end runner
+  (`matchlab_train.experiments.tier1_stats`). **Prototype**, and GT-only: no pipeline stage
+  is registered, no `ArtifactName` was added, and nothing here consumes detector, tracker or
+  spotter output. Four measured findings, each with a test that fails if it regresses:
+  (a) **10.1% of FOOTPASS val events are broadcast replays** and the flag exists only in
+  `playbyplay_*.json`, not the tactical h5 — and the natural cross-check between the two
+  streams passes perfectly because they are otherwise identical, so only a filter-toggle test
+  detects the contamination; (b) `TEAM` is **pitch side**, not club — the club↔side binding
+  rebinds every half, so `(TEAM, SHIRT)` silently merges clubs across halves, and attack
+  normalisation must be a 180° rotation, not the upstream `1−x` mirror, which swaps flanks;
+  (c) treating an **opponent's contest event as an interruption inside a possession** rather
+  than a new one took `game_18_H1` from 168 chains / 125 possession changes to 132 / 89 —
+  29% of "possession changes" were deflections, and the turnover had been credited to the
+  blocker rather than the player who lost the ball; (d) the **take-on detector was ~65% a
+  carry-length measurement** under a stratified null baseline (0.0715/carry detected vs
+  0.0465 with opponents shuffled within start-third × x-gain strata) — it has no GT class and
+  no negative class, so it stays flagged `unvalidated` and out of any headline set.
+  The recall-sensitivity sweep gives the build order (corrected 2026-08-05 after a
+  second review round fixed an optimistic gating rule and an under-applied crowd-biased
+  drop): **pass completion tolerates 40% event loss and progressive share 10%, volume
+  counts tolerate only 5%, and the shot-anchored family — key passes, SCA, shots, xG,
+  box touches — fails even a 5% crowd-biased drop**, because a key pass needs two specific
+  events to survive and crowded events cluster near the box. Tolerance means every rate up
+  to it passed under every loss model, crowd-biased included. xG runs on published, cited coefficients but its
+  **calibration is entirely untested — this ground truth has no goal labels at all**, so GCA
+  abstains (`None`, never 0) and xG is to be reported as a within-userbase percentile.
+
+- **Global assignment / mutual exclusivity is the two-pass default (2026-08-03;
+  report [`2026-08-03-global-assignment.md`](reports/2026-08-03-global-assignment.md)).**
+  `merge_threads_two_pass` now resolves pass-1 decisions per mutual-overlap clique via
+  Hungarian assignment (`pass1_rule: hungarian`) and pass-2 rounds via exact max-weight
+  matching (`pass2_rule: matching`); `greedy` keeps the incumbent arrival-order rule for
+  A/Bs. Scoring, channels and trail contracts are unchanged — only decision resolution.
+  Measured on the FOOTPASS 3-match LOMO harness the assignment arms beat greedy/greedy on
+  BOTH axes at all 9 thresholds in aggregate (thr 4: precision 96.96→97.46, coverage
+  80.16→81.28, wrong 313→264), with the gains concentrated where interleaving conflicts
+  are dense (game_24_H2 supplies ~88% at thr 4) and small per-half regressions elsewhere
+  — cite the aggregate, never a single half. Adoption gate: the end-to-end best2 SNMOT
+  replay (`gapsite_eval`, 6 runs) is bit-identical between rules (7 merges / 2 wrong both
+  arms) — 30 s clips carry ~no interleaving conflicts, so the layer is a no-op there.
+  Cliques cover only ~half the conflict-pair population (chained conflicts split across
+  clique boundaries); component-level solving is untried upside needing an ILP.
+  (Not in tension with the input-representation negative below: the "mutual-NN"
+  arm there is a set-to-set *appearance statistic*, not this *decision rule*.)
+- **The "evidence-limited" re-ID negative is no longer representation-scoped
+  (2026-08-03; report
+  [`2026-08-03-input-representations.md`](reports/2026-08-03-input-representations.md)).**
+  Five arms removing one hand-reduction each — set-to-set appearance over
+  per-frame embeddings, a learned MLP edge scorer, a GRU trajectory model for
+  re-entry, cohort-normalised appearance, and thread-prototype pooling — are all
+  flat or resolvably worse at the FOOTPASS merge frontier (LOSO, 12,479
+  episodes, 154 player-halves), at per-arm 95% resolutions of ±0.001 to ±0.02
+  precision. The informative part is that several arms **demonstrably improved
+  the underlying model and still moved nothing**: the trajectory model gains
+  +0.6 to +0.8 nats/pair of held-out re-entry log-likelihood at 2–7 s gaps
+  (3/3 folds, monotone in gap) for a frontier effect of +0.0016; cohort
+  normalisation lifts appearance-channel AUC 0.950 → 0.997 for a frontier effect
+  of +0.0016 to −0.0101. Removing the appearance *pooling* — the most suspicious
+  reduction, and one baked into a cache file — makes things **worse**,
+  monotonically in how far the statistic departs from the mean. Still untested
+  and now the indicated direction: **domain-adaptive / fine-tuned appearance**
+  (the extractor, not summaries of it) and **learned graph-level association**.
+  Caveats in the report: the exp-1 machinery control failed (~0.009 masked gain
+  not excluded), a pre-registered isotonic calibration was never implemented,
+  and the pooling null holds on oracle-clean threads only.
+- **A single matched-coverage point can say almost anything at this substrate's
+  resolution (2026-08-03).** The 2026-08-02 audit's Phase C v3 result reproduces
+  exactly on its own metric (pooled LOSO pass-1 threading frontier, clamp 6:
+  flat 0.9825 → v3 0.9848 at coverage 0.65, vs the published 0.9825/0.9849), but
+  across the full coverage band the delta runs −0.0013 … +0.0023 … −0.0023 and
+  **every point is smaller than v3's own paired 95% CI width (0.0035–0.0046)**.
+  The v3 effect is not resolvable in either direction; describing it as "above
+  the flat frontier through the operating band" overstated it. Frontier claims
+  on this substrate must be reported band-wide with a paired cluster CI
+  (resampling unit: player-within-half).
 - Kit-colour association is ineffective for player-level identity.
 - Remaining ID switches are substantially a tracker-level problem that simple post-association
   cannot repair.
@@ -1032,6 +1225,157 @@ Measured local findings recorded by the repository guidance:
   impostor-field normalisation), `reid/frontier.py` (operating-curve sweep);
   `matchlab_train/datasets/footpass.py`; `matchlab_train/experiments/position_evidence.py`.
   No shipped default was changed.
+- **Occupancy serves nothing over a whole match until the half-time flip lands; the flip is
+  measured, adopted as direction, and deferred (2026-08-02; FOOTPASS val, whole-match
+  frozen-input harness `matchlab_train/experiments/footpass_match_harness.py`).** Attack
+  direction reverses at half-time and formation-relative footprints reverse with it (a 180°
+  rotation, not a reflection), so raw cross-half same-player occupancy is **anti-informative**
+  (AUC 0.34–0.38, i.e. worse than chance; rotated, 0.74–0.80). Every prior calibration was
+  per-half and structurally could not see this. Fused leave-one-match-out (body + gap +
+  transition, logistic weights, ~5M pairs/game): **no occupancy 0.855 / occupancy served raw
+  (the shipped form) 0.854 — the channel is dead weight over full matches** — / occupancy with
+  an **explicit per-half flip 0.888** (cross-half 0.824 / 0.813 / 0.873). The explicit flip is
+  the adopted fix but **deferred**: it needs a half-boundary / attack-direction estimate, which
+  belongs to the planned pre-run calibration sequence, not the associate stage. A boundary-free
+  `min(JS, JS∘rot180)` form is implemented (`FusionModel.occupancy_mirror="min"`, model-carried
+  and validated) but **rejected as a default by a cold-review-prescribed check**: the min
+  collapses within-half cross-flank impostors (LB↔RB, LW↔RW median JS 0.72–0.78 → 0.45–0.49,
+  *below* the genuine median ~0.53), because rot180 maps a right back's zone onto the left
+  back's. Also landed: `occupancy_zoom` and `min_centroid_teammates` as contract-checked engine
+  params (defaults 1.0 / 3 reproduce prior behaviour; the fitted v1 model predates the contract
+  keys, so refits should stamp them), and mirror-aware `serving_diagnostics`. Supporting
+  finding: footprints genuinely encode player zone (within-match 1-NN role retrieval 0.41–0.56
+  player-half accuracy vs 0.06 chance; cross-match role-line centroid transfer 0.64–0.76 vs
+  0.33) — but the encoding is *pitch geometry* (flank/corridor), not tactical line, which is
+  exactly why rot180 aliases cross-flank roles. FOOTPASS gotcha recorded here because two
+  harnesses hit it: **the tactical `TEAM` column encodes pitch side and flips at half-time**;
+  club identity must be reconstructed by voting over shared player ids
+  (`footpass_match_harness.club_of_side`).
+- **The half-boundary estimate the flip was waiting on now exists (3a) — attacking direction
+  and epoch partition from sparse probes (2026-08-05; core
+  `matchlab_core/formation/direction.py`, 19 tests; harness
+  `matchlab_train/experiments/direction_eval.py`; report
+  `docs/reports/2026-08-05-attack-direction-3a.md`).** Cue: sign of
+  `mean_x(club A) − mean_x(club B)` on **absolute** pitch-normalised x, observable players
+  only — the same cue the sn-gamestate SoccerNet-GSR baseline uses, though it publishes no
+  isolated accuracy and its 30 s sequences never contain a flip; every sports-analytics
+  library (kloppy, floodlight, SoccerCPD, EFPI) takes direction and periods from **provider
+  metadata** instead, so there is no published bar. Boundary by CUSUM change point on
+  `sign(d)`, coarse 30 s probe plus bisection. Measured on FOOTPASS val with H1 truncated to
+  φ ∈ {0.25…0.85} and **no half-time gap** (so the boundary is neither the midpoint nor an
+  empty region — `score(t)` peaks at n/2 under the null, so equal butted halves would let a
+  midpoint guess score perfectly): **3/3 matches resolved with the true boundary inside the
+  reported band (errors 0.9 / 1.3 / 8.0 s against 15–46 s bands); across the φ-sweep, median
+  3.0 s, max 22.0 s, 67% within 5 s, 100% within 30 s, and the band covers the error 15/15**;
+  **~370 frames probed of ~150,000 (~0.25%)**; per-probe sign accuracy 0.887–0.968,
+  **worst play-third 0.855**. Read n as **3, not 15** — the five φ per game share H2 and nested
+  H1 prefixes. Two numbers from the first write-up were **withdrawn on cold review**: the
+  "758.6 s constant-midpoint baseline" is engineered by the φ-sweep (on real FOOTPASS geometry
+  the midpoint errs by only 32/112/101 s), and "0 wrong mirror bits in 26.4M fragment pairs" is
+  **3 bits, not 26.4M** — `epoch_of_fragment` makes zero errors *mathematically certain* once
+  the error is inside the self-set band, so the enumeration multiplies one per-game fact by 10⁷.
+  Against a constant-midpoint estimator run through the identical enumeration, the honest margin
+  is **~3 percentage points of wrong mirror bits on 2 of 3 games** (midpoint: 0.00 / 3.77 /
+  3.12% wrong), with 2.0–3.5% abstaining. Fine-scale localisation uses a **dense local scan,
+  not bisection**: bisection needs a reliable oracle per step, but the per-probe sign is ~90%
+  accurate with errors correlated over 5–10 s, so the vote degenerates to one coin toss just as
+  precision matters, and greedy halving cannot backtrack from a wrong call. The scan window is
+  sized by the coarse score profile rather than a fixed ±1 step — the coarse argmax was once
+  142 s off, and a fixed window then searches the wrong place *confidently*.
+  Absolute direction 12/12, which is **3 independent
+  bits** (club 1 is the negation of club 0; epoch 1 the flip of epoch 0).
+  **Undecidable pairs must have occupancy ZEROED, not served raw** — abstentions cluster at the
+  boundary, so they are disproportionately cross-half, where raw occupancy is anti-informative
+  (AUC 0.34–0.38), not neutral.
+  Abstains (permutation z, opposite-sign, per-segment agreement, and a sub-boundary guard
+  calibrated at 1.53 clean vs 4.1–4.7 three-flip) rather than guessing; **scope limit is two
+  epochs**, so extra time, warm-up footage and reverse-angle replays abstain. A 20-minute
+  one-club label collapse straddling half-time makes every probe there abstain and leaves a
+  blackout whose 361 s error no confidence statistic could distinguish from clean — handled by
+  widening the reported band to the probe gap, so the consumer gets "undecidable" rather than a
+  confident wrong epoch. **`occupancy_mirror` default is unchanged** pending the fused refit and
+  the best2 replay gate, and the estimator has still only seen GT observability spans plus
+  synthetic corruption, never real tracker output.
+- **FOOTPASS gotcha: H2 frame indices continue the match timeline, they do not restart at zero**
+  (game_18_H1 ends 75307, H2 starts 75525). `footpass_match_harness.load_match` offsets H2 by
+  `h1_span + HALF_BREAK_FRAMES` on top of already-global indices, double-counting H1's span and
+  opening a **65.4-minute** void between the halves instead of the intended 15-minute break.
+  **This contaminates the +3.4 above**: that fused LOMO was body + gap + transition, so the gap
+  channel is inside it. The corruption is a constant additive shift shared by all three arms, so
+  per-channel cross-half AUCs are rank-invariant and the *delta* almost certainly survives in
+  sign — but the **magnitude** does not, because the fitted gap weight is responding to a feature
+  that pushes every cross-half pair into an implausible-gap regime, and that headroom is what
+  occupancy fills. **Do not cite "+3.4" as a clean number until refitted.** (Pair ordering is
+  safe — a uniform positive shift preserves H1 < H2 — and `max_gap_s` was `None`; had it been
+  set, cross-half pairs would have been silently annihilated.) Found 2026-08-05; not fixed.
+- **Negative gaps were fabricating merge evidence for interleaved threads; serving now clamps
+  gap at 0 and the transition prior abstains at dt ≤ 0 (2026-08-03; core
+  `twopass.py::score_channels`, tests `test_reid_gap_fixes.py`).** Interleaved-but-disjoint
+  threads (which `members_disjoint` deliberately allows) serve `gap_s < 0` in **both** passes —
+  outside every calibrator's fitted support (the fit side clamps at 0, `pair_features.py`), where
+  the logistic backbone extrapolates a same-player bonus up to +6 nats and the transition prior's
+  floored dt degenerates to a saturated ±6; `serving_diagnostics` skips overlapping pairs so the
+  drift monitor was blind there. On the FOOTPASS GT-fragment substrate (g30, LOMO over the 3 val
+  games, core engine at min_score = pass2_score = 4.0) the path is **very live**: 7,638 of the
+  legacy run's candidate scorings carried a negative gap. Fix at the same threshold: wrong merges
+  282 → 243, precision 0.9712 → 0.9742, coverage 0.7651 → 0.7362 — the removed merges had 90.2%
+  marginal precision, well below the operating point, so they were disproportionately the bad
+  ones (matched-precision comparison still open; the threshold can be lowered to rebuy
+  coverage). Gap-channel ablation under fixed scoring: without gap, +354 correct / +69 wrong
+  (marginal precision 83.7%) — gap is a precision-positive, coverage-negative filter at fixed
+  threshold, consistent with the audit's finding that its calibrated LLR spans only ~0.21 nats
+  over 0–30 s (a tracker-fragmentation prior, not identity evidence; see the gap-channel audit,
+  2026-08-02).
+- **Transition endpoints are no longer fabricated, and the channel's veto half is now a
+  swept model parameter (2026-08-03; triple-cold-reviewed audit + fix; harness
+  `bootstrap_threads`, FOOTPASS GT fragments g30 LOMO, accum+p2@4).** Three confirmed serving
+  defects: (1) `TrackletEvidence.to_state()` substituted `(0,0)` for missing entry/exit, so
+  the `score_channels` abstention guard was dead — a pair of zero-calibrated-frame tracklets
+  scored displacement 0, the prior's *maximum positive* evidence (~+1.8 fused nats at 0.5 s),
+  from data that never existed, precisely where occupancy also abstains; (2) pass-2
+  interleaved threads reached the prior with dt ≤ 0 (see the negative-gap entry above); (3)
+  the symmetric ±6 bound gave the veto half (measured 1 correct / 31 harmful blocks,
+  `transition.py` 2026-07-28) −2.8 fused nats of reach — enough to cancel a typical body
+  vote. Fixes: endpoints stay `None` end-to-end (`ThreadState` Optional, no entry←exit
+  fallback) and transition abstains without both endpoints (`raw=None` distinguishes missing
+  endpoints from gap-gating); `evidence.clip_transition` bounds the negative side at a
+  model-carried `FusionModel.transition_neg_clamp` (default 6.0 = bit-identical to the
+  historical `saturate`; harness fit-cache keyed). Measured (fit/serve coherent, weights
+  refit per clamp): the bug-fix-only arm (clamp 6) is ~frontier-neutral vs the legacy code;
+  **clamp 0 (vetoes flattened) is the best arm** — at thr 4 precision 0.9725 / coverage
+  0.7595 vs legacy 0.9701 / 0.7639 (267 vs 293 wrong), with frontier headroom to coverage
+  0.8142 at thr 2; the **transition-off control is strictly worse** (0.9704 / 0.7202), so the
+  enabling half carries real value even after the fabrication fix. **ADOPTED (same day):**
+  `configs/reid/fusion-footpass-v2.json` refits all channels on the clamp-0 clipped column
+  (fitted on all three val games, weights body 2.088 / occupancy 0.395 / gap 0.769 /
+  transition 0.782, `transition_neg_clamp: 0.0` carried in the artefact and contract) and is
+  now the engine default (`reid_engine.Params.fusion_model`) and referenced by the best/live
+  configs; v1 remains on disk and loads unchanged for reproduction. The
+  endpoint-fabrication fix is verified by unit test only —
+  the GT substrate always has endpoints, so FOOTPASS deltas measure (2)+(3) alone. Model-form
+  caveats recorded by the review, unfixed: the impostor density is dt-independent (pooled,
+  plausibly anti-conservative pro-merge at short gaps — unmeasured) and the fitted
+  sigma/tau encode broadcast camera-return statistics, not player physics, so the prior must
+  be refit per camera style.
+- **Jersey OCR is measured on FOOTPASS full re-ID for the first time, and it strictly
+  dominates (2026-08-03; `matchlab_train/experiments/footpass_jersey.py` + jersey arm in
+  `bootstrap_threads`; reports `2026-08-03-jersey-ablation-on.json` vs
+  `2026-08-03-transition-fix-clamp0.json`).** Reads come from the saved fullHD frame grid
+  (every 25th frame, the appearance-extraction grid) cropped at FOOTPASS GT `ROI_*` boxes —
+  ~24k band-legible reads across the 6 val halves; 44–54% of g30 fragments carry jersey
+  evidence, 25–36% clear the tau-2 confidence margin; everything is cached two-layer
+  (`data/experiments/footpass-jersey/<key>-crops.pkl` per crop, fragmentation-independent;
+  `<key>-g30-post.pkl` per fragment) so no crop is ever OCR'd twice. Serving is exactly the
+  engine's convention (mean-in-log `tracklet_likelihood`, legibility×confidence weights,
+  margin_tau 2.0, per-run `number_prior`, `pair_llr` at fixed weight 1.0 against the
+  `_pool_jersey`-pooled thread belief, both passes). Result (g30 LOMO, clamp-0 transition,
+  accum+p2@4): jersey ON beats OFF on **precision and coverage simultaneously at every
+  threshold** — thr 4: 9597✓/232✗ (0.9764 / 0.7714) vs 9449✓/267✗ (0.9725 / 0.7595), i.e.
+  +148 correct and −35 wrong at once; thr 6: +287 correct / −15 wrong (0.9804 / 0.7524 vs
+  0.9782 / 0.7293). This closes the "FOOTPASS/whole-match validation open" caveat on the
+  2026-08-01 jersey finding in the channel's favour — on GT fragments; the real-tracker
+  caveat (contaminated tracklets) still stands, and the jersey arm deliberately refuses to
+  run with the corruption harness until jersey evidence is remapped under splicing.
 - **Goalkeepers and referees were never separated for re-ID: `tdlp-full` loses the detection
   class (2026-07-30; report
   [`2026-07-30-detection-class-recovery.json`](reports/2026-07-30-detection-class-recovery.json)).**

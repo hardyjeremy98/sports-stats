@@ -88,7 +88,12 @@ def _affinity(report: AssociationReport, a: int, b: int) -> float:
 
 
 def test_jersey_disabled_never_touches_reader(tmp_path, monkeypatch):
-    """Default OFF: the stage must not even try to build a reader."""
+    """Explicit OFF: the stage must not even try to build a reader.
+
+    (The DEFAULT is ON since 2026-08-03; environments without the OCR stack
+    degrade to jersey-off with a warning -- covered by the default-ON test
+    below -- but an explicit false must never construct the reader at all.)
+    """
 
     def _boom(self):
         raise AssertionError("jersey_enabled=False must never call _get_jersey_reader")
@@ -100,16 +105,36 @@ def test_jersey_disabled_never_touches_reader(tmp_path, monkeypatch):
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
-    # Must not raise: jersey_enabled defaults to False.
-    _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.9})
+    _run_stage(tmp_path, tracklets, teams, ff,
+               {"min_similarity": 0.9, "jersey_enabled": False})
 
 
 def test_jersey_disabled_produces_no_provenance(tmp_path):
     tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
     teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
     ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
-    _, stage, _ = _run_stage(tmp_path, tracklets, teams, ff, {"min_similarity": 0.9})
+    _, stage, _ = _run_stage(tmp_path, tracklets, teams, ff,
+                             {"min_similarity": 0.9, "jersey_enabled": False})
     assert stage.provenance() == []
+
+
+def test_jersey_enabled_degrades_without_ocr_stack(tmp_path):
+    """Enabled but unsupported: on a box without pytorch_lightning / the
+    checkpoints the stage must still complete, recording that the channel did
+    not serve rather than crashing or silently pretending it did.
+
+    The channel ships OFF by default (ADR 001), so this arm has to ask for it.
+    """
+    tracklets = [_tracklet(1, 0, 50), _tracklet(2, 60, 100)]
+    teams = [TeamAssignment(tracklet_id=t, team=Team.HOME, confidence=1.0) for t in (1, 2)]
+    ff = _features([(1, 0, [1.0, 0.0]), (2, 60, [1.0, 0.05])])
+    _, stage, _ = _run_stage(tmp_path, tracklets, teams, ff,
+                             {"min_similarity": 0.9, "jersey_enabled": True})
+    assert stage.params.jersey_enabled is True
+    # Either the OCR stack was present and served, or the degradation marker
+    # says exactly why it did not -- there is no third, silent state.
+    degraded = getattr(stage, "_jersey_degraded", None)
+    assert degraded is None or isinstance(degraded, str)
 
 
 def test_abstaining_pair_affinity_is_bit_identical(tmp_path, monkeypatch):

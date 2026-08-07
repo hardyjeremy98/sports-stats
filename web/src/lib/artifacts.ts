@@ -16,7 +16,10 @@ import type {
   MatchEvent,
   MinimapFrame,
   NamingReport,
+  PCBASLabEvent,
+  PCBASLabEvents,
   PlayerEntity,
+  PossessorFrame,
   ReidDetailReport,
   SpottedEvent,
   StatSheet,
@@ -43,16 +46,20 @@ export interface RunArtifacts {
   minimap: MinimapFrame[] | null;
   events: MatchEvent[] | null;
   spotting: SpottedEvent[] | null;
+  possessionTimeline: PossessorFrame[] | null;
   stats: StatSheet | null;
   timeline: TimelineBucket[] | null;
   eval: EvalResult | null;
   association: AssociationReport | null;
   naming: NamingReport | null;
   reidDetail: ReidDetailReport | null;
+  pcbasEvents: PCBASLabEvents | null;
   // Derived indexes.
+  pcbasByFrame: Map<number, PCBASLabEvent[]>; // widened by the matcher's delta
   trackletBoxesByFrame: Map<number, TrackletBox[]>;
   teamByTracklet: Map<number, TeamAssignment>;
   entityByTracklet: Map<number, PlayerEntity>;
+  possessorByFrame: Map<number, PossessorFrame>; // image-space possessor per frame
   sortedFrameIdxs: number[]; // frames that have tracklet boxes, ascending
   loading: boolean;
 }
@@ -84,12 +91,14 @@ const artifactQueries = (runId: string, enabled: boolean) => [
   { key: "minimap", fn: () => fetchJsonl<MinimapFrame>(api.artifactUrl(runId, "minimap")) },
   { key: "events", fn: () => fetchJson<MatchEvent[]>(api.artifactUrl(runId, "events")) },
   { key: "spotting", fn: () => fetchJson<SpottedEvent[]>(api.artifactUrl(runId, "spotting")) },
+  { key: "possession_timeline", fn: () => fetchJson<PossessorFrame[]>(api.artifactUrl(runId, "possession_timeline")) },
   { key: "stats", fn: () => fetchJson<StatSheet>(api.artifactUrl(runId, "stats")) },
   { key: "timeline", fn: () => fetchJson<TimelineBucket[]>(api.artifactUrl(runId, "timeline")) },
   { key: "eval", fn: () => fetchJson<EvalResult>(api.artifactUrl(runId, "eval")) },
   { key: "association", fn: () => fetchJson<AssociationReport>(api.artifactUrl(runId, "association")) },
   { key: "naming", fn: () => fetchJson<NamingReport>(api.artifactUrl(runId, "naming")) },
   { key: "reid_detail", fn: () => fetchJson<ReidDetailReport>(api.artifactUrl(runId, "reid_detail")) },
+  { key: "pcbas_events", fn: () => fetchJson<PCBASLabEvents>(api.artifactUrl(runId, "pcbas_events")) },
 ].map((q) => ({
   queryKey: ["artifact", runId, q.key],
   queryFn: q.fn,
@@ -111,12 +120,14 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     minimap,
     events,
     spotting,
+    possessionTimeline,
     stats,
     timeline,
     evalResult,
     association,
     naming,
     reidDetail,
+    pcbasEvents,
   ] = results.map((r) => (r.isSuccess ? r.data : null));
 
   const trackletBoxesByFrame = new Map<number, TrackletBox[]>();
@@ -145,6 +156,30 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
   for (const p of (players as PlayerEntity[] | null) ?? [])
     for (const tid of p.tracklet_ids) entityByTracklet.set(tid, p);
 
+  // An action is an instant, but a viewer scrubbing at 25 fps would have to land on
+  // the exact frame to ever see one. Each event is therefore registered across a
+  // window of frames either side of it, so the overlay can hold it on screen while
+  // the moment plays. The window is the matcher's own tolerance (`delta`), which
+  // keeps what the viewer sees aligned with what the metric counted as "here".
+  const pcbasByFrame = new Map<number, PCBASLabEvent[]>();
+  if (pcbasEvents) {
+    const { events, delta } = pcbasEvents as PCBASLabEvents;
+    for (const ev of events) {
+      for (let f = ev.frame_idx - delta; f <= ev.frame_idx + delta; f++) {
+        let list = pcbasByFrame.get(f);
+        if (!list) {
+          list = [];
+          pcbasByFrame.set(f, list);
+        }
+        list.push(ev);
+      }
+    }
+  }
+
+  const possessorByFrame = new Map<number, PossessorFrame>();
+  for (const fr of (possessionTimeline as PossessorFrame[] | null) ?? [])
+    possessorByFrame.set(fr.frame_idx, fr);
+
   return {
     detections: detections as FrameDetections[] | null,
     ball: ball as BallObservation[] | null,
@@ -155,15 +190,19 @@ export function useRunArtifacts(runId: string, enabled: boolean): RunArtifacts {
     minimap: minimap as MinimapFrame[] | null,
     events: events as MatchEvent[] | null,
     spotting: spotting as SpottedEvent[] | null,
+    possessionTimeline: possessionTimeline as PossessorFrame[] | null,
     stats: stats as StatSheet | null,
     timeline: timeline as TimelineBucket[] | null,
     eval: evalResult as EvalResult | null,
     association: association as AssociationReport | null,
     naming: naming as NamingReport | null,
     reidDetail: reidDetail as ReidDetailReport | null,
+    pcbasEvents: pcbasEvents as PCBASLabEvents | null,
+    pcbasByFrame,
     trackletBoxesByFrame,
     teamByTracklet,
     entityByTracklet,
+    possessorByFrame,
     sortedFrameIdxs: [...trackletBoxesByFrame.keys()].sort((a, b) => a - b),
     loading: results.some((r) => r.isLoading),
   };

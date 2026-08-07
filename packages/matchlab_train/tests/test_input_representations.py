@@ -1,0 +1,313 @@
+"""Substrate-assembly guards for the richer-input experiments.
+
+The arms are only comparable if they are scored on the SAME pair population as
+the incumbent. `oracle_pairs_rich` re-implements `oracle_pairs`' loop to capture
+context that only exists inside it, so the equivalence is asserted rather than
+assumed -- a parallel implementation that drifts is how a "representation win"
+becomes a substrate difference.
+
+These run on synthetic fragments: FOOTPASS is gitignored and 100 GB, and the
+property under test is about the loop, not the data.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from matchlab_train.experiments import bootstrap_threads as bt
+from matchlab_train.experiments.input_representations import (
+    assert_appearance_aligned,
+    oracle_pairs_rich,
+)
+
+
+class _Frag:
+    """Minimal stand-in for position_evidence.Fragment."""
+
+    def __init__(self, player_id, team, start, end, rng):
+        self.player_id = player_id
+        self.team = team
+        self.start = start
+        self.end = end
+        n = end - start + 1
+        self.xs = rng.random(n)
+        self.ys = rng.random(n)
+
+
+def _substrate(seed=0, n_players=8, per_player=6):
+    """Interleaved fragments of several players across two teams."""
+    rng = np.random.default_rng(seed)
+    frags = []
+    for p in range(n_players):
+        t = p % 2
+        for k in range(per_player):
+            start = 100 * k + 10 * p
+            frags.append(_Frag(p, t, start, start + 60, rng))
+    frags.sort(key=lambda f: f.start)
+    first_xy = rng.random((len(frags), 2))
+    last_xy = rng.random((len(frags), 2))
+    app = {i: rng.normal(size=8) for i in range(len(frags))}
+    for i in app:
+        app[i] /= np.linalg.norm(app[i])
+    states = bt.initial_states(frags, first_xy, last_xy, app)
+    return frags, first_xy, last_xy, states
+
+
+def test_rich_pairs_reproduce_the_incumbent_pair_population_exactly():
+    frags, first_xy, _, states = _substrate()
+
+    r, y, ep = bt.oracle_pairs(frags, states, first_xy)
+    rich = oracle_pairs_rich(frags, states, first_xy, half_id=0, frag_offset=0)
+
+    assert rich["rows"].shape == r.shape
+    assert np.array_equal(np.nan_to_num(rich["rows"], nan=-999),
+                          np.nan_to_num(r, nan=-999))
+    assert np.array_equal(rich["labels"], y)
+    assert np.array_equal(rich["episodes"], ep)
+
+
+def test_field_size_is_constant_within_a_decision_and_counts_the_candidates():
+    frags, first_xy, _, states = _substrate()
+    rich = oracle_pairs_rich(frags, states, first_xy, half_id=0, frag_offset=0)
+
+    for e in np.unique(rich["episodes"]):
+        sel = rich["episodes"] == e
+        sizes = np.unique(rich["field_size"][sel])
+        assert len(sizes) == 1, "field size must be a property of the decision"
+        assert sizes[0] == sel.sum()
+
+
+def test_field_size_never_leaks_iteration_order():
+    """If field size were incremented per row it would encode the candidate's
+    position in the loop -- a feature that predicts nothing and leaks
+    everything. Within a decision the first and last row must agree."""
+    frags, first_xy, _, states = _substrate(seed=3)
+    rich = oracle_pairs_rich(frags, states, first_xy, half_id=0, frag_offset=0)
+
+    for e in np.unique(rich["episodes"]):
+        sel = np.flatnonzero(rich["episodes"] == e)
+        assert rich["field_size"][sel[0]] == rich["field_size"][sel[-1]]
+
+
+def test_candidate_side_frame_counts_grow_as_threads_accumulate():
+    """n_frames_a is the accumulated thread's; n_frames_b the lone query's.
+    If these were swapped every pooling arm would be weighting the wrong side."""
+    frags, first_xy, _, states = _substrate()
+    rich = oracle_pairs_rich(frags, states, first_xy, half_id=0, frag_offset=0)
+
+    assert (rich["n_fragments_b"] == 1).all()
+    assert rich["n_fragments_a"].max() > 1
+    # A thread that has absorbed k fragments has at least k fragments' frames.
+    assert (rich["n_frames_a"] >= rich["n_fragments_a"] * 1.0).all()
+
+
+def test_appearance_alignment_assertion_catches_a_same_length_misalignment():
+    """The existing check only catches out-of-RANGE indices. A same-length
+    scramble -- the 2026-07-30 failure that withdrew every published figure --
+    passes it silently, so this one has to catch it."""
+    frags, _, _, _ = _substrate()
+    base = list(frags)
+    app = dict.fromkeys(range(len(frags)), np.ones(8))
+
+    assert_appearance_aligned(frags, app, base, "ok")
+
+    # Same length, wrong owners: shift every fragment's player id by one.
+    scrambled = []
+    for f in base:
+        g = _Frag(f.player_id, f.team, f.start, f.end, np.random.default_rng(0))
+        g.player_id = (f.player_id + 1) % 8
+        scrambled.append(g)
+    with pytest.raises(AssertionError):
+        assert_appearance_aligned(frags, app, scrambled, "scrambled")
+
+
+def test_plugin_scorer_reproduces_the_incumbent_through_the_full_threading_path():
+    """`scorer=None` and `scorer=LinearLLRScorer(...)` must thread identically.
+
+    The plug-in's whole value is that a frontier difference is attributable to
+    the scorer. If wiring one in perturbed the decision rule -- a different
+    candidate order, a different tie-break, a context array built from the
+    wrong side -- every arm's result would carry that perturbation instead.
+    Pass 2 is exercised too, because it is the path with no per-query field and
+    therefore the one most likely to be wired up wrong.
+    """
+    from matchlab_core.reid.evidence import LLRCalibrator
+    from matchlab_core.reid.transition import TransitionPrior
+    from matchlab_train.experiments.edge_scorer import LinearLLRScorer
+
+    frags, first_xy, last_xy, states = _substrate(seed=11, n_players=6, per_player=5)
+    r, y, _ = bt.oracle_pairs(frags, states, first_xy)
+    cals = {
+        name: LLRCalibrator.fit(r[y, j], r[~y, j])
+        for j, name in enumerate(bt.CHANNELS)
+    }
+    prior = TransitionPrior.fit(r[:, 2], r[:, 3], r[:, 4], y)
+    w = np.array([2.0, 0.7, 0.4, 1.1])
+
+    def run(scorer):
+        return bt.thread_half(
+            # Pass 1 deliberately strict and pass 2 permissive, so the pass-2
+            # path -- the one with no per-query field -- actually decides
+            # something rather than inheriting an already-merged graph.
+            "synthetic", cals, prior, w, min_score=6.0, min_margin=0.0,
+            pass2=True, pass2_score=0.0, scorer=scorer,
+        )
+
+    # `thread_half` loads its own fragments; feed it these instead.
+    import matchlab_train.experiments.bootstrap_threads as mod
+
+    original = mod.half_frames
+    app = {i: s.prototype for i, s in enumerate(states) if s.prototype is not None}
+    mod.half_frames = lambda key: (frags, first_xy, last_xy, app)
+    try:
+        base = run(None)
+        plug = run(LinearLLRScorer(cals, prior, w))
+    finally:
+        mod.half_frames = original
+
+    assert base == plug
+    # A degenerate run would trivially match; require it actually decided things.
+    assert base["merges"] > 0
+    assert base["pass2_correct"] + base["pass2_wrong"] > 0
+
+
+def test_cohort_transform_uses_only_the_decisions_own_candidates():
+    """No leakage: a field's values must depend on that field alone.
+
+    Scoring a decision against statistics of OTHER decisions -- or of candidates
+    that do not exist yet -- would make the arm look informative for a reason
+    the serving path could never reproduce.
+    """
+    from matchlab_train.experiments.input_representations import (
+        COHORT_KINDS,
+        cohort_transform,
+    )
+
+    v = np.array([0.1, 0.9, 0.5, 0.2, 0.8, 0.4])
+    ep = np.array([0, 0, 0, 1, 1, 1])
+
+    for kind in COHORT_KINDS:
+        full = cohort_transform(v, ep, kind)
+        # Re-run with the second field's values changed: field 0 must not move.
+        v2 = v.copy()
+        v2[3:] = [-5.0, 7.0, 0.0]
+        moved = cohort_transform(v2, ep, kind)
+        assert np.allclose(full[:3], moved[:3]), kind
+
+
+def test_cohort_transform_is_unchanged_by_relabelling_the_episodes():
+    from matchlab_train.experiments.input_representations import (
+        COHORT_KINDS,
+        cohort_transform,
+    )
+
+    v = np.array([0.1, 0.9, 0.5, 0.2, 0.8, 0.4])
+    for kind in COHORT_KINDS:
+        a = cohort_transform(v, np.array([0, 0, 0, 1, 1, 1]), kind)
+        b = cohort_transform(v, np.array([7, 7, 7, 3, 3, 3]), kind)
+        assert np.allclose(a, b), kind
+
+
+def test_cohort_margin_never_compares_a_candidate_with_itself():
+    """`impostor_field_llr` takes the field max including the scored candidate,
+    so its margin is <= 0 by construction. The margin arm must not inherit that:
+    the best candidate's margin has to be POSITIVE when it leads."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    v = np.array([0.9, 0.4, 0.3])
+    got = cohort_transform(v, np.zeros(3, dtype=int), "margin")
+
+    assert got[0] == pytest.approx(0.5)   # 0.9 - 0.4, the best OTHER
+    assert got[1] == pytest.approx(-0.5)  # 0.4 - 0.9
+    assert got[2] == pytest.approx(-0.6)
+
+
+def test_cohort_transform_abstains_rather_than_inventing_evidence():
+    """A one-candidate field has no impostor population to discriminate
+    against, and missing appearance stays missing (ADR 003)."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    lone = cohort_transform(np.array([0.7]), np.array([0]), "margin")
+    assert lone[0] == 0.0
+    assert cohort_transform(np.array([0.7]), np.array([0]), "rank")[0] == 0.5
+
+    with_nan = cohort_transform(
+        np.array([0.9, np.nan, 0.1]), np.zeros(3, dtype=int), "zscore"
+    )
+    assert np.isnan(with_nan[1])
+    # The abstaining candidate must not have shifted the field it is not in.
+    clean = cohort_transform(np.array([0.9, 0.1]), np.zeros(2, dtype=int), "zscore")
+    assert np.allclose(with_nan[[0, 2]], clean)
+
+
+def test_cohort_zscore_survives_a_degenerate_field():
+    """Two identical candidates give std 0; without a floor that is inf."""
+    from matchlab_train.experiments.input_representations import cohort_transform
+
+    got = cohort_transform(np.array([0.5, 0.5]), np.zeros(2, dtype=int), "zscore")
+    assert np.isfinite(got).all()
+
+
+def test_pooling_is_independent_of_merge_order():
+    """A thread must mean the same thing however its members were merged.
+
+    `ThreadState.merged_with` guarantees this for the incumbent, and any
+    replacement pooling rule has to keep it: greedy agglomeration visits pairs
+    in score order, so an order-dependent prototype would make a thread's
+    identity depend on the sequence of decisions that built it rather than on
+    what was observed.
+    """
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_STATS,
+        pool_prototypes,
+    )
+
+    rng = np.random.default_rng(4)
+    members = [rng.normal(size=(n, 8)) for n in (3, 11, 40, 7)]
+    members = [m / np.linalg.norm(m, axis=1, keepdims=True) for m in members]
+    frames = [60, 210, 900, 130]
+
+    ref = pool_prototypes(members, frames)
+    for perm in ([3, 1, 0, 2], [2, 3, 1, 0], [1, 0, 3, 2]):
+        got = pool_prototypes([members[i] for i in perm], [frames[i] for i in perm])
+        for k in POOL_STATS:
+            assert np.allclose(got[k], ref[k], atol=1e-12), k
+
+
+def test_pooling_weights_ignore_members_with_no_embedding():
+    """`n_embedded` counts embedded members while `n_frames` counts every
+    frame. Summing frames over UNEMBEDDED members too would deflate the pool
+    toward zero -- the same index-alignment class as the 2026-07-27 cache bug.
+    """
+    from matchlab_train.experiments.frame_embeddings import pool_prototypes
+
+    rng = np.random.default_rng(5)
+    a = rng.normal(size=(5, 8))
+    a /= np.linalg.norm(a, axis=1, keepdims=True)
+    b = rng.normal(size=(5, 8))
+    b /= np.linalg.norm(b, axis=1, keepdims=True)
+
+    without = pool_prototypes([a, b], [100, 300])
+    # A third member with a huge frame count but NO embedding must not move it.
+    with_ghost = pool_prototypes([a, b, None], [100, 300, 5000])
+
+    for k, v in without.items():
+        assert np.allclose(with_ghost[k], v, atol=1e-12), k
+
+
+def test_pooling_falls_back_to_none_when_nothing_is_embedded():
+    from matchlab_train.experiments.frame_embeddings import (
+        POOL_STATS,
+        pool_prototypes,
+    )
+
+    got = pool_prototypes([None, None], [100, 200])
+    assert all(got[k] is None for k in POOL_STATS)
+
+
+def test_alignment_assertion_tolerates_legitimately_missing_embeddings():
+    """After remap some fragments have no embedding at all. Missing evidence is
+    neutral (ADR 003), not a fault -- the check must not confuse the two."""
+    frags, _, _, _ = _substrate()
+    app = {i: np.ones(8) for i in range(0, len(frags), 3)}
+    assert_appearance_aligned(frags, app, list(frags), "sparse")

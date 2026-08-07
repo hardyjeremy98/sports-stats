@@ -1,0 +1,16 @@
+# Phase 1 gate: score stage-1 logits with the player-centric metric.
+#
+# HONEST MEASUREMENT NOTES
+#   `by_shirt` is the number comparable to the reference (micro-F1 0.4100 for TAAD
+#   alone, 0.7186 for TAAD+DST on VAL). `by_slot` is what the model actually
+#   predicts; the gap between them is the cost of the ADR 008 roster remap.
+#   Neither is comparable to `action_spotting_eval.average_map`, which is
+#   class+time avg-mAP for SoccerNet-ball and knows nothing about who acted.
+name: pcbas-score-val
+task: pcbas-score
+description: Decode and score PCBAS logits on FOOTPASS VAL.
+output_dir: data/experiments
+params:
+  h5_path: data/footpass/tactical/val_tactical_data.h5
+  logits_dir: data/footpass/logits/val
+  export_json: data/footpass/logits/playbyplay_ours_val.json

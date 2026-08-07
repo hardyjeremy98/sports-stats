@@ -27,6 +27,7 @@ def _state(xs, ys, emb=None, *, start=0, end=10):
         start=start,
         end=end,
         exit_xy=np.array([xs[-1], ys[-1]], dtype=float),
+        entry_xy=np.array([xs[0], ys[0]], dtype=float),
     )
 
 

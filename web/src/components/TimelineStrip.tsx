@@ -3,9 +3,35 @@
 // scrub-guidance instrument.
 
 import { useEffect, useRef, useState } from "react";
-import { signalColor } from "../lib/colors";
+import { signalColor, teamColor } from "../lib/colors";
 import { fmtClock, fmtConf } from "../lib/format";
-import type { MatchEvent, SpottedEvent, TimelineBucket } from "../lib/types";
+import type { MatchEvent, PossessorFrame, SpottedEvent, TimelineBucket } from "../lib/types";
+
+interface PossessionSpan {
+  startT: number;
+  endT: number;
+  team: PossessorFrame["team"];
+}
+
+/** Collapse a per-frame possessor timeline into contiguous same-team spans
+ * (loose-ball frames break a span). Pure; exported for reuse/testing. */
+export function possessionSpans(timeline: PossessorFrame[] | null | undefined): PossessionSpan[] {
+  const spans: PossessionSpan[] = [];
+  let cur: PossessionSpan | null = null;
+  for (const fr of timeline ?? []) {
+    if (fr.possessor_tracklet_id == null) {
+      cur = null;
+      continue;
+    }
+    if (cur && cur.team === fr.team) {
+      cur.endT = fr.t;
+    } else {
+      cur = { startT: fr.t, endT: fr.t, team: fr.team };
+      spans.push(cur);
+    }
+  }
+  return spans;
+}
 
 export const SIGNALS = [
   { id: "detection_confidence", label: "Detection" },
@@ -46,6 +72,7 @@ export function TimelineStrip({
   timeline,
   events,
   spotting,
+  possession,
   duration,
   signal,
   onSeek,
@@ -55,6 +82,7 @@ export function TimelineStrip({
   timeline: TimelineBucket[] | null;
   events: MatchEvent[] | null;
   spotting?: SpottedEvent[] | null;
+  possession?: PossessorFrame[] | null;
   duration: number;
   signal: SignalId;
   onSeek: (t: number) => void;
@@ -64,6 +92,7 @@ export function TimelineStrip({
   const cursorRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<TimelineBucket | null>(null);
+  const spans = possessionSpans(possession);
 
   // Cursor tracks the time source without React re-renders.
   useEffect(() => {
@@ -151,6 +180,24 @@ export function TimelineStrip({
                 onClick={(e) => {
                   e.stopPropagation();
                   onSeek(ev.t);
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Possession band: team-colored ball-holder spans over time (SPO-81) */}
+        {spans.length > 0 && (
+          <div className="relative mt-1 h-2 overflow-hidden rounded-sm">
+            {spans.map((s, i) => (
+              <div
+                key={i}
+                title={`${s.team} possession · ${fmtClock(s.startT)}–${fmtClock(s.endT)}`}
+                className="absolute top-0 h-2"
+                style={{
+                  left: `${(s.startT / Math.max(duration, 0.01)) * 100}%`,
+                  width: `${(Math.max(s.endT - s.startT, 0.05) / Math.max(duration, 0.01)) * 100}%`,
+                  background: teamColor(s.team),
                 }}
               />
             ))}

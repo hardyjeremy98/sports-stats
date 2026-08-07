@@ -46,6 +46,28 @@ def saturate(x):
     return LOG_CLAMP * np.tanh(np.asarray(x, dtype=np.float64) / LOG_CLAMP)
 
 
+def clip_transition(x, neg_clamp: float = LOG_CLAMP):
+    """Asymmetrically bounded transition evidence.
+
+    Positive side: `saturate` unchanged. Negative side: the same tanh shape but
+    bounded at `neg_clamp` nats (0.0 flattens all negatives to exactly 0 --
+    ties there are acceptable because a zero contribution cannot reorder the
+    fused sum). The asymmetry is measured, not aesthetic: over 13,170 pass-1
+    decisions the channel's enabling half went 218 right / 8 wrong while its
+    veto half blocked 31 correct merges for every 1 wrong one it stopped
+    (transition.py, MEASURED CORRECTION 2026-07-28). `neg_clamp` ships inside
+    the fusion artefact so fit and serve cannot diverge; the default reproduces
+    `saturate` bit-for-bit.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    pos = LOG_CLAMP * np.tanh(x / LOG_CLAMP)
+    if neg_clamp <= 0.0:
+        neg = np.zeros_like(x)
+    else:
+        neg = neg_clamp * np.tanh(x / neg_clamp)
+    return np.where(x >= 0.0, pos, neg)
+
+
 def _smooth(v: np.ndarray) -> np.ndarray:
     """3-tap [1/4, 1/2, 1/4] smoothing with edge replication.
 

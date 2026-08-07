@@ -34,6 +34,7 @@ import { LAYER_LABEL, SwitchInstanceRow } from "../components/EvalBits";
 import { EvidenceInspector } from "../components/EvidenceInspector";
 import { MergeInspector } from "../components/MergeInspector";
 import { IdentityQATab } from "../components/IdentityQATab";
+import { PCBASPanel } from "../components/PCBASPanel";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { SignalPicker, TimelineStrip, type SignalId } from "../components/TimelineStrip";
 import {
@@ -55,7 +56,15 @@ import {
   TeamDot,
 } from "../components/ui";
 
-type TabId = "stages" | "tracklets" | "assoc" | "players" | "events" | "eval" | "qa";
+type TabId =
+  | "stages"
+  | "tracklets"
+  | "assoc"
+  | "players"
+  | "events"
+  | "actions"
+  | "eval"
+  | "qa";
 
 export default function LabRunViewer() {
   const { runId = "" } = useParams();
@@ -263,6 +272,7 @@ export default function LabRunViewer() {
               timeline={artifacts.timeline}
               events={artifacts.events}
               spotting={artifacts.spotting}
+              possession={artifacts.possessionTimeline}
               duration={duration}
               signal={signal}
               onSeek={seek}
@@ -294,6 +304,15 @@ export default function LabRunViewer() {
                 : []),
               { id: "players", label: "Players", count: artifacts.players?.length },
               { id: "events", label: "Events", count: artifacts.events?.length },
+              ...(artifacts.pcbasEvents
+                ? [
+                    {
+                      id: "actions" as const,
+                      label: "Actions",
+                      count: artifacts.pcbasEvents.events.length,
+                    },
+                  ]
+                : []),
               ...(artifacts.eval
                 ? [{ id: "eval" as const, label: "Eval", count: artifacts.eval.instances.length }]
                 : []),
@@ -304,6 +323,9 @@ export default function LabRunViewer() {
           />
           <div className="flex-1 overflow-y-auto p-3">
             {tab === "stages" && <StagesTab run={r} />}
+            {tab === "actions" && artifacts.pcbasEvents && (
+              <PCBASPanel data={artifacts.pcbasEvents} onSeek={seek} />
+            )}
             {tab === "tracklets" && (
               <TrackletsTab
                 artifacts={artifacts}
@@ -960,6 +982,41 @@ function EventsTab({
 
 /* ---------- association inspector ---------- */
 
+/** One scope's counters on one line, behind an explicit label.
+ *
+ *  Every number on this tab belongs to exactly one agent — this stage, the
+ *  tracker, or ground truth — and combining them produced genuinely unreadable
+ *  headers ("1 merged" beside "4 merges GT-correct", both correct, different
+ *  denominators). The label carries the scope so the figures never have to. */
+function ScopeRow({
+  label,
+  title,
+  items,
+}: {
+  label: string;
+  title: string;
+  items: { text: string; tone: "good" | "bad" | "warn" | "mute" }[];
+}) {
+  const toneClass = {
+    good: "bg-volt-400/15 text-volt-300",
+    bad: "bg-team-away/15 text-team-away",
+    warn: "bg-amber-400/15 text-amber-300",
+    mute: "bg-turf-800 text-ink-500",
+  };
+  return (
+    <div className="flex items-center gap-1.5" title={title}>
+      <span className="w-14 shrink-0 text-right text-[10px] uppercase tracking-[0.12em] text-ink-400">
+        {label}
+      </span>
+      {items.map((it) => (
+        <span key={it.text} className={`rounded-full px-2 py-0.5 ${toneClass[it.tone]}`}>
+          {it.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Groups the Assoc tab by WHICH STAGE made the merges below it. The tab shows
  *  three different agents' work — this stage, the tracker upstream, and what
  *  ground truth wanted — and reading any of them as the others' is the mistake
@@ -1122,6 +1179,11 @@ function DecisionList({ decisions }: { decisions: MergeDecision[] }) {
                   <span className="text-ink-200">
                     T{d.tracklet_id}
                     {d.chosen != null && <span className="text-volt-300"> → T{d.chosen}</span>}
+                    <span className="ml-1 text-ink-600" title={
+                      d.pass_no === 2
+                        ? "pass 2 — whole thread merged into another"
+                        : "pass 1 — tracklet joined an accumulated thread"
+                    }>p{d.pass_no}</span>
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-ink-500">
@@ -1208,7 +1270,7 @@ function ChannelBreakdownList({ rows }: { rows: PairChannels[] }) {
       </div>
       <div className="flex flex-col gap-1">
         {sorted.map((p) => {
-          const id = `${p.a}-${p.b}-${p.pass}`;
+          const id = `${p.a}-${p.b}-${p.pass_no}`;
           const isOpen = open === id;
           const maxAbs = Math.max(
             1e-6,
@@ -1436,71 +1498,60 @@ function AssocTab({
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <Mono className="text-ink-100">{report.impl}</Mono>
-          <span className="font-mono text-[11px] text-ink-500">
-            {/* This engine's OWN decisions. The verdict badges below count
-                merges from every stage, so without the qualifier "0 merged"
-                next to "6 merges GT-correct" reads as a contradiction. */}
-            <span title="Decisions made by this associate stage. Merges the tracker made inside a tracklet are counted in the verdict badges below, not here.">
-              associate: {merged} merged · {rejected} rejected
-            </span>
-          </span>
         </div>
+        {/* One row per stage, each with a single scope. There is deliberately
+            NO combined total anywhere: a header reading "1 merged" beside a
+            badge reading "4 merges GT-correct" is arithmetically fine and
+            completely unreadable, because the two count different agents'
+            work. Every number below belongs to exactly one row's label. */}
         {assocEval && (
-          <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-            <span
-              className="rounded-full bg-volt-400/15 px-2 py-0.5 text-volt-300"
-              title={
-                hasAllMerges
-                  ? `Merges that joined two tracklets of the same player, from EITHER stage. ${trackCorrect} were the tracker rejoining a tracklet across a gap; ${verdictCounts.correct - trackCorrect} were associate-stage merges.`
-                  : "Associate-stage merges only."
+          <div className="flex flex-col gap-1 font-mono text-[11px]">
+            <ScopeRow
+              label="re-ID"
+              title="Merges this associate stage decided to make."
+              items={[
+                { text: `✓ ${reidCorrect.length} correct`, tone: reidCorrect.length ? "good" : "mute" },
+                { text: `✗ ${reidWrong.length} wrong`, tone: reidWrong.length ? "bad" : "mute" },
+                { text: `${rejected} rejected`, tone: "mute" },
+              ]}
+            />
+            <ScopeRow
+              label="tracker"
+              title="Gaps the TRACK stage rejoined inside one tracklet. Upstream of this stage, and not repairable by it."
+              items={[
+                { text: `✓ ${trackCorrect} correct`, tone: trackCorrect ? "good" : "mute" },
+                { text: `✗ ${trackWrong} wrong`, tone: trackWrong ? "bad" : "mute" },
+                ...(nImpure != null
+                  ? [{
+                      text: `⚠ ${nImpure}/${trackPurity?.n_tracklets} tracklets impure${
+                        trackPurity?.total_mixed_seconds
+                          ? ` · ${trackPurity.total_mixed_seconds.toFixed(1)}s mixed`
+                          : ""
+                      }`,
+                      tone: (nImpure ? "bad" : "mute") as "bad" | "mute",
+                    }]
+                  : []),
+              ]}
+            />
+            <ScopeRow
+              label="vs GT"
+              title="What ground truth required. Derived from GT composition over all tracklet pairs, independent of what either stage recorded."
+              items={
+                hasMissData
+                  ? [
+                      {
+                        text: `◌ ${verdictCounts.missed} missed${
+                          missedPlayers ? ` · ${missedPlayers} player${missedPlayers === 1 ? "" : "s"} split` : ""
+                        }`,
+                        tone: verdictCounts.missed ? "warn" : "mute",
+                      },
+                      ...(mergeRecall != null
+                        ? [{ text: `recall ${mergeRecall.toFixed(2)}`, tone: "mute" as const }]
+                        : []),
+                    ]
+                  : [{ text: "re-score needed", tone: "mute" }]
               }
-            >
-              ✓ {verdictCounts.correct} merges GT-correct
-              {hasAllMerges && trackCorrect > 0 && ` (${trackCorrect} by tracker)`}
-            </span>
-            <span
-              className={`rounded-full px-2 py-0.5 ${verdictCounts.wrong ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}
-              title={
-                hasAllMerges
-                  ? `Every merge that joined two different players, by majority-vote GT of each side — from EITHER stage. ${trackWrong} of them were made by the tracker rejoining a tracklet across a gap (association cannot undo those); the rest are associate-stage merges.`
-                  : "Associate-stage merges only. Re-score this run to include merges the tracker made across gaps."
-              }
-            >
-              ✗ {verdictCounts.wrong} wrong merges
-              {hasAllMerges && trackWrong > 0 && ` (${trackWrong} by tracker)`}
-            </span>
-            {hasMissData ? (
-              <span
-                className={`rounded-full px-2 py-0.5 ${verdictCounts.missed ? "bg-amber-400/15 text-amber-300" : "bg-turf-800 text-ink-500"}`}
-                title="Merges ground truth required but association did not make. Counted by the evaluator over all tracklet pairs, so it includes pairs the engine never scored (e.g. blocked on temporal overlap) that never appear in the trail below."
-              >
-                ◌ {verdictCounts.missed} missed
-                {missedPlayers > 0 && ` · ${missedPlayers} player${missedPlayers === 1 ? "" : "s"} split`}
-              </span>
-            ) : (
-              <span
-                className="rounded-full bg-turf-800 px-2 py-0.5 text-ink-500"
-                title="This run was scored before missed merges were measured. Re-score it (POST /api/runs/{id}/evaluate) to get the number."
-              >
-                ◌ missed: re-score needed
-              </span>
-            )}
-            {mergeRecall != null && (
-              <span className="rounded-full bg-turf-800 px-2 py-0.5 text-ink-400">
-                recall {mergeRecall.toFixed(2)}
-              </span>
-            )}
-            {nImpure != null && (
-              <span
-                className={`rounded-full px-2 py-0.5 ${nImpure ? "bg-team-away/15 text-team-away" : "bg-turf-800 text-ink-500"}`}
-                title={`Tracklets containing more than one GT player — identity errors made by the TRACK stage, before association sees them. ${trackPurity?.total_mixed_seconds ?? 0}s of tracked time sits under the wrong identity. Association can only merge tracklets, never split them, so it cannot repair these.`}
-              >
-                ⚠ {nImpure}/{trackPurity?.n_tracklets} tracklets impure
-                {trackPurity?.total_mixed_seconds
-                  ? ` · ${trackPurity.total_mixed_seconds.toFixed(1)}s mixed`
-                  : ""}
-              </span>
-            )}
+            />
           </div>
         )}
         {Object.keys(report.params).length > 0 && (

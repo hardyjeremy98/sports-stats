@@ -32,6 +32,7 @@ from matchlab_core.schemas.identity import (
     PlayerEntity,
     PlayerIdentity,
 )
+from matchlab_core.schemas.possession import PossessorFrame
 from matchlab_core.schemas.qa import LabeledExample, QAItem, QAReason, QAStatus
 from matchlab_core.schemas.run import (
     ArtifactName,
@@ -73,6 +74,7 @@ __all__ = [
     "PlayerIdentity",
     "Point",
     "PossessionSegment",
+    "PossessorFrame",
     "QAItem",
     "QAReason",
     "QAStatus",
