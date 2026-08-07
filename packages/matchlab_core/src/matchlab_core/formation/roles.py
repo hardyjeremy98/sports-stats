@@ -18,6 +18,27 @@ which is separate and already built. Two consequences that shape this module:
 dependency (3a, `formation.direction`). Get it wrong and every role maps to its
 mirror -- LB becomes RW. There is deliberately no default.
 
+PARTLY SUPERSEDED by `formation.model` (2026-08-06)
+---------------------------------------------------
+Two of the negative findings below were re-measured on 48 TRAIN matches rather
+than 3 val ones, and one of them turned over:
+
+* **Assignment.** "Hungarian one-to-one is harmful" STANDS -- a strict
+  bijection still loses. But **capacity 2** (each role slot may hold two
+  threads, because a substitution reuses a slot) is worth **+0.010**
+  [+0.003, +0.017] over per-thread argmax, and restricting the candidate roles
+  to a PREDICTED formation is worth a further +0.012. `formation.model`
+  implements that; this module's per-thread `assign_role` remains the
+  unrestricted baseline and the ablation arm.
+* **Interpolation.** "Does not help" STANDS for the per-thread feature here:
+  the mean position is recovered about as well either way. It is nonetheless
+  required upstream of `formation.model`, for a different quantity -- the role
+  representation needs frames showing all ten outfield threads at once, and
+  gap-filling takes the usable frame count from a median of 104 to 1811.
+
+The finding below that survived everything: **merge quality**, +0.112, still
+larger than every effect in this module and `formation.model` combined.
+
 What was measured NOT to help (2026-08-05, paired, match-clustered, n=3
 matches, 6 halves) -- do not re-add these without new evidence:
 

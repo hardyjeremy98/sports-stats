@@ -859,6 +859,77 @@ purity/completeness). The tracklet/entity MOT layers are unaffected — they sti
 
 Measured local findings recorded by the repository guidance:
 
+- **Formation prediction from broadcast-visible threads: a real but small effect, and
+  SoccerCPD's actual contribution is unmeasurable here (2026-08-06).** Module
+  `matchlab_core.formation.soccercpd` (role representation, Delaunay role-adjacency,
+  line labels, graph change-point detection) with harness
+  `matchlab_train.experiments.formation_pred`. FOOTPASS TRAIN, 48 matches / 192
+  team-halves, 5 CV seeds x 5 folds held out **by match**, merged GT threads, exGK.
+  Target: the set of 10 distinct outfield role slots a team fields in a half
+  ("formation"), 9 classes, counts 116/47/12/4/4/4/2/2/1, majority baseline **0.604**.
+  - **A template-match arm (EFPI's idea, Hungarian match of role-slot means to fitted
+    role templates) reaches 0.697** vs the 0.604 baseline: +0.093, cluster-bootstrap 95%
+    CI [+0.008, +0.176], leave-one-match-out [+0.073, +0.106]. It wins on all four
+    position arms. **Uncorrected for 12 comparisons** — suggestive, not established.
+    The line-signature and adjacency arms did not separate from the baseline
+    (+0.027 [-0.025, +0.083] and +0.020 [-0.043, +0.081]).
+  - **Downstream, the effect is small and must be read against the right baseline.**
+    Restricting the role inventory pays only through a capacity-2 assignment, and that
+    assignment alone is worth +0.010 *without any formation information*. Against
+    `unrestricted-cap2`: oracle inventory **+0.029** [+0.023, +0.036], predicted
+    inventory **+0.012** [+0.004, +0.021]. The learned predictor beats a **constant
+    guess of the most common formation** by **+0.009** [+0.002, +0.017], LOO
+    [+0.008, +0.011] — real, and roughly a third of the accessible ceiling.
+  - **Off-camera gap-filling is what makes the descriptor work.** The role
+    representation needs frames showing all ten outfield threads; with observed rows
+    only the EM gets a median of **104** such frames, with bracketed fill **1811**.
+    Formation accuracy follows: template-match 0.623 (observed) -> 0.721 (linear fill)
+    -> 0.697 (concave TimeWarp k=2) -> 0.680 (true off-camera positions). The concave
+    warp, fitted for the *centroid* in different units, does not transfer. `gt` is
+    **not** a ceiling: it carries never-observed leading/trailing segments the fill
+    arms lack, and is served against an observed-rows-only spread denominator.
+  - **Controls.** A label-free GK proxy reproduces the result (0.696 vs 0.697), so the
+    oracle keeper label buys nothing. Likelihood temperature is fitted per arm by an
+    identical procedure — without that, an arm whose log-likelihood is scaled in larger
+    units drowns the prior and behaves as prior-free while the baseline is prior-only;
+    that exact defect made a first run report 0.266 for the adjacency arm.
+  - **NOT measured: SoccerCPD's own contribution.** `FormCPD`/`RoleCPD` detect *changes*
+    in formation; FOOTPASS assigns `ROLE` once per player per half and substitutes
+    inherit the slot, so the fielded inventory changes mid-half in **0 of 192**
+    team-halves. That is an annotation-scheme property, not evidence that teams hold
+    shape. `detect_change_points` is unit-tested on synthetic sequences only. No claim
+    about SoccerCPD-as-published is supportable from this work: three of its four
+    pieces were repurposed from change detection to classification under a likelihood
+    the paper does not contain. Arms are named for what they compute, not for papers.
+  - **Adopted system: `matchlab_core.formation.model`** (`FormationModel`,
+    `fit_formation_model`, `predict_inventory`, `assign_team`). Predicts the formation,
+    then assigns roles jointly under it at **capacity 2** (a substitution reuses a
+    slot). Serializable, fit/serve frame-checked, abstains on short or undefined
+    threads. Role accuracy **0.666 -> 0.689**, +0.022 [+0.011, +0.033], 33/48 matches.
+    This **partly supersedes** `formation.roles`' note that Hungarian assignment is
+    harmful: a *strict bijection* still loses; *capacity 2* wins. `roles.assign_role`
+    remains the unrestricted per-thread baseline and the ablation arm.
+  - **Failure mode (`matchlab_train.experiments.formation_errors`).** Exact inventory
+    0.688; **defender/midfielder/attacker counts correct 0.849**; line-safe 0.849.
+    Of 60 wrong predictions, 31 (52%) keep the right line counts. 78% of errors are a
+    **single** role slot. The dominant confusion is **AM <-> DM** (17 + 14 of 47
+    single-slot errors), which is within-line and harmless to line structure. The
+    destructive mode is narrow and total: **every** five-at-the-back team-half
+    (5-2-3 n=12, 5-3-2 n=4, 5-4-1 n=4) is predicted as 4-3-3 — accuracy **0.000** on
+    all seven minority classes, which collapse onto the majority shape. Per class:
+    0.853 on the modal 4-3-3-with-AM (n=116), 0.702 on 4-3-3-with-DM (n=47).
+    So the system does not currently detect a back five at all; the prior wins every
+    time, which is consistent with those classes living in 1-2 matches each and never
+    appearing in both sides of a by-match split.
+  - **Caveats.** Every input is oracle (GT threads, GT identity through gaps, oracle
+    attacking direction). Clubs recur across the 48 matches and the tactical h5 has no
+    global club key, so a by-match split cannot separate them and formation is largely
+    a club property — all figures optimistic by an unmeasured amount. VAL holds one
+    formation in all 12 team-halves and is untouched. A label-free positional
+    assignment reproduces `ROLE` at mean 0.700 (max 0.830, none >0.95, 41 team-halves),
+    so the harness is not scoring against its own label generator — though `ROLE`
+    remains likely to be substantially positionally derived.
+
 - **Tier 2 peripheral statistics run over ground truth (2026-08-06; report
   [`2026-08-05-peripheral-stats-tier-2.md`](reports/2026-08-05-peripheral-stats-tier-2.md)).**
   All nine Tier 2 stats (xT, momentum, sequence taxonomy, counter-attacks, field tilt, PPDA,

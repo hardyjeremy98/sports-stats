@@ -246,8 +246,13 @@ real files:
 - **Split-dependent width** — 13 columns for challenge, 14 for train/val. Branch, don't assume.
 - **`NaN` in `ROI_*`** means "player not visible this frame", not missing data. It is the
   observability flag, and at 36–45% density it is the common case, not the exception.
-- **Halves are separate keys** (`game_18_H1` / `game_18_H2`) with independent frame numbering;
-  a "match" is two sequences unless they are explicitly stitched.
+- **Halves are separate keys** (`game_18_H1` / `game_18_H2`), but their frame numbering is
+  **GLOBAL, not independent** — H2 continues past the end of H1 (`game_18_H1` ends at 75307,
+  `game_18_H2` starts at 75525). Verified 2026-08-06 on **all 48 TRAIN and 3 VAL matches**:
+  51/51 H2 keys start after their H1 ends. This entry previously said "independent frame
+  numbering", and code that trusted it applied its own H1 offset to H2, double-shifting the
+  axis by a whole half — the 2026-08-05 occupancy contamination. A "match" is still two
+  sequences unless explicitly stitched, but stitching must NOT re-offset H2.
 - **Boxes are full-HD pixel scale**; the baselines divide by 3 for the 352×640 video tier, so
   any crop pipeline must know which video tier it is paired with.
 
