@@ -2,6 +2,12 @@
 
 This page defines where project knowledge belongs and which source wins when documents disagree.
 
+It governs this repository. Cross-repository and cross-system rules — how Notion, Linear, the shared
+`../../docs/` tier, and the sibling [`../../monorepo/`](../../monorepo) app repo relate to this one —
+live in [`../../docs/README.md`](../../docs/README.md). In short: **the repos are canonical; Notion is
+upstream ideation that enters the repo by becoming a PRD, an ADR, or an experiment report; Linear is
+execution state and never evidence of capability.**
+
 ## Precedence
 
 Use this order for product and engineering decisions:
@@ -36,7 +42,10 @@ the implementation as incomplete rather than rewriting the decision to match it.
   historical recommendations. It is not implementation truth.
 - `docs/canvases/` contains version-controlled source for interactive Cursor analytical artifacts.
 - `../../docs/market_research/` contains market evidence and commercial context.
-- `../../docs/roadmap.md` is early business commentary, not the current engineering roadmap.
+- `../../docs/roadmap.md` is early business commentary, not the current engineering roadmap. The
+  current engineering roadmap is the Notion Roadmap database under 🛠️ Engineering; the product phase
+  ladder is `../../monorepo/docs/prd.md` §5. Neither is a repo document, and neither overrides
+  `implementation-status.md` on what exists.
 
 ## Documentation maintenance rules
 

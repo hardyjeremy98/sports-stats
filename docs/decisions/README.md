@@ -11,6 +11,9 @@ sessions.
 | [004](004-semantic-identity-evaluation.md) | Evaluate semantic identity separately from tracking | Accepted |
 | [005](005-capped-marginal-naming-balance.md) | Naming belief balance is capped-marginal (unbalanced OT), not doubly-stochastic Sinkhorn | Superseded by 006 |
 | [006](006-no-naming-balance.md) | The naming decoder has no balancing step | Accepted |
+| [007](007-roster-slot-identity-for-attribution-benchmarks.md) | Roster-slot identity substitutes for jersey number in attribution benchmarks | Accepted |
+| [008](008-role-slots-are-not-roster-slots.md) | Tactical role slots are not roster slots; the mapping is per-half and time-varying | Accepted |
+| [009](009-job-table-orchestration.md) | Orchestration lives in the job table; cloud services supply workers, never logic | Accepted |
 
 ## Adding or changing a decision
 

@@ -249,7 +249,11 @@ validation still open.
 
 ## Documentation governance
 
-Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md). Summary:
+Precedence and full maintenance rules live in [`docs/README.md`](docs/README.md); cross-repository
+and cross-system rules (Notion, Linear, the sibling [`../monorepo`](../monorepo) app repo) live in
+[`../docs/README.md`](../docs/README.md). **Repos are canonical. Notion is upstream ideation and
+enters the repo by becoming a PRD, an ADR, or an experiment report — it never overrides one. Linear
+is execution state, never evidence that a capability exists.** Summary of in-repo precedence:
 
 0. **`docs/superpowers/specs/` and `docs/superpowers/plans/` are NOT in this precedence
    order.** A spec or plan may *record* a supersession enacted elsewhere; it can never
